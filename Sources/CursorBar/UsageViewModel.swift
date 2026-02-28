@@ -26,16 +26,36 @@ enum RefreshInterval: Int, CaseIterable {
 @Observable
 @MainActor
 final class UsageViewModel {
+    // MARK: - Auth & Data
+
     var authState: AuthState = .loggedOut
     var usageData: UsageDisplayData?
     var errorMessage: String?
     var isLoading = false
-    private var isRefreshing = false
-    var refreshInterval: RefreshInterval = .fiveMinutes
 
+    // MARK: - Settings
+
+    var refreshInterval: RefreshInterval = .fiveMinutes
+    var notificationEnabled: Bool = true
+    var warningThreshold: Int = 80
+    var criticalThreshold: Int = 90
+    var showMenuBarText: Bool = false
+
+    // MARK: - Private
+
+    private var isRefreshing = false
     private let apiClient = CursorAPIClient()
     private var refreshTask: Task<Void, Never>?
     private var cachedCookieHeader: String?
+    private let notificationManager = NotificationManager()
+
+    // MARK: - Init
+
+    init() {
+        loadSettings()
+    }
+
+    // MARK: - Session
 
     func checkExistingSession() {
         do {
@@ -85,6 +105,16 @@ final class UsageViewModel {
 
             usageData = UsageDisplayData.from(usage: usage, userInfo: userInfo)
             Log.info("Usage data refreshed")
+
+            // Check notification thresholds
+            if let data = usageData {
+                await notificationManager.checkAndNotify(
+                    percentUsed: data.percentUsed,
+                    warningThreshold: warningThreshold,
+                    criticalThreshold: criticalThreshold,
+                    enabled: notificationEnabled
+                )
+            }
         } catch APIError.unauthorized {
             Log.info("Session expired, clearing keychain")
             cachedCookieHeader = nil
@@ -111,13 +141,60 @@ final class UsageViewModel {
         usageData = nil
         errorMessage = nil
         stopAutoRefresh()
+        notificationManager.resetNotifications()
         Log.info("Logged out")
     }
 
+    // MARK: - Settings Setters
+
     func setRefreshInterval(_ interval: RefreshInterval) {
         refreshInterval = interval
+        UserDefaults.standard.set(interval.rawValue, forKey: "refreshIntervalSeconds")
         if authState == .loggedIn {
             startAutoRefresh()
+        }
+    }
+
+    func setNotificationEnabled(_ enabled: Bool) {
+        notificationEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: "notificationEnabled")
+    }
+
+    func setWarningThreshold(_ value: Int) {
+        warningThreshold = value
+        UserDefaults.standard.set(value, forKey: "warningThreshold")
+    }
+
+    func setCriticalThreshold(_ value: Int) {
+        criticalThreshold = value
+        UserDefaults.standard.set(value, forKey: "criticalThreshold")
+    }
+
+    func setShowMenuBarText(_ show: Bool) {
+        showMenuBarText = show
+        UserDefaults.standard.set(show, forKey: "showMenuBarText")
+    }
+
+    // MARK: - Private
+
+    private func loadSettings() {
+        let defaults = UserDefaults.standard
+        if let raw = defaults.object(forKey: "refreshIntervalSeconds") as? Int,
+           let interval = RefreshInterval(rawValue: raw)
+        {
+            refreshInterval = interval
+        }
+        if let val = defaults.object(forKey: "notificationEnabled") as? Bool {
+            notificationEnabled = val
+        }
+        if let val = defaults.object(forKey: "warningThreshold") as? Int {
+            warningThreshold = val
+        }
+        if let val = defaults.object(forKey: "criticalThreshold") as? Int {
+            criticalThreshold = val
+        }
+        if let val = defaults.object(forKey: "showMenuBarText") as? Bool {
+            showMenuBarText = val
         }
     }
 

@@ -6,7 +6,7 @@ struct CursorBarApp: App {
     @State private var loginWindow: LoginWindow?
 
     var body: some Scene {
-        MenuBarExtra("CursorBar", systemImage: "chart.bar.fill") {
+        MenuBarExtra {
             MenuBarView(
                 viewModel: viewModel,
                 onLogin: { showLogin() },
@@ -15,8 +15,18 @@ struct CursorBarApp: App {
             .onAppear {
                 viewModel.checkExistingSession()
             }
+        } label: {
+            let percent = viewModel.usageData?.percentUsed ?? 0
+            Image(nsImage: CircularProgressIcon.menuBarImage(percent: percent))
+            if viewModel.showMenuBarText, let data = viewModel.usageData {
+                Text(data.usageText)
+            }
         }
         .menuBarExtraStyle(.window)
+
+        Settings {
+            SettingsView(viewModel: viewModel)
+        }
     }
 
     private func showLogin() {
