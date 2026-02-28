@@ -16,10 +16,18 @@ struct CursorBarApp: App {
                 viewModel.checkExistingSession()
             }
         } label: {
-            let percent = viewModel.usageData?.percentUsed ?? 0
-            Image(nsImage: CircularProgressIcon.menuBarImage(percent: percent))
-            if viewModel.showMenuBarText, let data = viewModel.usageData {
-                Text(data.usageText)
+            if let data = viewModel.usageData {
+                if viewModel.showMenuBarText {
+                    Image(nsImage: CircularProgressIcon.menuBarImageWithText(
+                        percent: data.percentUsed,
+                        used: data.requestsUsed,
+                        limit: data.requestsLimit
+                    ))
+                } else {
+                    Image(nsImage: CircularProgressIcon.menuBarImage(percent: data.percentUsed))
+                }
+            } else {
+                Image(nsImage: CircularProgressIcon.idleImage())
             }
         }
         .menuBarExtraStyle(.window)
