@@ -32,6 +32,14 @@ bash Scripts/package_app.sh
 cp -r CursorBar.app /Applications/
 ```
 
+## 테스트
+
+```bash
+swift test    # 전체 테스트 실행 (Xcode 필요)
+```
+
+Unit test (LogRedactor, UsageDisplayData, DomainWhitelist) + Integration test (CursorAPIClient with URLProtocol mock). 수동 테스트 항목은 [test-checklist.md](docs/test-checklist.md) 참고.
+
 ## 라이선스
 
 MIT
@@ -71,6 +79,14 @@ bash Scripts/package_app.sh
 # Install
 cp -r CursorBar.app /Applications/
 ```
+
+## Testing
+
+```bash
+swift test    # Run all tests (requires Xcode)
+```
+
+Unit tests (LogRedactor, UsageDisplayData, DomainWhitelist) + Integration tests (CursorAPIClient with URLProtocol mock). See [test-checklist.md](docs/test-checklist.md) for manual test scenarios.
 
 ## License
 
