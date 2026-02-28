@@ -30,6 +30,7 @@ final class UsageViewModel {
     var usageData: UsageDisplayData?
     var errorMessage: String?
     var isLoading = false
+    private var isRefreshing = false
     var refreshInterval: RefreshInterval = .fiveMinutes
 
     private let apiClient = CursorAPIClient()
@@ -65,11 +66,13 @@ final class UsageViewModel {
     }
 
     func refresh() async {
+        guard !isRefreshing else { return }
         guard let cookieHeader = cachedCookieHeader else {
             authState = .loginRequired
             return
         }
 
+        isRefreshing = true
         isLoading = true
         errorMessage = nil
 
@@ -89,12 +92,16 @@ final class UsageViewModel {
             authState = .loginRequired
             usageData = nil
             stopAutoRefresh()
+        } catch APIError.forbidden {
+            errorMessage = "Access denied (subscription may be inactive)"
+            Log.error("API returned 403 Forbidden")
         } catch {
             errorMessage = error.localizedDescription
             Log.error("Refresh failed: \(error)")
         }
 
         isLoading = false
+        isRefreshing = false
     }
 
     func logout() {
