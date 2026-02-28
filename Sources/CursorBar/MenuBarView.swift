@@ -7,11 +7,11 @@ struct MenuBarView: View {
     var onQuit: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 4) {
             // Section 1: User info + Usage (or status)
             if let data = viewModel.usageData {
                 userInfoSection(data)
-                Divider()
+                Divider().padding(.vertical, 2)
                 usageSection(data)
             } else if viewModel.isLoading {
                 Text("Loading...")
@@ -25,51 +25,55 @@ struct MenuBarView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Divider()
+            Divider().padding(.vertical, 2)
 
-            // Section 2: Quick settings
-            HStack {
-                Image(systemName: "timer")
-                    .foregroundStyle(.secondary)
-                Menu("Refresh: \(viewModel.refreshInterval.label)") {
-                    ForEach(RefreshInterval.allCases, id: \.rawValue) { interval in
-                        Button(interval.label) {
-                            viewModel.setRefreshInterval(interval)
-                        }
-                    }
-                }
-                Spacer()
-                Button {
-                    openSettings()
-                    NSApp.activate(ignoringOtherApps: true)
-                } label: {
-                    Image(systemName: "gear")
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-            }
-
-            Divider()
-
-            // Section 3: Actions
-            Button("Open Dashboard") {
+            // Section 2: Actions
+            menuRow("Open Dashboard", icon: "arrow.up.right") {
                 if let url = URL(string: "https://www.cursor.com/dashboard?tab=usage") {
                     NSWorkspace.shared.open(url)
                 }
             }
 
-            switch viewModel.authState {
-            case .loggedOut, .loginRequired:
-                Button("Log In...") { onLogin() }
-            case .loggedIn:
-                Button("Log Out") { viewModel.logout() }
+            menuRow("Settings...", icon: "gear") {
+                openSettings()
+                NSApp.activate(ignoringOtherApps: true)
             }
 
-            Divider()
+            switch viewModel.authState {
+            case .loggedOut, .loginRequired:
+                menuRow("Log In...", icon: "person") { onLogin() }
+            case .loggedIn:
+                menuRow("Log Out", icon: "person.slash") { viewModel.logout() }
+            }
 
-            Button("Quit") { onQuit() }
+            Divider().padding(.vertical, 2)
+
+            menuRow("Quit", icon: nil) { NSApplication.shared.terminate(nil) }
         }
-        .padding(8)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .frame(width: 260)
+    }
+
+    // MARK: - Menu Row
+
+    private func menuRow(_ title: String, icon: String?, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                if let icon {
+                    Image(systemName: icon)
+                        .frame(width: 16)
+                        .foregroundStyle(.secondary)
+                }
+                Text(title)
+                    .font(.system(size: 13))
+                Spacer()
+            }
+            .contentShape(Rectangle())
+            .padding(.vertical, 3)
+            .padding(.horizontal, 4)
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - User Info Section
@@ -78,10 +82,10 @@ struct MenuBarView: View {
     private func userInfoSection(_ data: UsageDisplayData) -> some View {
         HStack {
             Text(data.name)
-                .font(.headline)
+                .font(.system(size: 13, weight: .semibold))
             Spacer()
             Text(data.email)
-                .font(.caption)
+                .font(.system(size: 10))
                 .foregroundStyle(.secondary)
         }
     }
@@ -93,10 +97,11 @@ struct MenuBarView: View {
         // Requests + inline refresh
         HStack {
             Text("Requests")
-                .font(.subheadline)
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
             Spacer()
             Text(data.usageText)
-                .font(.subheadline)
+                .font(.system(size: 12))
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
             if viewModel.authState == .loggedIn {
@@ -104,7 +109,8 @@ struct MenuBarView: View {
                     Task { await viewModel.refresh() }
                 } label: {
                     Image(systemName: "arrow.clockwise")
-                        .font(.caption)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
                 .disabled(viewModel.isLoading)
@@ -112,21 +118,37 @@ struct MenuBarView: View {
         }
 
         // Progress bar + percent
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             ProgressView(value: min(data.percentUsed / 100.0, 1.0))
                 .tint(CircularProgressIcon.level(for: data.percentUsed).color)
             Text(data.percentText)
-                .font(.caption)
+                .font(.system(size: 10))
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
-                .frame(width: 32, alignment: .trailing)
+                .frame(width: 28, alignment: .trailing)
         }
 
-        // Reset date
-        if let resetText = data.resetText {
-            Text(resetText)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+        // Reset date + refresh interval
+        HStack {
+            if let resetText = data.resetText {
+                Text(resetText)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+            }
+            Spacer()
+            Menu {
+                ForEach(RefreshInterval.allCases, id: \.rawValue) { interval in
+                    Button(interval.label) {
+                        viewModel.setRefreshInterval(interval)
+                    }
+                }
+            } label: {
+                Text("⏱ \(viewModel.refreshInterval.label)")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
         }
     }
 }
