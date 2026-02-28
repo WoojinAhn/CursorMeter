@@ -13,11 +13,14 @@ actor CursorAPIClient {
 
     private let session: URLSession
 
-    init() {
-        let config = URLSessionConfiguration.ephemeral
-        config.httpShouldSetCookies = false
-        config.httpCookieAcceptPolicy = .never
-        config.timeoutIntervalForRequest = 15
+    init(configuration: URLSessionConfiguration? = nil) {
+        let config = configuration ?? {
+            let c = URLSessionConfiguration.ephemeral
+            c.httpShouldSetCookies = false
+            c.httpCookieAcceptPolicy = .never
+            c.timeoutIntervalForRequest = 15
+            return c
+        }()
         self.session = URLSession(configuration: config)
     }
 
