@@ -22,7 +22,7 @@ enum LogRedactor {
     private static let authRegex = try! NSRegularExpression(
         pattern: #"(?i)(authorization\s*:\s*)([^\r\n]+)"#)
     private static let bearerRegex = try! NSRegularExpression(
-        pattern: #"(?i)\bbearer\s+[a-z0-9._\-]+=*\b"#)
+        pattern: #"(?i)\bbearer\s+[a-z0-9+/._\-]+=*"#)
 
     static func redact(_ text: String) -> String {
         var output = text

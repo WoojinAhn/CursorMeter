@@ -46,6 +46,7 @@ final class LoginWindow: NSObject {
 
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .nonPersistent()
+        config.preferences.javaScriptCanOpenWindowsAutomatically = false
 
         let webView = WKWebView(
             frame: NSRect(x: 0, y: 0, width: 480, height: 640),

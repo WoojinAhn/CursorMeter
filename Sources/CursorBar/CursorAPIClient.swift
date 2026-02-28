@@ -2,6 +2,7 @@ import Foundation
 
 enum APIError: Error {
     case unauthorized
+    case forbidden
     case httpError(statusCode: Int)
     case networkError(Error)
 }
@@ -49,8 +50,11 @@ actor CursorAPIClient {
                         userInfo: [NSLocalizedDescriptionKey: "Invalid response"]))
         }
 
-        if httpResponse.statusCode == 401 || httpResponse.statusCode == 403 {
+        if httpResponse.statusCode == 401 {
             throw APIError.unauthorized
+        }
+        if httpResponse.statusCode == 403 {
+            throw APIError.forbidden
         }
 
         guard (200...299).contains(httpResponse.statusCode) else {
