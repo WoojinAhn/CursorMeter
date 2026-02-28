@@ -14,10 +14,7 @@ struct UsageResponse: Codable, Sendable {
 
 struct ModelUsage: Codable, Sendable {
     let numRequests: Int?
-    let numRequestsTotal: Int?
-    let numTokens: Int?
     let maxRequestUsage: Int?
-    let maxTokenUsage: Int?
 }
 
 // MARK: - API Response: /api/auth/me
@@ -25,7 +22,6 @@ struct ModelUsage: Codable, Sendable {
 struct UserInfoResponse: Codable, Sendable {
     let email: String?
     let name: String?
-    let sub: String?
 }
 
 // MARK: - UI Display Model
