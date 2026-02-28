@@ -10,5 +10,10 @@ let package = Package(
             name: "CursorBar",
             path: "Sources/CursorBar"
         ),
+        .testTarget(
+            name: "CursorBarTests",
+            dependencies: ["CursorBar"],
+            path: "Tests/CursorBarTests"
+        ),
     ]
 )

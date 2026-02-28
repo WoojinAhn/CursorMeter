@@ -27,7 +27,7 @@ final class LoginWindow: NSObject {
         "m.stripe.network",
     ]
 
-    private nonisolated static func isAllowedHost(_ host: String) -> Bool {
+    nonisolated static func isAllowedHost(_ host: String) -> Bool {
         if allowedDomains.contains(host) { return true }
         if host.hasSuffix(".cursor.com") { return true }
         if host.hasSuffix(".cursor.sh") { return true }
