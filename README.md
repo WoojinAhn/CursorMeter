@@ -2,9 +2,14 @@
 
 [Cursor](https://www.cursor.com/) IDE의 사용량을 macOS 메뉴바에서 모니터링하는 경량 앱입니다. CodexBar의 보안 이슈를 해결하기 위해 새로 구현했습니다. 자세한 내용은 [보안 감사 보고서](docs/security-audit.md)를 참고하세요.
 
+<!-- TODO: 스크린샷 추가 (메뉴바 아이콘 + 팝오버 UI) -->
+
 ## 주요 기능
 
+- 메뉴바 파이 차트 아이콘으로 사용량 시각화 (초록/노랑/빨강 색상 단계)
 - 메뉴바에서 요청 사용량(사용/한도) 및 리셋 날짜 확인
+- 사용량 임계치 도달 시 macOS 알림 (80%/90%, 커스텀 가능)
+- 설정 UI (새로고침 간격, 알림 임계치, 메뉴바 표시 형식)
 - 앱 내 WebView 로그인 (Google, GitHub, Enterprise SSO 지원)
 - 자동 새로고침 (1/2/5/15분 간격 선택)
 - Keychain 기반 인증 정보 저장
@@ -38,7 +43,7 @@ cp -r CursorBar.app /Applications/
 swift test    # 전체 테스트 실행 (Xcode 필요)
 ```
 
-Unit test (LogRedactor, UsageDisplayData, DomainWhitelist) + Integration test (CursorAPIClient with URLProtocol mock). 수동 테스트 항목은 [test-checklist.md](docs/test-checklist.md) 참고.
+Unit test (LogRedactor, UsageDisplayData, DomainWhitelist, CircularProgressIcon, NotificationManager) + Integration test (CursorAPIClient with URLProtocol mock). 수동 테스트 항목은 [test-checklist.md](docs/test-checklist.md) 참고.
 
 ## 라이선스
 
@@ -50,9 +55,14 @@ MIT
 
 A lightweight macOS menu bar app for monitoring [Cursor](https://www.cursor.com/) IDE usage. Built from scratch to address security issues found in CodexBar. See the [security audit report](docs/security-audit.md) for details.
 
+<!-- TODO: Add screenshots (menu bar icon + popover UI) -->
+
 ## Features
 
+- Pie chart icon in menu bar visualizing usage (green/yellow/red color levels)
 - View request usage (used/limit) and reset date from the menu bar
+- macOS notifications when usage reaches thresholds (80%/90%, customizable)
+- Settings UI (refresh interval, notification thresholds, menu bar display format)
 - In-app WebView login (Google, GitHub, Enterprise SSO)
 - Auto-refresh at configurable intervals (1/2/5/15 min)
 - Keychain-based credential storage
@@ -86,7 +96,7 @@ cp -r CursorBar.app /Applications/
 swift test    # Run all tests (requires Xcode)
 ```
 
-Unit tests (LogRedactor, UsageDisplayData, DomainWhitelist) + Integration tests (CursorAPIClient with URLProtocol mock). See [test-checklist.md](docs/test-checklist.md) for manual test scenarios.
+Unit tests (LogRedactor, UsageDisplayData, DomainWhitelist, CircularProgressIcon, NotificationManager) + Integration tests (CursorAPIClient with URLProtocol mock). See [test-checklist.md](docs/test-checklist.md) for manual test scenarios.
 
 ## License
 
