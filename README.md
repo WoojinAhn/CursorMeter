@@ -4,7 +4,6 @@
 
 A lightweight macOS menu bar app for monitoring [Cursor](https://www.cursor.com/) IDE usage at a glance — no browser tab needed.
 
-<!-- TODO: Add screenshots (menu bar icon + popover UI) -->
 
 ## Features
 
