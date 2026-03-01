@@ -97,13 +97,22 @@ final class UsageViewModel {
         errorMessage = nil
 
         do {
+            async let summaryResult = apiClient.fetchUsageSummary(cookieHeader: cookieHeader)
             async let usageResult = apiClient.fetchUsage(cookieHeader: cookieHeader)
             async let userInfoResult = apiClient.fetchUserInfo(cookieHeader: cookieHeader)
 
-            let usage = try await usageResult
             let userInfo = try await userInfoResult
 
-            usageData = UsageDisplayData.from(usage: usage, userInfo: userInfo)
+            let summary = try? await summaryResult
+            let usage = try? await usageResult
+
+            if let summary {
+                usageData = UsageDisplayData.from(summary: summary, usage: usage, userInfo: userInfo)
+            } else if let usage {
+                usageData = UsageDisplayData.from(usage: usage, userInfo: userInfo)
+            } else {
+                throw APIError.httpError(statusCode: 0)
+            }
             Log.info("Usage data refreshed")
 
             // Check notification thresholds

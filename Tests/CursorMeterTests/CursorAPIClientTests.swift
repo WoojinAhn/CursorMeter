@@ -22,7 +22,7 @@ final class CursorAPIClientTests: XCTestCase {
     func testFetchUsageSuccess() async throws {
         let json = """
         {
-            "gpt-4": { "numRequests": 42, "maxRequestUsage": 500 },
+            "gpt-4": { "numRequests": 42, "numRequestsTotal": 42, "numTokens": 1000, "maxRequestUsage": 500, "maxTokenUsage": null },
             "startOfMonth": "2026-02-01T00:00:00.000Z"
         }
         """
@@ -30,9 +30,72 @@ final class CursorAPIClientTests: XCTestCase {
 
         let result = try await client.fetchUsage(cookieHeader: "session=test")
 
-        XCTAssertEqual(result.gpt4?.numRequests, 42)
-        XCTAssertEqual(result.gpt4?.maxRequestUsage, 500)
+        XCTAssertEqual(result.primaryModel?.numRequests, 42)
+        XCTAssertEqual(result.primaryModel?.maxRequestUsage, 500)
         XCTAssertEqual(result.startOfMonth, "2026-02-01T00:00:00.000Z")
+        XCTAssertEqual(result.models.count, 1)
+        XCTAssertNotNil(result.models["gpt-4"])
+    }
+
+    func testFetchUsageDynamicKeys() async throws {
+        let json = """
+        {
+            "gpt-4o": { "numRequests": 10, "maxRequestUsage": 500 },
+            "claude-sonnet": { "numRequests": 5, "maxRequestUsage": null },
+            "startOfMonth": "2026-03-01T00:00:00.000Z"
+        }
+        """
+        setMockResponse(statusCode: 200, json: json)
+
+        let result = try await client.fetchUsage(cookieHeader: "session=test")
+
+        XCTAssertEqual(result.models.count, 2)
+        XCTAssertNotNil(result.models["gpt-4o"])
+        XCTAssertNotNil(result.models["claude-sonnet"])
+        XCTAssertEqual(result.primaryModel?.maxRequestUsage, 500, "Should prefer model with maxRequestUsage")
+    }
+
+    func testFetchUsageNoModels() async throws {
+        let json = """
+        { "startOfMonth": "2026-03-01T00:00:00.000Z" }
+        """
+        setMockResponse(statusCode: 200, json: json)
+
+        let result = try await client.fetchUsage(cookieHeader: "session=test")
+
+        XCTAssertTrue(result.models.isEmpty)
+        XCTAssertNil(result.primaryModel)
+        XCTAssertEqual(result.startOfMonth, "2026-03-01T00:00:00.000Z")
+    }
+
+    func testFetchUsageSummarySuccess() async throws {
+        let json = """
+        {
+            "billingCycleStart": "2026-03-01T07:29:44.000Z",
+            "billingCycleEnd": "2026-04-01T07:29:44.000Z",
+            "membershipType": "enterprise",
+            "limitType": "team",
+            "isUnlimited": false,
+            "individualUsage": {
+                "plan": { "enabled": true, "used": 8, "limit": 2000, "remaining": 1992, "totalPercentUsed": 0.1 },
+                "onDemand": { "enabled": true, "used": 0, "limit": 2000, "remaining": 2000 }
+            },
+            "teamUsage": {
+                "onDemand": { "enabled": true, "used": 0, "limit": 120000, "remaining": 120000 }
+            }
+        }
+        """
+        setMockResponse(statusCode: 200, json: json)
+
+        let result = try await client.fetchUsageSummary(cookieHeader: "session=test")
+
+        XCTAssertEqual(result.membershipType, "enterprise")
+        XCTAssertEqual(result.billingCycleEnd, "2026-04-01T07:29:44.000Z")
+        XCTAssertEqual(result.isUnlimited, false)
+        XCTAssertEqual(result.individualUsage?.plan?.used, 8)
+        XCTAssertEqual(result.individualUsage?.plan?.limit, 2000)
+        XCTAssertEqual(result.individualUsage?.onDemand?.limit, 2000)
+        XCTAssertEqual(result.teamUsage?.onDemand?.limit, 120000)
     }
 
     // MARK: - fetchUserInfo

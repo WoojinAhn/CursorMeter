@@ -9,6 +9,7 @@ enum APIError: Error {
 
 actor CursorAPIClient {
     private static let usageURL = URL(string: "https://www.cursor.com/api/usage")!
+    private static let usageSummaryURL = URL(string: "https://www.cursor.com/api/usage-summary")!
     private static let userInfoURL = URL(string: "https://www.cursor.com/api/auth/me")!
 
     private let session: URLSession
@@ -27,6 +28,11 @@ actor CursorAPIClient {
     func fetchUsage(cookieHeader: String) async throws -> UsageResponse {
         let data = try await performRequest(url: Self.usageURL, cookieHeader: cookieHeader)
         return try JSONDecoder().decode(UsageResponse.self, from: data)
+    }
+
+    func fetchUsageSummary(cookieHeader: String) async throws -> UsageSummaryResponse {
+        let data = try await performRequest(url: Self.usageSummaryURL, cookieHeader: cookieHeader)
+        return try JSONDecoder().decode(UsageSummaryResponse.self, from: data)
     }
 
     func fetchUserInfo(cookieHeader: String) async throws -> UserInfoResponse {

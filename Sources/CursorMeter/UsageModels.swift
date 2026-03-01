@@ -1,20 +1,91 @@
 import Foundation
 
-// MARK: - API Response: /api/usage
+// MARK: - API Response: /api/usage (dynamic key parsing)
 
-struct UsageResponse: Codable, Sendable {
-    let gpt4: ModelUsage?
+struct UsageResponse: Sendable {
+    let models: [String: ModelUsage]
     let startOfMonth: String?
 
-    enum CodingKeys: String, CodingKey {
-        case gpt4 = "gpt-4"
+    /// Returns the first model with maxRequestUsage, or the first model available
+    var primaryModel: ModelUsage? {
+        models.values.first(where: { $0.maxRequestUsage != nil })
+            ?? models.values.first
+    }
+}
+
+extension UsageResponse: Decodable {
+    private struct DynamicKey: CodingKey {
+        var stringValue: String
+        var intValue: Int? { nil }
+        init?(stringValue: String) { self.stringValue = stringValue }
+        init?(intValue: Int) { nil }
+    }
+
+    private enum KnownKey: String {
         case startOfMonth
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: DynamicKey.self)
+
+        var startOfMonth: String?
+        var models: [String: ModelUsage] = [:]
+
+        for key in container.allKeys {
+            if key.stringValue == KnownKey.startOfMonth.rawValue {
+                startOfMonth = try container.decodeIfPresent(String.self, forKey: key)
+            } else if let model = try? container.decode(ModelUsage.self, forKey: key) {
+                models[key.stringValue] = model
+            }
+        }
+
+        self.startOfMonth = startOfMonth
+        self.models = models
     }
 }
 
 struct ModelUsage: Codable, Sendable {
     let numRequests: Int?
+    let numRequestsTotal: Int?
+    let numTokens: Int?
     let maxRequestUsage: Int?
+    let maxTokenUsage: Int?
+}
+
+// MARK: - API Response: /api/usage-summary
+
+struct UsageSummaryResponse: Codable, Sendable {
+    let billingCycleStart: String?
+    let billingCycleEnd: String?
+    let membershipType: String?
+    let limitType: String?
+    let isUnlimited: Bool?
+    let individualUsage: IndividualUsage?
+    let teamUsage: TeamUsage?
+}
+
+struct IndividualUsage: Codable, Sendable {
+    let plan: PlanUsage?
+    let onDemand: OnDemandUsage?
+}
+
+struct PlanUsage: Codable, Sendable {
+    let enabled: Bool?
+    let used: Int?
+    let limit: Int?
+    let remaining: Int?
+    let totalPercentUsed: Double?
+}
+
+struct OnDemandUsage: Codable, Sendable {
+    let enabled: Bool?
+    let used: Int?
+    let limit: Int?
+    let remaining: Int?
+}
+
+struct TeamUsage: Codable, Sendable {
+    let onDemand: OnDemandUsage?
 }
 
 // MARK: - API Response: /api/auth/me
@@ -60,13 +131,43 @@ struct UsageDisplayData: Sendable {
         return f
     }()
 
+    // MARK: - Factory: summary (primary) + usage (supplementary)
+
+    static func from(
+        summary: UsageSummaryResponse,
+        usage: UsageResponse?,
+        userInfo: UserInfoResponse
+    ) -> UsageDisplayData {
+        let model = usage?.primaryModel
+
+        let resetDate: Date? = {
+            guard let str = summary.billingCycleEnd else { return nil }
+            return iso8601.date(from: str)
+        }()
+
+        let daysUntilReset: Int? = {
+            guard let end = resetDate else { return nil }
+            return Calendar.current.dateComponents([.day], from: Date(), to: end).day
+        }()
+
+        return UsageDisplayData(
+            email: userInfo.email ?? "Unknown",
+            name: userInfo.name ?? "Unknown",
+            requestsUsed: model?.numRequestsTotal ?? model?.numRequests ?? 0,
+            requestsLimit: model?.maxRequestUsage ?? 0,
+            resetDate: resetDate,
+            daysUntilReset: daysUntilReset
+        )
+    }
+
+    // MARK: - Factory: legacy fallback (usage only)
+
     static func from(usage: UsageResponse, userInfo: UserInfoResponse) -> UsageDisplayData {
-        let model = usage.gpt4
+        let model = usage.primaryModel
 
         let resetDate: Date? = {
             guard let str = usage.startOfMonth else { return nil }
             guard let start = iso8601.date(from: str) else { return nil }
-            // Reset date = start of next month
             return Calendar.current.date(byAdding: .month, value: 1, to: start)
         }()
 
@@ -78,7 +179,7 @@ struct UsageDisplayData: Sendable {
         return UsageDisplayData(
             email: userInfo.email ?? "Unknown",
             name: userInfo.name ?? "Unknown",
-            requestsUsed: model?.numRequests ?? 0,
+            requestsUsed: model?.numRequestsTotal ?? model?.numRequests ?? 0,
             requestsLimit: model?.maxRequestUsage ?? 0,
             resetDate: resetDate,
             daysUntilReset: daysUntilReset
