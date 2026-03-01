@@ -18,7 +18,7 @@ Every feature issue follows this sequence:
 
 1. **Test case selection** — Define tests for the logic being changed/added before writing code
 2. **Implementation** — Write feature code and test code together
-3. **`swift test`** — All tests must pass (currently 83)
+3. **`swift test`** — All tests must pass (currently 93)
 4. **Commit/push** — Reference issue number in commit message
 
 ## Architecture
@@ -36,6 +36,20 @@ Every feature issue follows this sequence:
 | `LoginWindow.swift` | WKWebView login + domain whitelist |
 | `KeychainStore.swift` | Credential storage (Data Protection Keychain) |
 | `LogRedactor.swift` | Sensitive data redaction for logs |
+
+## Cursor API
+
+Two undocumented endpoints used (cookie-based auth, no official schema):
+
+| Endpoint | Purpose | Unit |
+|----------|---------|------|
+| `/api/usage-summary` | Primary — billingCycleEnd, plan %, membershipType | USD cents |
+| `/api/usage` | Supplementary — request counts per model | requests |
+| `/api/auth/me` | User info (email, name) | — |
+
+- `UsageViewModel.refresh()` calls all three in parallel with graceful degradation
+- `/api/usage` uses dynamic key parsing (no hardcoded model names)
+- Reference project: [steipete/CodexBar](https://github.com/steipete/CodexBar) uses same dual-API strategy
 
 ## Conventions
 
