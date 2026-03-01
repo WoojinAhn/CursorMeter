@@ -16,7 +16,7 @@ enum KeychainError: LocalizedError {
 }
 
 enum KeychainStore {
-    private static let service = "com.cursorbar.session"
+    private static let service = "com.cursormeter.session"
     private static let account = "cursor-cookie-header"
 
     private static var baseQuery: [String: Any] {

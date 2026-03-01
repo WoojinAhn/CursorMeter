@@ -1,8 +1,8 @@
 **English** | [한국어](README.ko.md)
 
-# CursorBar
+# CursorMeter
 
-A lightweight macOS menu bar app for monitoring [Cursor](https://www.cursor.com/) IDE usage. Built from scratch to address security issues found in CodexBar. See the [security audit report](docs/security-audit.md) for details.
+A lightweight macOS menu bar app for monitoring [Cursor](https://www.cursor.com/) IDE usage at a glance — no browser tab needed.
 
 <!-- TODO: Add screenshots (menu bar icon + popover UI) -->
 
@@ -36,7 +36,7 @@ A lightweight macOS menu bar app for monitoring [Cursor](https://www.cursor.com/
 bash Scripts/package_app.sh
 
 # Install
-cp -r CursorBar.app /Applications/
+cp -r CursorMeter.app /Applications/
 ```
 
 ## Testing

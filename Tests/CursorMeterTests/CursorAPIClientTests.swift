@@ -1,5 +1,5 @@
 import XCTest
-@testable import CursorBar
+@testable import CursorMeter
 
 final class CursorAPIClientTests: XCTestCase {
     private var client: CursorAPIClient!

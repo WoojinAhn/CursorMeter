@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-APP_NAME="CursorBar"
+APP_NAME="CursorMeter"
 BUILD_DIR=".build/release"
 APP_BUNDLE="${APP_NAME}.app"
 CONTENTS="${APP_BUNDLE}/Contents"
@@ -25,13 +25,13 @@ cat > "${CONTENTS}/Info.plist" << 'PLIST'
 <plist version="1.0">
 <dict>
     <key>CFBundleExecutable</key>
-    <string>CursorBar</string>
+    <string>CursorMeter</string>
     <key>CFBundleIdentifier</key>
-    <string>com.cursorbar.app</string>
+    <string>com.cursormeter.app</string>
     <key>CFBundleName</key>
-    <string>CursorBar</string>
+    <string>CursorMeter</string>
     <key>CFBundleDisplayName</key>
-    <string>CursorBar</string>
+    <string>CursorMeter</string>
     <key>CFBundleVersion</key>
     <string>1</string>
     <key>CFBundleShortVersionString</key>

@@ -1,8 +1,8 @@
 [English](README.md) | **한국어**
 
-# CursorBar
+# CursorMeter
 
-[Cursor](https://www.cursor.com/) IDE의 사용량을 macOS 메뉴바에서 모니터링하는 경량 앱입니다. CodexBar의 보안 이슈를 해결하기 위해 새로 구현했습니다. 자세한 내용은 [보안 감사 보고서](docs/security-audit.md)를 참고하세요.
+[Cursor](https://www.cursor.com/) IDE의 사용량을 macOS 메뉴바에서 한눈에 모니터링하는 경량 앱입니다. 브라우저 탭을 열 필요 없이 실시간으로 확인할 수 있습니다.
 
 <!-- TODO: 스크린샷 추가 (메뉴바 아이콘 + 팝오버 UI) -->
 
@@ -36,7 +36,7 @@
 bash Scripts/package_app.sh
 
 # 설치
-cp -r CursorBar.app /Applications/
+cp -r CursorMeter.app /Applications/
 ```
 
 ## 테스트

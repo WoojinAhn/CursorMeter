@@ -1,4 +1,4 @@
-# CLAUDE.md — CursorBar
+# CLAUDE.md — CursorMeter
 
 ## Overview
 
@@ -25,7 +25,7 @@ Every feature issue follows this sequence:
 
 | File | Role |
 |------|------|
-| `CursorBarApp.swift` | App entry, MenuBarExtra + Settings scene |
+| `CursorMeterApp.swift` | App entry, MenuBarExtra + Settings scene |
 | `MenuBarView.swift` | Popover UI (4-section layout) |
 | `UsageViewModel.swift` | State management, auto-refresh, settings persistence |
 | `CursorAPIClient.swift` | API calls (actor, ephemeral URLSession) |
@@ -44,7 +44,3 @@ Every feature issue follows this sequence:
 - `URLSessionConfiguration.ephemeral` — no disk cache
 - Keychain with `kSecUseDataProtectionKeychain: true` — no permission prompts
 - WebView domain whitelist enforced in `decidePolicyFor`
-
-## Security
-
-See `docs/security-audit.md` for the full audit report and mitigation details.

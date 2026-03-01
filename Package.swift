@@ -3,17 +3,17 @@
 import PackageDescription
 
 let package = Package(
-    name: "CursorBar",
+    name: "CursorMeter",
     platforms: [.macOS(.v14)],
     targets: [
         .executableTarget(
-            name: "CursorBar",
-            path: "Sources/CursorBar"
+            name: "CursorMeter",
+            path: "Sources/CursorMeter"
         ),
         .testTarget(
-            name: "CursorBarTests",
-            dependencies: ["CursorBar"],
-            path: "Tests/CursorBarTests"
+            name: "CursorMeterTests",
+            dependencies: ["CursorMeter"],
+            path: "Tests/CursorMeterTests"
         ),
     ]
 )

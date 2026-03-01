@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct CursorBarApp: App {
+struct CursorMeterApp: App {
     @State private var viewModel = UsageViewModel()
     @State private var loginWindow: LoginWindow?
 

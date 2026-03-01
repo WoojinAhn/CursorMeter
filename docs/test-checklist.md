@@ -73,4 +73,4 @@ Run through these scenarios after each feature change or before release.
 ## Security
 
 - [ ] No Keychain permission prompts during normal use
-- [ ] Console logs contain no emails, cookies, or tokens (check with `log stream --predicate 'subsystem == "com.cursorbar"'`)
+- [ ] Console logs contain no emails, cookies, or tokens (check with `log stream --predicate 'subsystem == "com.cursormeter"'`)

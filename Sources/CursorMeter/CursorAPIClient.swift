@@ -49,7 +49,7 @@ actor CursorAPIClient {
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw APIError.networkError(
-                NSError(domain: "CursorBar", code: -1,
+                NSError(domain: "CursorMeter", code: -1,
                         userInfo: [NSLocalizedDescriptionKey: "Invalid response"]))
         }
 

@@ -17,3 +17,6 @@ Package.resolved
 *.app
 *.zip
 *.dmg
+
+# Internal documents (not for public)
+docs/security-audit.md

@@ -1,7 +1,7 @@
 import Foundation
 import OSLog
 
-private let logger = Logger(subsystem: "com.cursorbar", category: "general")
+private let logger = Logger(subsystem: "com.cursormeter", category: "general")
 
 enum Log {
     static func info(_ message: String) {
