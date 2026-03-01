@@ -46,6 +46,10 @@ swift test    # 전체 테스트 실행 (Xcode 필요)
 
 Unit test (LogRedactor, UsageDisplayData, DomainWhitelist, CircularProgressIcon, NotificationManager) + Integration test (CursorAPIClient with URLProtocol mock). 수동 테스트 항목은 [test-checklist.md](docs/test-checklist.md) 참고.
 
+## 주의사항
+
+이 앱은 Cursor의 **비공식 내부 API** (`/api/usage`, `/api/usage-summary`, `/api/auth/me`)를 사용합니다. 해당 엔드포인트는 사전 고지 없이 변경되거나 차단될 수 있습니다.
+
 ## 라이선스
 
 MIT

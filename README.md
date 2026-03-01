@@ -46,6 +46,10 @@ swift test    # Run all tests (requires Xcode)
 
 Unit tests (LogRedactor, UsageDisplayData, DomainWhitelist, CircularProgressIcon, NotificationManager) + Integration tests (CursorAPIClient with URLProtocol mock). See [test-checklist.md](docs/test-checklist.md) for manual test scenarios.
 
+## Disclaimer
+
+This app uses Cursor's **undocumented internal APIs** (`/api/usage`, `/api/usage-summary`, `/api/auth/me`). These endpoints may change or be blocked at any time without notice.
+
 ## License
 
 MIT
