@@ -64,6 +64,9 @@ final class LoginWindow: NSObject {
         window.contentView = webView
         window.center()
         window.delegate = self
+        // MenuBarExtra apps use .accessory policy — temporarily switch to .regular
+        // so the login window can receive keyboard focus
+        NSApp.setActivationPolicy(.regular)
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         self.window = window
@@ -80,6 +83,7 @@ final class LoginWindow: NSObject {
         window?.close()
         webView = nil
         window = nil
+        NSApp.setActivationPolicy(.accessory)
     }
 
     private func captureAndComplete() {
