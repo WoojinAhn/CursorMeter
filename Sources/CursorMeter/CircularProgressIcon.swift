@@ -105,7 +105,7 @@ enum CircularProgressIcon {
     static func idleImage() -> NSImage {
         let topFont = NSFont.systemFont(ofSize: 8, weight: .semibold)
         let bottomFont = NSFont.systemFont(ofSize: 6, weight: .regular)
-        let color = NSColor.secondaryLabelColor
+        let color = NSColor.labelColor
 
         let topStr = NSAttributedString(string: "Cursor", attributes: [
             .font: topFont, .foregroundColor: color,
@@ -150,11 +150,18 @@ enum CircularProgressIcon {
         let center = CGPoint(x: rect.midX, y: rect.midY)
         let radius = (min(rect.width, rect.height) - inset * 2) / 2
 
-        // Track
-        ctx.setFillColor(NSColor.gray.withAlphaComponent(0.25).cgColor)
-        ctx.addEllipse(in: CGRect(x: center.x - radius, y: center.y - radius,
-                                   width: radius * 2, height: radius * 2))
+        // Track (adapts to system appearance)
+        ctx.setFillColor(NSColor.labelColor.withAlphaComponent(0.2).cgColor)
+        let circleRect = CGRect(x: center.x - radius, y: center.y - radius,
+                                width: radius * 2, height: radius * 2)
+        ctx.addEllipse(in: circleRect)
         ctx.fillPath()
+
+        // Border
+        ctx.setStrokeColor(NSColor.labelColor.withAlphaComponent(0.4).cgColor)
+        ctx.setLineWidth(0.75)
+        ctx.addEllipse(in: circleRect)
+        ctx.strokePath()
 
         // Pie wedge
         let progress = min(max(percent / 100.0, 0), 1.0)
