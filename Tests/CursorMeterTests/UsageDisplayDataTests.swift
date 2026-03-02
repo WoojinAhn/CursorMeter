@@ -237,6 +237,7 @@ final class UsageDisplayDataTests: XCTestCase {
         UsageDisplayData(
             email: "test@test.com",
             name: "Test",
+            membershipType: nil,
             requestsUsed: used,
             requestsLimit: limit,
             resetDate: nil,

@@ -83,6 +83,14 @@ struct MenuBarView: View {
         HStack {
             Text(data.name)
                 .font(.system(size: 13, weight: .semibold))
+            if let type = data.membershipType {
+                Text(type.capitalized)
+                    .font(.system(size: 9, weight: .medium))
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(.quaternary)
+                    .clipShape(RoundedRectangle(cornerRadius: 3))
+            }
             Spacer()
             Text(data.email)
                 .font(.system(size: 10))

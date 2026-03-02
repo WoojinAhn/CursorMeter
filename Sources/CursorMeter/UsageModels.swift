@@ -100,6 +100,7 @@ struct UserInfoResponse: Codable, Sendable {
 struct UsageDisplayData: Sendable {
     let email: String
     let name: String
+    let membershipType: String?
     let requestsUsed: Int
     let requestsLimit: Int
     let resetDate: Date?
@@ -153,6 +154,7 @@ struct UsageDisplayData: Sendable {
         return UsageDisplayData(
             email: userInfo.email ?? "Unknown",
             name: userInfo.name ?? "Unknown",
+            membershipType: summary.membershipType,
             requestsUsed: model?.numRequestsTotal ?? model?.numRequests ?? 0,
             requestsLimit: model?.maxRequestUsage ?? 0,
             resetDate: resetDate,
@@ -179,6 +181,7 @@ struct UsageDisplayData: Sendable {
         return UsageDisplayData(
             email: userInfo.email ?? "Unknown",
             name: userInfo.name ?? "Unknown",
+            membershipType: nil,
             requestsUsed: model?.numRequestsTotal ?? model?.numRequests ?? 0,
             requestsLimit: model?.maxRequestUsage ?? 0,
             resetDate: resetDate,
