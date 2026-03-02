@@ -201,10 +201,10 @@ final class UsageViewModel {
             notificationEnabled = val
         }
         if let val = defaults.object(forKey: "warningThreshold") as? Int {
-            warningThreshold = val
+            warningThreshold = min(val, 90)
         }
         if let val = defaults.object(forKey: "criticalThreshold") as? Int {
-            criticalThreshold = val
+            criticalThreshold = max(min(val, 100), warningThreshold + 5)
         }
         if let val = defaults.object(forKey: "showMenuBarText") as? Bool {
             showMenuBarText = val
