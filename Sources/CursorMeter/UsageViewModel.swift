@@ -135,7 +135,9 @@ final class UsageViewModel {
             errorMessage = "Access denied (subscription may be inactive)"
             Log.error("API returned 403 Forbidden")
         } catch {
-            errorMessage = error.localizedDescription
+            if usageData == nil {
+                errorMessage = error.localizedDescription
+            }
             Log.error("Refresh failed: \(error)")
         }
 
