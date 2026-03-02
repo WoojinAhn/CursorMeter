@@ -26,9 +26,16 @@
 ## 요구사항
 
 - macOS 14 (Sonoma) 이상
-- Swift 6.0+ (빌드 시)
 
-## 빌드 및 설치
+## 설치
+
+1. [Releases](https://github.com/WoojinAhn/CursorMeter/releases)에서 최신 `.zip` 다운로드
+2. 압축 해제 후 `CursorMeter.app`을 `/Applications`로 이동
+3. 최초 실행 시 macOS가 차단할 수 있습니다 (미서명 앱). 우회 방법:
+   - 앱을 **우클릭** → **열기** → 대화상자에서 **열기** 클릭
+   - 또는: 시스템 설정 → 개인정보 보호 및 보안 → **확인 없이 열기** 클릭
+
+## 소스에서 빌드
 
 ```bash
 # 빌드 + .app 번들 생성 (ad-hoc 서명)
@@ -37,6 +44,8 @@ bash Scripts/package_app.sh
 # 설치
 cp -r CursorMeter.app /Applications/
 ```
+
+Swift 6.0+ 및 Xcode가 필요합니다.
 
 ## 테스트
 

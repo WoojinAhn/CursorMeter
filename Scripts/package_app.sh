@@ -2,13 +2,14 @@
 set -euo pipefail
 
 APP_NAME="CursorMeter"
+APP_VERSION="${APP_VERSION:-0.1.0}"
 BUILD_DIR=".build/release"
 APP_BUNDLE="${APP_NAME}.app"
 CONTENTS="${APP_BUNDLE}/Contents"
 MACOS="${CONTENTS}/MacOS"
 RESOURCES="${CONTENTS}/Resources"
 
-echo "Building ${APP_NAME} in release mode..."
+echo "Building ${APP_NAME} v${APP_VERSION} in release mode..."
 swift build -c release
 
 echo "Creating app bundle..."
@@ -19,7 +20,7 @@ mkdir -p "${MACOS}" "${RESOURCES}"
 cp "${BUILD_DIR}/${APP_NAME}" "${MACOS}/${APP_NAME}"
 
 # Create Info.plist
-cat > "${CONTENTS}/Info.plist" << 'PLIST'
+cat > "${CONTENTS}/Info.plist" << PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -27,15 +28,15 @@ cat > "${CONTENTS}/Info.plist" << 'PLIST'
     <key>CFBundleExecutable</key>
     <string>CursorMeter</string>
     <key>CFBundleIdentifier</key>
-    <string>com.cursormeter.app</string>
+    <string>com.woojin.CursorMeter</string>
     <key>CFBundleName</key>
     <string>CursorMeter</string>
     <key>CFBundleDisplayName</key>
     <string>CursorMeter</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>${APP_VERSION}</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0.0</string>
+    <string>${APP_VERSION}</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>LSMinimumSystemVersion</key>
@@ -67,5 +68,5 @@ codesign -s - --force --deep --entitlements "${CONTENTS}/entitlements.plist" "${
 # Clean up entitlements from bundle (only needed at signing time)
 rm "${CONTENTS}/entitlements.plist"
 
-echo "Done! ${APP_BUNDLE} created."
+echo "Done! ${APP_BUNDLE} v${APP_VERSION} created."
 echo "To install: cp -r ${APP_BUNDLE} /Applications/"

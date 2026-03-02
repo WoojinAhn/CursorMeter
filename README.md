@@ -26,9 +26,16 @@ A lightweight macOS menu bar app for monitoring [Cursor](https://www.cursor.com/
 ## Requirements
 
 - macOS 14 (Sonoma) or later
-- Swift 6.0+ (for building)
 
-## Build & Install
+## Installation
+
+1. Download the latest `.zip` from [Releases](https://github.com/WoojinAhn/CursorMeter/releases)
+2. Unzip and drag `CursorMeter.app` to `/Applications`
+3. On first launch, macOS may block the app (unsigned). To bypass:
+   - **Right-click** the app → **Open** → click **Open** in the dialog
+   - Or: System Settings → Privacy & Security → click **Open Anyway**
+
+## Build from Source
 
 ```bash
 # Build + create .app bundle (ad-hoc signed)
@@ -37,6 +44,8 @@ bash Scripts/package_app.sh
 # Install
 cp -r CursorMeter.app /Applications/
 ```
+
+Requires Swift 6.0+ and Xcode.
 
 ## Testing
 

@@ -32,6 +32,7 @@ final class UsageViewModel {
     var usageData: UsageDisplayData?
     var errorMessage: String?
     var isLoading = false
+    var availableUpdate: UpdateChecker.Release?
 
     // MARK: - Settings
 
@@ -53,6 +54,7 @@ final class UsageViewModel {
 
     init() {
         loadSettings()
+        Task { availableUpdate = await UpdateChecker.shared.check() }
     }
 
     // MARK: - Session

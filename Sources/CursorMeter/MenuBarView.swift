@@ -46,6 +46,14 @@ struct MenuBarView: View {
                 menuRow("Log Out", icon: "person.slash") { viewModel.logout() }
             }
 
+            if let update = viewModel.availableUpdate {
+                menuRow("Update available: v\(update.version)", icon: "arrow.down.circle") {
+                    if let url = URL(string: update.htmlURL) {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+            }
+
             Divider().padding(.vertical, 2)
 
             menuRow("Quit", icon: nil) { NSApplication.shared.terminate(nil) }
