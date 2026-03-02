@@ -27,7 +27,7 @@ struct SettingsView: View {
                         Text("\(viewModel.criticalThreshold)%")
                             .monospacedDigit()
                     }
-                    Slider(value: criticalSlider, in: 60...100, step: 5)
+                    Slider(value: criticalSlider, in: (Double(viewModel.warningThreshold) + 5)...100, step: 5)
                 }
             }
 
@@ -58,7 +58,12 @@ struct SettingsView: View {
     private var warningSlider: Binding<Double> {
         Binding(
             get: { Double(viewModel.warningThreshold) },
-            set: { viewModel.setWarningThreshold(Int($0)) }
+            set: {
+                viewModel.setWarningThreshold(Int($0))
+                if viewModel.criticalThreshold < viewModel.warningThreshold + 5 {
+                    viewModel.setCriticalThreshold(viewModel.warningThreshold + 5)
+                }
+            }
         )
     }
 

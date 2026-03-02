@@ -86,7 +86,7 @@ final class LoginWindow: NSObject {
         NSApp.setActivationPolicy(.accessory)
     }
 
-    private func captureAndComplete() {
+    private func captureAndComplete(isRetry: Bool = false) {
         guard state != .completed, let webView else { return }
         Task {
             let cookies = await webView.configuration.websiteDataStore.httpCookieStore.allCookies()
@@ -95,7 +95,14 @@ final class LoginWindow: NSObject {
             }
 
             guard !cursorCookies.isEmpty else {
-                Log.error("No cursor cookies found after login")
+                if !isRetry {
+                    Log.info("No cursor cookies found, retrying in 1s")
+                    try? await Task.sleep(nanoseconds: 1_000_000_000)
+                    captureAndComplete(isRetry: true)
+                } else {
+                    Log.error("No cursor cookies found after retry")
+                    complete(cookieHeader: nil)
+                }
                 return
             }
 
@@ -141,7 +148,7 @@ extension LoginWindow: WKNavigationDelegate {
         // After auth redirect back to dashboard, wait briefly for cookies to be written
         if urlString.contains("cursor.com/dashboard"), state == .navigating {
             Task {
-                try? await Task.sleep(nanoseconds: 500_000_000)
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
                 captureAndComplete()
             }
         }
