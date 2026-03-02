@@ -240,6 +240,8 @@ final class UsageDisplayDataTests: XCTestCase {
             membershipType: nil,
             requestsUsed: used,
             requestsLimit: limit,
+            onDemandUsedCents: nil,
+            onDemandLimitCents: nil,
             resetDate: nil,
             daysUntilReset: daysUntilReset
         )

@@ -136,6 +136,20 @@ struct MenuBarView: View {
                 .frame(width: 28, alignment: .trailing)
         }
 
+        // On-demand usage
+        if let onDemandText = data.onDemandText {
+            HStack {
+                Text("On-demand")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text(onDemandText)
+                    .font(.system(size: 12))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+        }
+
         // Reset date + refresh interval
         HStack {
             if let resetText = data.resetText {

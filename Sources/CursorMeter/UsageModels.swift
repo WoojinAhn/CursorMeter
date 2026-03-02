@@ -103,6 +103,8 @@ struct UsageDisplayData: Sendable {
     let membershipType: String?
     let requestsUsed: Int
     let requestsLimit: Int
+    let onDemandUsedCents: Int?
+    let onDemandLimitCents: Int?
     let resetDate: Date?
     let daysUntilReset: Int?
 
@@ -117,6 +119,20 @@ struct UsageDisplayData: Sendable {
 
     var usageText: String {
         "\(requestsUsed) / \(requestsLimit)"
+    }
+
+    var hasOnDemand: Bool {
+        onDemandLimitCents != nil && onDemandLimitCents! > 0
+    }
+
+    var onDemandText: String? {
+        guard let used = onDemandUsedCents, let limit = onDemandLimitCents, limit > 0 else {
+            return nil
+        }
+        let fmt: (Int) -> String = { cents in
+            String(format: "$%.2f", Double(cents) / 100.0)
+        }
+        return "\(fmt(used)) / \(fmt(limit))"
     }
 
     var resetText: String? {
@@ -151,12 +167,16 @@ struct UsageDisplayData: Sendable {
             return Calendar.current.dateComponents([.day], from: Date(), to: end).day
         }()
 
+        let onDemand = summary.individualUsage?.onDemand
+
         return UsageDisplayData(
             email: userInfo.email ?? "Unknown",
             name: userInfo.name ?? "Unknown",
             membershipType: summary.membershipType,
             requestsUsed: model?.numRequestsTotal ?? model?.numRequests ?? 0,
             requestsLimit: model?.maxRequestUsage ?? 0,
+            onDemandUsedCents: onDemand?.used,
+            onDemandLimitCents: onDemand?.limit,
             resetDate: resetDate,
             daysUntilReset: daysUntilReset
         )
@@ -184,6 +204,8 @@ struct UsageDisplayData: Sendable {
             membershipType: nil,
             requestsUsed: model?.numRequestsTotal ?? model?.numRequests ?? 0,
             requestsLimit: model?.maxRequestUsage ?? 0,
+            onDemandUsedCents: nil,
+            onDemandLimitCents: nil,
             resetDate: resetDate,
             daysUntilReset: daysUntilReset
         )
