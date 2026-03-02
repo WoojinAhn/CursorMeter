@@ -101,14 +101,29 @@ struct UsageDisplayData: Sendable {
     let email: String
     let name: String
     let membershipType: String?
+
+    // Credit-based plan (cents) — nil when request-based
+    let planUsedCents: Int?
+    let planLimitCents: Int?
+
+    // Request-based plan — 0 when credit-based
     let requestsUsed: Int
     let requestsLimit: Int
+
     let onDemandUsedCents: Int?
     let onDemandLimitCents: Int?
     let resetDate: Date?
     let daysUntilReset: Int?
 
+    var isCreditBased: Bool {
+        planLimitCents != nil && planLimitCents! > 0
+    }
+
     var percentUsed: Double {
+        if isCreditBased {
+            guard let limit = planLimitCents, limit > 0, let used = planUsedCents else { return 0 }
+            return Double(used) / Double(limit) * 100.0
+        }
         guard requestsLimit > 0 else { return 0 }
         return Double(requestsUsed) / Double(requestsLimit) * 100.0
     }
@@ -118,7 +133,14 @@ struct UsageDisplayData: Sendable {
     }
 
     var usageText: String {
-        "\(requestsUsed) / \(requestsLimit)"
+        if isCreditBased {
+            return "\(Self.formatUSD(planUsedCents ?? 0)) / \(Self.formatUSD(planLimitCents ?? 0))"
+        }
+        return "\(requestsUsed) / \(requestsLimit)"
+    }
+
+    var usageLabel: String {
+        isCreditBased ? "Plan Usage" : "Requests"
     }
 
     var hasOnDemand: Bool {
@@ -129,10 +151,11 @@ struct UsageDisplayData: Sendable {
         guard let used = onDemandUsedCents, let limit = onDemandLimitCents, limit > 0 else {
             return nil
         }
-        let fmt: (Int) -> String = { cents in
-            String(format: "$%.2f", Double(cents) / 100.0)
-        }
-        return "\(fmt(used)) / \(fmt(limit))"
+        return "\(Self.formatUSD(used)) / \(Self.formatUSD(limit))"
+    }
+
+    private static func formatUSD(_ cents: Int) -> String {
+        String(format: "$%.2f", Double(cents) / 100.0)
     }
 
     var resetText: String? {
@@ -156,6 +179,7 @@ struct UsageDisplayData: Sendable {
         userInfo: UserInfoResponse
     ) -> UsageDisplayData {
         let model = usage?.primaryModel
+        let isRequestBased = model?.maxRequestUsage != nil
 
         let resetDate: Date? = {
             guard let str = summary.billingCycleEnd else { return nil }
@@ -167,14 +191,17 @@ struct UsageDisplayData: Sendable {
             return Calendar.current.dateComponents([.day], from: Date(), to: end).day
         }()
 
+        let plan = summary.individualUsage?.plan
         let onDemand = summary.individualUsage?.onDemand
 
         return UsageDisplayData(
             email: userInfo.email ?? "Unknown",
             name: userInfo.name ?? "Unknown",
             membershipType: summary.membershipType,
-            requestsUsed: model?.numRequestsTotal ?? model?.numRequests ?? 0,
-            requestsLimit: model?.maxRequestUsage ?? 0,
+            planUsedCents: isRequestBased ? nil : plan?.used,
+            planLimitCents: isRequestBased ? nil : plan?.limit,
+            requestsUsed: isRequestBased ? (model?.numRequestsTotal ?? model?.numRequests ?? 0) : 0,
+            requestsLimit: isRequestBased ? (model?.maxRequestUsage ?? 0) : 0,
             onDemandUsedCents: onDemand?.used,
             onDemandLimitCents: onDemand?.limit,
             resetDate: resetDate,
@@ -202,6 +229,8 @@ struct UsageDisplayData: Sendable {
             email: userInfo.email ?? "Unknown",
             name: userInfo.name ?? "Unknown",
             membershipType: nil,
+            planUsedCents: nil,
+            planLimitCents: nil,
             requestsUsed: model?.numRequestsTotal ?? model?.numRequests ?? 0,
             requestsLimit: model?.maxRequestUsage ?? 0,
             onDemandUsedCents: nil,

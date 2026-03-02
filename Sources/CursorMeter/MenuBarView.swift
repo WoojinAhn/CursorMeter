@@ -104,7 +104,7 @@ struct MenuBarView: View {
     private func usageSection(_ data: UsageDisplayData) -> some View {
         // Requests + inline refresh
         HStack {
-            Text("Requests")
+            Text(data.usageLabel)
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
             Spacer()

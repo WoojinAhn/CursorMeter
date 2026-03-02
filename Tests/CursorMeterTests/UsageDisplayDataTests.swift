@@ -227,6 +227,110 @@ final class UsageDisplayDataTests: XCTestCase {
         XCTAssertNil(usage.primaryModel)
     }
 
+    // MARK: - Credit-based plan
+
+    func testIsCreditBasedTrue() {
+        let data = makeCreditData(usedCents: 800, limitCents: 2000)
+        XCTAssertTrue(data.isCreditBased)
+    }
+
+    func testIsCreditBasedFalseForRequestPlan() {
+        let data = makeData(used: 42, limit: 500)
+        XCTAssertFalse(data.isCreditBased)
+    }
+
+    func testCreditPercentUsed() {
+        let data = makeCreditData(usedCents: 800, limitCents: 2000)
+        XCTAssertEqual(data.percentUsed, 40.0, accuracy: 0.01)
+    }
+
+    func testCreditPercentUsedZeroLimit() {
+        let data = makeCreditData(usedCents: 100, limitCents: 0)
+        XCTAssertFalse(data.isCreditBased)
+        XCTAssertEqual(data.percentUsed, 0)
+    }
+
+    func testCreditUsageText() {
+        let data = makeCreditData(usedCents: 800, limitCents: 2000)
+        XCTAssertEqual(data.usageText, "$8.00 / $20.00")
+    }
+
+    func testCreditUsageTextSmallAmounts() {
+        let data = makeCreditData(usedCents: 5, limitCents: 2000)
+        XCTAssertEqual(data.usageText, "$0.05 / $20.00")
+    }
+
+    func testCreditUsageLabel() {
+        let data = makeCreditData(usedCents: 800, limitCents: 2000)
+        XCTAssertEqual(data.usageLabel, "Plan Usage")
+    }
+
+    func testRequestUsageLabel() {
+        let data = makeData(used: 42, limit: 500)
+        XCTAssertEqual(data.usageLabel, "Requests")
+    }
+
+    func testCreditPercentText() {
+        let data = makeCreditData(usedCents: 800, limitCents: 2000)
+        XCTAssertEqual(data.percentText, "40%")
+    }
+
+    // MARK: - from(summary:usage:) credit detection
+
+    func testFromSummaryDetectsCreditBased() {
+        let summary = makeSummaryResponse(
+            billingCycleEnd: "2099-04-01T00:00:00.000Z",
+            planUsed: 800,
+            planLimit: 2000
+        )
+        // No maxRequestUsage → credit-based
+        let usage = makeUsageResponse(numRequests: 10, maxRequestUsage: nil)
+        let userInfo = UserInfoResponse(email: "pro@test.com", name: "Pro")
+
+        let data = UsageDisplayData.from(summary: summary, usage: usage, userInfo: userInfo)
+
+        XCTAssertTrue(data.isCreditBased)
+        XCTAssertEqual(data.planUsedCents, 800)
+        XCTAssertEqual(data.planLimitCents, 2000)
+        XCTAssertEqual(data.requestsUsed, 0)
+        XCTAssertEqual(data.requestsLimit, 0)
+        XCTAssertEqual(data.usageText, "$8.00 / $20.00")
+    }
+
+    func testFromSummaryDetectsRequestBased() {
+        let summary = makeSummaryResponse(
+            billingCycleEnd: "2099-04-01T00:00:00.000Z",
+            planUsed: nil,
+            planLimit: nil
+        )
+        // maxRequestUsage present → request-based
+        let usage = makeUsageResponse(numRequests: 42, maxRequestUsage: 500)
+        let userInfo = UserInfoResponse(email: "ent@test.com", name: "Ent")
+
+        let data = UsageDisplayData.from(summary: summary, usage: usage, userInfo: userInfo)
+
+        XCTAssertFalse(data.isCreditBased)
+        XCTAssertEqual(data.requestsUsed, 42)
+        XCTAssertEqual(data.requestsLimit, 500)
+        XCTAssertEqual(data.usageText, "42 / 500")
+    }
+
+    func testFromSummaryWithoutUsageIsCreditBased() {
+        let summary = makeSummaryResponse(
+            billingCycleEnd: "2099-04-01T00:00:00.000Z",
+            planUsed: 150,
+            planLimit: 6000
+        )
+        let userInfo = UserInfoResponse(email: "pro@test.com", name: "Pro")
+
+        let data = UsageDisplayData.from(summary: summary, usage: nil, userInfo: userInfo)
+
+        XCTAssertTrue(data.isCreditBased)
+        XCTAssertEqual(data.planUsedCents, 150)
+        XCTAssertEqual(data.planLimitCents, 6000)
+        XCTAssertEqual(data.usageText, "$1.50 / $60.00")
+    }
+
     // MARK: - Helpers
 
     private func makeData(
@@ -238,8 +342,30 @@ final class UsageDisplayDataTests: XCTestCase {
             email: "test@test.com",
             name: "Test",
             membershipType: nil,
+            planUsedCents: nil,
+            planLimitCents: nil,
             requestsUsed: used,
             requestsLimit: limit,
+            onDemandUsedCents: nil,
+            onDemandLimitCents: nil,
+            resetDate: nil,
+            daysUntilReset: daysUntilReset
+        )
+    }
+
+    private func makeCreditData(
+        usedCents: Int,
+        limitCents: Int,
+        daysUntilReset: Int? = 5
+    ) -> UsageDisplayData {
+        UsageDisplayData(
+            email: "test@test.com",
+            name: "Test",
+            membershipType: "pro",
+            planUsedCents: usedCents,
+            planLimitCents: limitCents,
+            requestsUsed: 0,
+            requestsLimit: 0,
             onDemandUsedCents: nil,
             onDemandLimitCents: nil,
             resetDate: nil,
@@ -274,15 +400,23 @@ final class UsageDisplayDataTests: XCTestCase {
     }
 
     private func makeSummaryResponse(
-        billingCycleEnd: String?
+        billingCycleEnd: String?,
+        planUsed: Int? = nil,
+        planLimit: Int? = nil
     ) -> UsageSummaryResponse {
-        UsageSummaryResponse(
+        let plan: PlanUsage? = (planUsed != nil || planLimit != nil)
+            ? PlanUsage(enabled: true, used: planUsed, limit: planLimit, remaining: nil, totalPercentUsed: nil)
+            : nil
+        let individual: IndividualUsage? = plan != nil
+            ? IndividualUsage(plan: plan, onDemand: nil)
+            : nil
+        return UsageSummaryResponse(
             billingCycleStart: nil,
             billingCycleEnd: billingCycleEnd,
             membershipType: nil,
             limitType: nil,
             isUnlimited: nil,
-            individualUsage: nil,
+            individualUsage: individual,
             teamUsage: nil
         )
     }

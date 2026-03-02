@@ -21,13 +21,13 @@ struct SettingsView: View {
                         Text("\(viewModel.warningThreshold)%")
                             .monospacedDigit()
                     }
-                    Slider(value: warningSlider, in: 50...95, step: 5)
+                    Slider(value: warningSlider, in: 50...90, step: 5)
 
                     LabeledContent("Critical") {
                         Text("\(viewModel.criticalThreshold)%")
                             .monospacedDigit()
                     }
-                    Slider(value: criticalSlider, in: (Double(viewModel.warningThreshold) + 5)...100, step: 5)
+                    Slider(value: criticalSlider, in: criticalSliderRange, step: 5)
                 }
             }
 
@@ -65,6 +65,11 @@ struct SettingsView: View {
                 }
             }
         )
+    }
+
+    private var criticalSliderRange: ClosedRange<Double> {
+        let minVal = Double(min(viewModel.warningThreshold + 5, 100))
+        return minVal...100
     }
 
     private var criticalSlider: Binding<Double> {
