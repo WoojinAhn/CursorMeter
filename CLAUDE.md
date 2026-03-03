@@ -69,5 +69,5 @@ Two undocumented endpoints used (cookie-based auth, no official schema):
 - Swift 6 strict concurrency: `@MainActor`, `actor`, `Sendable`
 - Zero external dependencies — macOS SDK only (`Foundation`, `AppKit`, `Security`, `WebKit`, `UserNotifications`)
 - `URLSessionConfiguration.ephemeral` — no disk cache
-- Keychain with `kSecUseDataProtectionKeychain: true` — no permission prompts
+- Keychain via standard macOS Keychain (Data Protection Keychain requires entitlements unavailable to ad-hoc signed apps)
 - WebView domain whitelist enforced in `decidePolicyFor`
