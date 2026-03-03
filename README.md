@@ -13,9 +13,12 @@ Unlike in-editor extensions, CursorMeter runs independently as a native macOS ap
 - View request usage (used/limit) and reset date from the menu bar
 - macOS notifications when usage reaches thresholds (80%/90%, customizable)
 - Settings UI (refresh interval, notification thresholds, menu bar display format)
+- Launch at login support
+- In-app update checker
 - In-app WebView login (Google, GitHub, Enterprise SSO)
 - Auto-refresh at configurable intervals (1/2/5/15 min)
 - Keychain-based credential storage
+- Pure AppKit — minimal memory footprint (~13 MB RSS)
 
 ## Security
 
