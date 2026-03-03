@@ -33,6 +33,7 @@ final class UsageViewModel {
     var errorMessage: String?
     var isLoading = false
     var availableUpdate: UpdateChecker.Release?
+    var isCheckingUpdate = false
 
     // MARK: - Settings
 
@@ -186,6 +187,18 @@ final class UsageViewModel {
     func setShowMenuBarText(_ show: Bool) {
         showMenuBarText = show
         UserDefaults.standard.set(show, forKey: "showMenuBarText")
+    }
+
+    func checkForUpdate() async {
+        isCheckingUpdate = true
+        async let result = UpdateChecker.shared.check()
+        let start = ContinuousClock.now
+        availableUpdate = await result
+        let elapsed = ContinuousClock.now - start
+        if elapsed < .milliseconds(1200) {
+            try? await Task.sleep(for: .milliseconds(1200) - elapsed)
+        }
+        isCheckingUpdate = false
     }
 
     // MARK: - Private

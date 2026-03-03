@@ -34,9 +34,39 @@ struct SettingsView: View {
             Section("Menu Bar") {
                 Toggle("Show usage text next to icon", isOn: showMenuBarTextBinding)
             }
+
+            Section("Updates") {
+                if let update = viewModel.availableUpdate {
+                    HStack {
+                        Label("v\(update.version) available", systemImage: "arrow.down.circle")
+                        Spacer()
+                        Button("Download") {
+                            if let url = URL(string: update.htmlURL) {
+                                NSWorkspace.shared.open(url)
+                            }
+                        }
+                    }
+                } else if viewModel.isCheckingUpdate {
+                    HStack {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Checking...")
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    HStack {
+                        Label("Up to date", systemImage: "checkmark.circle")
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Check Now") {
+                            Task { await viewModel.checkForUpdate() }
+                        }
+                    }
+                }
+            }
         }
         .formStyle(.grouped)
-        .frame(width: 350, height: 300)
+        .frame(width: 350, height: 340)
     }
 
     // MARK: - Bindings
