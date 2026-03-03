@@ -2,7 +2,7 @@
 
 ## Overview
 
-macOS menu bar app for monitoring Cursor IDE usage. Swift 6, SwiftUI, zero external dependencies.
+macOS menu bar app for monitoring Cursor IDE usage. Swift 6, pure AppKit (no SwiftUI), zero external dependencies.
 
 ## Build & Test
 
@@ -10,6 +10,18 @@ macOS menu bar app for monitoring Cursor IDE usage. Swift 6, SwiftUI, zero exter
 swift build              # Production build
 swift test               # Run all tests (requires Xcode)
 swift build -c release   # Release build
+```
+
+### App Reinstall (for testing changes)
+
+macOS does not allow overwriting a running app binary. Always follow this sequence:
+
+```bash
+pkill -9 -x CursorMeter        # 1. Force kill
+rm -rf /Applications/CursorMeter.app  # 2. Delete old bundle
+bash Scripts/package_app.sh     # 3. Build release + create .app
+cp -r CursorMeter.app /Applications/  # 4. Copy new bundle
+open /Applications/CursorMeter.app    # 5. Launch
 ```
 
 ## Issue Workflow
@@ -26,14 +38,14 @@ Every feature issue follows this sequence:
 
 | File | Role |
 |------|------|
-| `CursorMeterApp.swift` | App entry, MenuBarExtra + Settings scene |
-| `MenuBarView.swift` | Popover UI (4-section layout) |
+| `CursorMeterApp.swift` | App entry, NSApplicationDelegate + NSStatusItem + NSPopover |
+| `MenuBarView.swift` | Popover UI (NSViewController, 4-section layout) |
+| `SettingsViewController.swift` | Settings window (pure AppKit, NSViewController) |
 | `UsageViewModel.swift` | State management, auto-refresh, settings persistence |
 | `CursorAPIClient.swift` | API calls (actor, ephemeral URLSession) |
 | `UsageModels.swift` | Codable models + display model |
 | `CircularProgressIcon.swift` | Menu bar progress ring icon + color thresholds |
 | `NotificationManager.swift` | Usage threshold notifications (UserNotifications) |
-| `SettingsView.swift` | Settings window UI (refresh, notifications, display) |
 | `LoginWindow.swift` | WKWebView login + domain whitelist |
 | `KeychainStore.swift` | Credential storage (Data Protection Keychain) |
 | `LogRedactor.swift` | Sensitive data redaction for logs |
@@ -55,7 +67,7 @@ Two undocumented endpoints used (cookie-based auth, no official schema):
 ## Conventions
 
 - Swift 6 strict concurrency: `@MainActor`, `actor`, `Sendable`
-- Zero external dependencies — macOS SDK only (`Foundation`, `Security`, `WebKit`, `SwiftUI`, `UserNotifications`)
+- Zero external dependencies — macOS SDK only (`Foundation`, `AppKit`, `Security`, `WebKit`, `UserNotifications`)
 - `URLSessionConfiguration.ephemeral` — no disk cache
 - Keychain with `kSecUseDataProtectionKeychain: true` — no permission prompts
 - WebView domain whitelist enforced in `decidePolicyFor`

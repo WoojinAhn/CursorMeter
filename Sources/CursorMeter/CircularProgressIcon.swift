@@ -1,4 +1,3 @@
-import SwiftUI
 import AppKit
 
 // MARK: - Progress Level
@@ -8,11 +7,11 @@ enum ProgressLevel: Sendable, Equatable {
     case warning
     case critical
 
-    var color: Color {
+    var color: NSColor {
         switch self {
-        case .normal: .green
-        case .warning: .yellow
-        case .critical: .red
+        case .normal: .systemGreen
+        case .warning: .systemYellow
+        case .critical: .systemRed
         }
     }
 }
