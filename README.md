@@ -26,7 +26,7 @@ Unlike in-editor extensions, CursorMeter runs independently as a native macOS ap
 - WebView domain whitelist enforced
 - `URLSessionConfiguration.ephemeral` (no disk cache)
 - No JavaScript injection
-- Data Protection Keychain (no access prompts)
+- Keychain-based credential storage
 
 ## Requirements
 

@@ -117,6 +117,8 @@ final class UsageViewModel {
                 throw APIError.httpError(statusCode: 0)
             }
             Log.info("Usage data refreshed")
+            networkRetryTask?.cancel()
+            networkRetryTask = nil
 
             // Check notification thresholds
             if let data = usageData {
@@ -139,7 +141,13 @@ final class UsageViewModel {
             Log.error("API returned 403 Forbidden")
         } catch {
             if usageData == nil {
-                errorMessage = error.localizedDescription
+                let urlError = error as? URLError
+                if urlError?.code == .notConnectedToInternet || urlError?.code == .networkConnectionLost {
+                    errorMessage = "Waiting for network..."
+                    scheduleNetworkRetry()
+                } else {
+                    errorMessage = error.localizedDescription
+                }
             }
             Log.error("Refresh failed: \(error)")
         }
@@ -221,6 +229,18 @@ final class UsageViewModel {
         }
         if let val = defaults.object(forKey: "showMenuBarText") as? Bool {
             showMenuBarText = val
+        }
+    }
+
+    private var networkRetryTask: Task<Void, Never>?
+
+    private func scheduleNetworkRetry() {
+        guard networkRetryTask == nil else { return }
+        networkRetryTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(60))
+            guard let self, !Task.isCancelled else { return }
+            self.networkRetryTask = nil
+            await self.refresh()
         }
     }
 

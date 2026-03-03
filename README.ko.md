@@ -26,7 +26,7 @@
 - WebView 도메인 whitelist 적용
 - `URLSessionConfiguration.ephemeral` (디스크 캐시 없음)
 - JavaScript injection 없음
-- Data Protection Keychain 사용 (프롬프트 없음)
+- Keychain 기반 인증 정보 저장
 
 ## 요구사항
 
