@@ -19,6 +19,9 @@ mkdir -p "${MACOS}" "${RESOURCES}"
 # Copy executable
 cp "${BUILD_DIR}/${APP_NAME}" "${MACOS}/${APP_NAME}"
 
+# Copy app icon
+cp "Resources/AppIcon.icns" "${RESOURCES}/AppIcon.icns"
+
 # Create Info.plist
 cat > "${CONTENTS}/Info.plist" << PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -37,6 +40,8 @@ cat > "${CONTENTS}/Info.plist" << PLIST
     <string>${APP_VERSION}</string>
     <key>CFBundleShortVersionString</key>
     <string>${APP_VERSION}</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>LSMinimumSystemVersion</key>
