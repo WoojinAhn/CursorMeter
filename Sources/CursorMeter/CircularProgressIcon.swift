@@ -101,7 +101,7 @@ enum CircularProgressIcon {
         return image
     }
 
-    /// "Cursor Usage" text icon for idle/not-logged-in state
+    /// "Cursor Meter" text icon for idle/not-logged-in state
     static func idleImage() -> NSImage {
         let topFont = NSFont.systemFont(ofSize: 8, weight: .semibold)
         let bottomFont = NSFont.systemFont(ofSize: 6, weight: .regular)
@@ -110,7 +110,7 @@ enum CircularProgressIcon {
         let topStr = NSAttributedString(string: "Cursor", attributes: [
             .font: topFont, .foregroundColor: color,
         ])
-        let bottomStr = NSAttributedString(string: "Usage", attributes: [
+        let bottomStr = NSAttributedString(string: "Meter", attributes: [
             .font: bottomFont, .foregroundColor: color,
         ])
 
