@@ -141,9 +141,7 @@ final class MenuBarPopoverViewController: NSViewController {
             self?.onSettings()
         })
 
-        let authRow = makeAuthRow()
-        authRow.identifier = NSUserInterfaceItemIdentifier("authRow")
-        rootStack.addArrangedSubview(authRow)
+        rootStack.addArrangedSubview(makeAuthRow())
 
         // Update row (initially hidden)
         buildUpdateRow()
@@ -301,20 +299,21 @@ final class MenuBarPopoverViewController: NSViewController {
 
     // MARK: - Auth row
 
+    private let authContainer = NSView()
+
     private func makeAuthRow() -> NSView {
-        let row = makeMenuRow("Log In...", symbolName: "person") { [weak self] in
-            self?.onLogin()
-        }
-        return row
+        authContainer.translatesAutoresizingMaskIntoConstraints = false
+        authContainer.identifier = NSUserInterfaceItemIdentifier("authRow")
+        rebuildAuthButton()
+        return authContainer
     }
 
     private func updateAuthRow() {
-        guard let authRow = rootStack.arrangedSubviews.first(where: {
-            $0.identifier?.rawValue == "authRow"
-        }) else { return }
+        rebuildAuthButton()
+    }
 
-        // Re-create the button inside the row with the correct title/icon/action
-        authRow.subviews.forEach { $0.removeFromSuperview() }
+    private func rebuildAuthButton() {
+        authContainer.subviews.forEach { $0.removeFromSuperview() }
 
         let (title, icon): (String, String)
         let action: () -> Void
@@ -332,12 +331,12 @@ final class MenuBarPopoverViewController: NSViewController {
 
         let btn = makeMenuRowButton(title: title, symbolName: icon, action: action)
         btn.translatesAutoresizingMaskIntoConstraints = false
-        authRow.addSubview(btn)
+        authContainer.addSubview(btn)
         NSLayoutConstraint.activate([
-            btn.topAnchor.constraint(equalTo: authRow.topAnchor),
-            btn.bottomAnchor.constraint(equalTo: authRow.bottomAnchor),
-            btn.leadingAnchor.constraint(equalTo: authRow.leadingAnchor),
-            btn.trailingAnchor.constraint(equalTo: authRow.trailingAnchor),
+            btn.topAnchor.constraint(equalTo: authContainer.topAnchor),
+            btn.bottomAnchor.constraint(equalTo: authContainer.bottomAnchor),
+            btn.leadingAnchor.constraint(equalTo: authContainer.leadingAnchor),
+            btn.trailingAnchor.constraint(equalTo: authContainer.trailingAnchor),
         ])
     }
 

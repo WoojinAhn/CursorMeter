@@ -94,8 +94,8 @@ final class SettingsViewController: NSViewController {
         outerStack.addArrangedSubview(makeSeparator())
         outerStack.setCustomSpacing(10, after: outerStack.arrangedSubviews.last!)
 
-        // Section: Updates
-        outerStack.addArrangedSubview(makeSectionHeader("Updates"))
+        // Section: Version
+        outerStack.addArrangedSubview(makeSectionHeader("Version"))
         outerStack.setCustomSpacing(6, after: outerStack.arrangedSubviews.last!)
         outerStack.addArrangedSubview(makeUpdatesSection())
 
@@ -267,10 +267,33 @@ final class SettingsViewController: NSViewController {
         row.spacing = 6
         row.alignment = .centerY
 
-        return row
+        // Author row
+        let authorLabel = makeLabel("Made by WoojinAhn ·")
+        authorLabel.textColor = .tertiaryLabelColor
+        authorLabel.font = NSFont.systemFont(ofSize: 11)
+
+        let githubLink = NSButton(title: "GitHub ↗", target: self, action: #selector(openGitHub))
+        githubLink.isBordered = false
+        githubLink.font = NSFont.systemFont(ofSize: 11)
+        githubLink.contentTintColor = .linkColor
+
+        let authorRow = NSStackView(views: [authorLabel, githubLink, makeSpacer()])
+        authorRow.orientation = .horizontal
+        authorRow.spacing = 2
+
+        let section = NSStackView(views: [row, authorRow])
+        section.orientation = .vertical
+        section.alignment = .left
+        section.spacing = 8
+
+        return section
     }
 
     // MARK: - Actions
+
+    @objc private func openGitHub() {
+        NSWorkspace.shared.open(URL(string: "https://github.com/WoojinAhn/CursorMeter")!)
+    }
 
     @objc private func intervalChanged() {
         let index = intervalPopUp.indexOfSelectedItem
@@ -413,25 +436,29 @@ final class SettingsViewController: NSViewController {
 
     // MARK: - Helpers: Updates UI
 
+    private var currentVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
+    }
+
     private func updateUpdatesUI() {
         if let update = viewModel.availableUpdate {
             updateSpinner.isHidden = true
             updateSpinner.stopAnimation(nil)
-            updateStatusLabel.stringValue = "v\(update.version) available"
+            updateStatusLabel.stringValue = "v\(currentVersion) · v\(update.version) new"
             updateStatusLabel.textColor = .labelColor
             checkNowButton.isHidden = true
             downloadButton.isHidden = false
         } else if viewModel.isCheckingUpdate {
             updateSpinner.isHidden = false
             updateSpinner.startAnimation(nil)
-            updateStatusLabel.stringValue = "Checking..."
+            updateStatusLabel.stringValue = "v\(currentVersion) · Checking..."
             updateStatusLabel.textColor = .secondaryLabelColor
             checkNowButton.isHidden = true
             downloadButton.isHidden = true
         } else {
             updateSpinner.isHidden = true
             updateSpinner.stopAnimation(nil)
-            updateStatusLabel.stringValue = "Up to date"
+            updateStatusLabel.stringValue = "v\(currentVersion) · Up to date"
             updateStatusLabel.textColor = .secondaryLabelColor
             checkNowButton.isHidden = false
             downloadButton.isHidden = true
