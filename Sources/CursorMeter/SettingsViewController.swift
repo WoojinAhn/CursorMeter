@@ -209,7 +209,7 @@ final class SettingsViewController: NSViewController {
             action: #selector(showMenuBarTextChanged)
         )
         showMenuBarPercentToggle = makeCheckbox(
-            title: "Show percentage instead of fraction",
+            title: "Show % instead of fraction",
             action: #selector(showMenuBarPercentChanged)
         )
 

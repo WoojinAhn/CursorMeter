@@ -103,7 +103,7 @@ enum CircularProgressIcon {
     /// Pie chart + percent text as a single NSImage
     static func menuBarImageWithPercent(percent: Double) -> NSImage {
         let pieSize: CGFloat = 20
-        let font = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .medium)
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .medium)
         let textColor = NSColor.labelColor
 
         let percentStr = NSAttributedString(string: "\(Int(percent))%", attributes: [
