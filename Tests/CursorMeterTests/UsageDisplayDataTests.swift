@@ -353,6 +353,43 @@ final class UsageDisplayDataTests: XCTestCase {
         )
     }
 
+    // MARK: - menuBarUsedText / menuBarLimitText
+
+    func testMenuBarTextRequestBased() {
+        let data = makeData(used: 150, limit: 500)
+        XCTAssertEqual(data.menuBarUsedText, "150")
+        XCTAssertEqual(data.menuBarLimitText, "500")
+    }
+
+    func testMenuBarTextCreditBased() {
+        let data = makeCreditData(usedCents: 1250, limitCents: 5000)
+        XCTAssertEqual(data.menuBarUsedText, "12.5")
+        XCTAssertEqual(data.menuBarLimitText, "50.0")
+    }
+
+    func testMenuBarTextCreditSmallAmount() {
+        let data = makeCreditData(usedCents: 5, limitCents: 100)
+        XCTAssertEqual(data.menuBarUsedText, "0.1")
+        XCTAssertEqual(data.menuBarLimitText, "1.0")
+    }
+
+    func testMenuBarTextCreditZero() {
+        let data = makeCreditData(usedCents: 0, limitCents: 5000)
+        XCTAssertEqual(data.menuBarUsedText, "0.0")
+        XCTAssertEqual(data.menuBarLimitText, "50.0")
+    }
+
+    // MARK: - formatCompactUSD
+
+    func testFormatCompactUSD() {
+        XCTAssertEqual(UsageDisplayData.formatCompactUSD(1250), "12.5")
+        XCTAssertEqual(UsageDisplayData.formatCompactUSD(5000), "50.0")
+        XCTAssertEqual(UsageDisplayData.formatCompactUSD(0), "0.0")
+        XCTAssertEqual(UsageDisplayData.formatCompactUSD(99), "1.0")
+    }
+
+    // MARK: - Helpers
+
     private func makeCreditData(
         usedCents: Int,
         limitCents: Int,

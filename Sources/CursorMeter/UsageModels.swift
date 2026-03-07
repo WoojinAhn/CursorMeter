@@ -139,6 +139,21 @@ struct UsageDisplayData: Sendable {
         return "\(requestsUsed) / \(requestsLimit)"
     }
 
+    /// Compact fraction text for the menu bar icon (no `$`, 1 decimal for credit)
+    var menuBarUsedText: String {
+        if isCreditBased {
+            return Self.formatCompactUSD(planUsedCents ?? 0)
+        }
+        return "\(requestsUsed)"
+    }
+
+    var menuBarLimitText: String {
+        if isCreditBased {
+            return Self.formatCompactUSD(planLimitCents ?? 0)
+        }
+        return "\(requestsLimit)"
+    }
+
     var usageLabel: String {
         isCreditBased ? "Plan Usage" : "Requests"
     }
@@ -156,6 +171,11 @@ struct UsageDisplayData: Sendable {
 
     private static func formatUSD(_ cents: Int) -> String {
         String(format: "$%.2f", Double(cents) / 100.0)
+    }
+
+    /// Compact dollar format for menu bar: no `$` sign, 1 decimal place
+    static func formatCompactUSD(_ cents: Int) -> String {
+        String(format: "%.1f", Double(cents) / 100.0)
     }
 
     var resetText: String? {

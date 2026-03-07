@@ -37,15 +37,15 @@ enum CircularProgressIcon {
     }
 
     /// Pie chart + fraction text (used / limit) as a single NSImage
-    static func menuBarImageWithText(percent: Double, used: Int, limit: Int) -> NSImage {
+    static func menuBarImageWithText(percent: Double, usedText: String, limitText: String) -> NSImage {
         let pieSize: CGFloat = 20
         let font = NSFont.monospacedDigitSystemFont(ofSize: 8, weight: .medium)
         let textColor = NSColor.labelColor
 
-        let usedStr = NSAttributedString(string: "\(used)", attributes: [
+        let usedStr = NSAttributedString(string: usedText, attributes: [
             .font: font, .foregroundColor: textColor,
         ])
-        let limitStr = NSAttributedString(string: "\(limit)", attributes: [
+        let limitStr = NSAttributedString(string: limitText, attributes: [
             .font: font, .foregroundColor: textColor,
         ])
 
@@ -93,6 +93,43 @@ enum CircularProgressIcon {
                 x: textX + (textWidth - usedSize.width) / 2,
                 y: textY + limitSize.height + lineHeight
             ))
+
+            return true
+        }
+        image.isTemplate = false
+        return image
+    }
+
+    /// Pie chart + percent text as a single NSImage
+    static func menuBarImageWithPercent(percent: Double) -> NSImage {
+        let pieSize: CGFloat = 20
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .medium)
+        let textColor = NSColor.labelColor
+
+        let percentStr = NSAttributedString(string: "\(Int(percent))%", attributes: [
+            .font: font, .foregroundColor: textColor,
+        ])
+        let textSize = percentStr.size()
+        let gap: CGFloat = 3
+
+        let totalWidth = pieSize + gap + textSize.width + 1
+        let totalHeight: CGFloat = 22
+
+        let image = NSImage(size: NSSize(width: totalWidth, height: totalHeight), flipped: false) { rect in
+            guard let ctx = NSGraphicsContext.current?.cgContext else { return false }
+
+            // Draw pie (vertically centered)
+            let pieY = (totalHeight - pieSize) / 2
+            ctx.saveGState()
+            ctx.translateBy(x: 0, y: pieY)
+            let pieRect = CGRect(x: 0, y: 0, width: pieSize, height: pieSize)
+            drawPie(in: ctx, rect: pieRect, percent: percent)
+            ctx.restoreGState()
+
+            // Draw percent text (vertically centered)
+            let textX = pieSize + gap
+            let textY = (totalHeight - textSize.height) / 2
+            percentStr.draw(at: NSPoint(x: textX, y: textY))
 
             return true
         }

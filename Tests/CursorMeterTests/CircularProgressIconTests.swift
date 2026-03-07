@@ -54,4 +54,40 @@ final class CircularProgressIconTests: XCTestCase {
         let image = CircularProgressIcon.menuBarImage(percent: 50)
         XCTAssertFalse(image.isTemplate)
     }
+
+    // MARK: - Menu Bar Image With Text (String)
+
+    func testMenuBarImageWithTextNotNil() {
+        let image = CircularProgressIcon.menuBarImageWithText(
+            percent: 50, usedText: "150", limitText: "500"
+        )
+        XCTAssertGreaterThan(image.size.width, 0)
+        XCTAssertEqual(image.size.height, 22)
+    }
+
+    func testMenuBarImageWithTextCreditFormat() {
+        let image = CircularProgressIcon.menuBarImageWithText(
+            percent: 25, usedText: "12.5", limitText: "50.0"
+        )
+        XCTAssertGreaterThan(image.size.width, 0)
+        XCTAssertFalse(image.isTemplate)
+    }
+
+    // MARK: - Menu Bar Image With Percent
+
+    func testMenuBarImageWithPercentNotNil() {
+        let image = CircularProgressIcon.menuBarImageWithPercent(percent: 75)
+        XCTAssertGreaterThan(image.size.width, 0)
+        XCTAssertEqual(image.size.height, 22)
+    }
+
+    func testMenuBarImageWithPercentNotTemplate() {
+        let image = CircularProgressIcon.menuBarImageWithPercent(percent: 50)
+        XCTAssertFalse(image.isTemplate)
+    }
+
+    func testMenuBarImageWithPercentZero() {
+        let image = CircularProgressIcon.menuBarImageWithPercent(percent: 0)
+        XCTAssertGreaterThan(image.size.width, 0)
+    }
 }
