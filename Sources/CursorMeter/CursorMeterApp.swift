@@ -184,9 +184,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // onChange is called on an arbitrary thread; dispatch back to MainActor.
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                updateStatusItem()
-                (popover.contentViewController as? MenuBarPopoverViewController)?.updateUI()
-                observeViewModel() // Re-subscribe for the next change.
+                self.updateStatusItem()
+                (self.popover.contentViewController as? MenuBarPopoverViewController)?.updateUI()
+                self.observeViewModel() // Re-subscribe for the next change.
             }
         }
     }
