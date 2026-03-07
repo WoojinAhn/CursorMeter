@@ -30,7 +30,7 @@ Every feature issue follows this sequence:
 
 1. **Test case selection** — Define tests for the logic being changed/added before writing code
 2. **Implementation** — Write feature code and test code together
-3. **`swift test`** — All tests must pass (currently 111)
+3. **`swift test`** — All tests must pass (currently 121)
 4. **Commit/push** — Reference issue number in commit message
 5. **Post-close check** — After closing an issue, run `gh issue list --state open` and show remaining issues to the user
 
