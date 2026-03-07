@@ -20,6 +20,7 @@ final class SettingsViewController: NSViewController {
     private var criticalValueLabel = NSTextField()
     private var criticalSlider = NSSlider()
     private var showMenuBarTextToggle = NSButton()
+    private var showMenuBarPercentToggle = NSButton()
     private var launchAtLoginToggle = NSButton()
 
     // Updates row controls
@@ -131,6 +132,8 @@ final class SettingsViewController: NSViewController {
 
         // Menu bar text
         showMenuBarTextToggle.state = viewModel.showMenuBarText ? .on : .off
+        showMenuBarPercentToggle.state = viewModel.showMenuBarPercent ? .on : .off
+        showMenuBarPercentToggle.isEnabled = viewModel.showMenuBarText
 
         // Launch at login
         launchAtLoginToggle.state = SMAppService.mainApp.status == .enabled ? .on : .off
@@ -205,7 +208,16 @@ final class SettingsViewController: NSViewController {
             title: "Show usage text next to icon",
             action: #selector(showMenuBarTextChanged)
         )
-        return showMenuBarTextToggle
+        showMenuBarPercentToggle = makeCheckbox(
+            title: "Show percentage instead of fraction",
+            action: #selector(showMenuBarPercentChanged)
+        )
+
+        let stack = NSStackView(views: [showMenuBarTextToggle, showMenuBarPercentToggle])
+        stack.orientation = .vertical
+        stack.alignment = .left
+        stack.spacing = 4
+        return stack
     }
 
     private func makeGeneralSection() -> NSView {
@@ -296,7 +308,13 @@ final class SettingsViewController: NSViewController {
     }
 
     @objc private func showMenuBarTextChanged() {
-        viewModel.setShowMenuBarText(showMenuBarTextToggle.state == .on)
+        let enabled = showMenuBarTextToggle.state == .on
+        viewModel.setShowMenuBarText(enabled)
+        showMenuBarPercentToggle.isEnabled = enabled
+    }
+
+    @objc private func showMenuBarPercentChanged() {
+        viewModel.setShowMenuBarPercent(showMenuBarPercentToggle.state == .on)
     }
 
     @objc private func launchAtLoginChanged() {

@@ -42,6 +42,7 @@ final class UsageViewModel {
     var warningThreshold: Int = 80
     var criticalThreshold: Int = 90
     var showMenuBarText: Bool = false
+    var showMenuBarPercent: Bool = false
 
     // MARK: - Private
 
@@ -197,6 +198,11 @@ final class UsageViewModel {
         UserDefaults.standard.set(show, forKey: "showMenuBarText")
     }
 
+    func setShowMenuBarPercent(_ show: Bool) {
+        showMenuBarPercent = show
+        UserDefaults.standard.set(show, forKey: "showMenuBarPercent")
+    }
+
     func checkForUpdate() async {
         isCheckingUpdate = true
         async let result = UpdateChecker.shared.check()
@@ -229,6 +235,9 @@ final class UsageViewModel {
         }
         if let val = defaults.object(forKey: "showMenuBarText") as? Bool {
             showMenuBarText = val
+        }
+        if let val = defaults.object(forKey: "showMenuBarPercent") as? Bool {
+            showMenuBarPercent = val
         }
     }
 
