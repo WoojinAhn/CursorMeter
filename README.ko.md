@@ -12,6 +12,7 @@
 - 메뉴바 파이 차트 아이콘으로 사용량 시각화 (초록/노랑/빨강 색상 단계)
 - 메뉴바에서 요청 사용량(사용/한도) 및 리셋 날짜 확인
 - 사용량 임계치 도달 시 macOS 알림 (80%/90%, 커스텀 가능)
+- 메뉴바 표시 모드 전환: 분수(사용/한도) 또는 퍼센트(%)
 - 설정 UI (새로고침 간격, 알림 임계치, 메뉴바 표시 형식)
 - 로그인 시 자동 실행 지원
 - 앱 내 업데이트 확인
@@ -63,6 +64,10 @@ Unit test (LogRedactor, UsageDisplayData, DomainWhitelist, CircularProgressIcon,
 ## 주의사항
 
 이 앱은 Cursor의 **비공식 내부 API** (`/api/usage`, `/api/usage-summary`, `/api/auth/me`)를 사용합니다. 해당 엔드포인트는 사전 고지 없이 변경되거나 차단될 수 있습니다.
+
+## 로드맵
+
+- [ ] 요청 한도 소진 시 On-demand 사용량으로 프로그레스 전환 ([#36](https://github.com/WoojinAhn/CursorMeter/issues/36))
 
 ## 라이선스
 

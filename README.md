@@ -12,6 +12,7 @@ Unlike in-editor extensions, CursorMeter runs independently as a native macOS ap
 - Pie chart icon in menu bar visualizing usage (green/yellow/red color levels)
 - View request usage (used/limit) and reset date from the menu bar
 - macOS notifications when usage reaches thresholds (80%/90%, customizable)
+- Menu bar display mode toggle: fraction (used/limit) or percentage (%)
 - Settings UI (refresh interval, notification thresholds, menu bar display format)
 - Launch at login support
 - In-app update checker
@@ -63,6 +64,10 @@ Unit tests (LogRedactor, UsageDisplayData, DomainWhitelist, CircularProgressIcon
 ## Disclaimer
 
 This app uses Cursor's **undocumented internal APIs** (`/api/usage`, `/api/usage-summary`, `/api/auth/me`). These endpoints may change or be blocked at any time without notice.
+
+## Roadmap
+
+- [ ] Switch progress display to on-demand when request quota exhausted ([#36](https://github.com/WoojinAhn/CursorMeter/issues/36))
 
 ## License
 
