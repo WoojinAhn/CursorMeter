@@ -62,12 +62,19 @@ jobs:
             echo 'body<<BODY_EOF'
             echo "## Install"
             echo ""
-            echo "1. Download **CursorMeter-${VERSION}.zip** below"
-            echo '2. Unzip and move `CursorMeter.app` to `/Applications`'
-            echo "3. Launch from Applications or Spotlight"
+            echo "### Quick Install (recommended)"
+            echo '```bash'
+            echo "curl -sL https://raw.githubusercontent.com/WoojinAhn/CursorMeter/main/Scripts/install.sh -o /tmp/install.sh"
+            echo "cd ~/Downloads && bash /tmp/install.sh"
+            echo '```'
             echo ""
-            echo "> macOS may show a security warning for unsigned apps."
-            echo "> Go to **System Settings → Privacy & Security** and click **Open Anyway**."
+            echo "### Manual Install"
+            echo "1. Download **CursorMeter-${VERSION}.zip** below"
+            echo "2. Unzip the archive"
+            echo '3. Remove quarantine: `xattr -cr CursorMeter.app`'
+            echo '4. If upgrading, quit the running app first (menu bar → Quit)'
+            echo '5. Move `CursorMeter.app` to `/Applications`'
+            echo "6. Launch from Applications or Spotlight"
             echo ""
             echo "---"
             echo ""
