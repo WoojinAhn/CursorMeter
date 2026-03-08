@@ -5,10 +5,8 @@ APP_NAME="CursorMeter"
 APP_DEST="/Applications/${APP_NAME}.app"
 ZIP_NAME=""
 
-# Find the zip file
-for f in ${APP_NAME}-*.zip ${APP_NAME}.zip; do
-    [ -f "$f" ] && ZIP_NAME="$f" && break
-done
+# Find the latest zip file (sort by version descending)
+ZIP_NAME=$(ls -1 ${APP_NAME}-*.zip ${APP_NAME}.zip 2>/dev/null | sort -t'-' -k2 -V -r | head -1)
 
 if [ -z "$ZIP_NAME" ]; then
     echo "Error: ${APP_NAME}-*.zip not found in current directory."
