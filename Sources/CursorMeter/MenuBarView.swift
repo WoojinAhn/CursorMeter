@@ -32,7 +32,7 @@ final class MenuBarPopoverViewController: NSViewController {
     private let refreshButton    = NSButton()
 
     // Progress row
-    private let progressBar      = NSProgressIndicator()
+    private let progressBar      = ColoredProgressBar()
     private let percentLabel     = NSTextField(labelWithString: "")
 
     // On-demand row (hidden when nil)
@@ -226,10 +226,6 @@ final class MenuBarPopoverViewController: NSViewController {
         progressRow.spacing = 6
         progressRow.translatesAutoresizingMaskIntoConstraints = false
 
-        progressBar.style                 = .bar
-        progressBar.isIndeterminate       = false
-        progressBar.minValue              = 0
-        progressBar.maxValue              = 1
         progressBar.translatesAutoresizingMaskIntoConstraints = false
         progressBar.heightAnchor.constraint(equalToConstant: 6).isActive = true
         progressBar.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -388,9 +384,8 @@ final class MenuBarPopoverViewController: NSViewController {
         refreshButton.isHidden      = (viewModel.authState != .loggedIn)
 
         // Progress
-        let clampedRatio = min(data.percentUsed / 100.0, 1.0)
-        progressBar.doubleValue  = clampedRatio
-        applyProgressBarColor(progressNSColor(for: data.percentUsed))
+        progressBar.progress = min(data.percentUsed / 100.0, 1.0)
+        progressBar.barColor = progressNSColor(for: data.percentUsed)
         percentLabel.stringValue = data.percentText
 
         // On-demand
@@ -547,32 +542,6 @@ final class MenuBarPopoverViewController: NSViewController {
         label.setContentHuggingPriority(.defaultHigh, for: .horizontal)
     }
 
-    // MARK: - Progress bar color
-
-    /// NSProgressIndicator does not expose a tint API on macOS 14.
-    /// The standard technique is to apply a CIFilter to the indicator's layer.
-    private func applyProgressBarColor(_ color: NSColor) {
-        progressBar.wantsLayer = true
-        // Remove any previously applied color filter before setting a new one.
-        progressBar.layer?.filters = nil
-
-        guard let cgColor = color.usingColorSpace(.deviceRGB)?.cgColor,
-              let components = cgColor.components, components.count >= 3 else { return }
-
-        let r = components[0], g = components[1], b = components[2]
-        // Use a color matrix CIFilter to tint the bar fill.
-        // The matrix maps the original blue bar color to the desired color.
-        let colorMatrix = CIFilter(name: "CIColorMatrix")
-        colorMatrix?.setValue(CIVector(x: 0, y: 0, z: 0, w: 0), forKey: "inputRVector")
-        colorMatrix?.setValue(CIVector(x: 0, y: 0, z: 0, w: 0), forKey: "inputGVector")
-        colorMatrix?.setValue(CIVector(x: 0, y: 0, z: 0, w: 0), forKey: "inputBVector")
-        colorMatrix?.setValue(CIVector(x: 0, y: 0, z: 0, w: 1), forKey: "inputAVector")
-        colorMatrix?.setValue(CIVector(x: r, y: g, z: b, w: 0), forKey: "inputBiasVector")
-        if let filter = colorMatrix {
-            progressBar.layer?.filters = [filter]
-        }
-    }
-
     // MARK: - Progress color (NSColor mapping matching CircularProgressIcon thresholds)
 
     private func progressNSColor(for percent: Double) -> NSColor {
@@ -646,5 +615,47 @@ private final class MenuRowButton: NSButton {
 
     @objc private func buttonClicked() {
         actionHandler()
+    }
+}
+
+// MARK: - ColoredProgressBar
+
+/// A simple custom progress bar that draws fill and track with explicit colors.
+private final class ColoredProgressBar: NSView {
+
+    var progress: Double = 0 {
+        didSet { needsDisplay = true }
+    }
+
+    var barColor: NSColor = .systemGreen {
+        didSet { needsDisplay = true }
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.cornerRadius = 3
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let trackColor = NSColor.quaternaryLabelColor
+        let rect = bounds
+
+        // Track
+        trackColor.setFill()
+        let trackPath = NSBezierPath(roundedRect: rect, xRadius: 3, yRadius: 3)
+        trackPath.fill()
+
+        // Fill
+        let fillWidth = rect.width * CGFloat(min(max(progress, 0), 1))
+        if fillWidth > 0 {
+            let fillRect = NSRect(x: 0, y: 0, width: fillWidth, height: rect.height)
+            barColor.setFill()
+            let fillPath = NSBezierPath(roundedRect: fillRect, xRadius: 3, yRadius: 3)
+            fillPath.fill()
+        }
     }
 }
