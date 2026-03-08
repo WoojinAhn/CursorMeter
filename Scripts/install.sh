@@ -3,18 +3,25 @@ set -euo pipefail
 
 APP_NAME="CursorMeter"
 APP_DEST="/Applications/${APP_NAME}.app"
-ZIP_NAME=""
+REPO="WoojinAhn/CursorMeter"
 
-# Find the latest zip file (sort by version descending)
-ZIP_NAME=$(ls -1 ${APP_NAME}-*.zip ${APP_NAME}.zip 2>/dev/null | sort -t'-' -k2 -V -r | head -1)
+# Fetch latest release info from GitHub API
+echo "Fetching latest release..."
+RELEASE_JSON=$(curl -sL "https://api.github.com/repos/${REPO}/releases/latest")
+VERSION=$(echo "$RELEASE_JSON" | grep -m1 '"tag_name"' | sed 's/.*"tag_name": *"//;s/".*//')
+ZIP_URL=$(echo "$RELEASE_JSON" | grep -m1 '"browser_download_url"' | sed 's/.*"browser_download_url": *"//;s/".*//')
 
-if [ -z "$ZIP_NAME" ]; then
-    echo "Error: ${APP_NAME}-*.zip not found in current directory."
-    echo "Usage: cd ~/Downloads && bash install.sh"
+if [ -z "$VERSION" ] || [ -z "$ZIP_URL" ]; then
+    echo "Error: Failed to fetch release info."
     exit 1
 fi
 
-echo "Installing ${APP_NAME} from ${ZIP_NAME}..."
+ZIP_NAME="${APP_NAME}-${VERSION#v}.zip"
+echo "Latest version: ${VERSION}"
+
+# Download
+echo "Downloading ${ZIP_NAME}..."
+curl -sL "$ZIP_URL" -o "/tmp/${ZIP_NAME}"
 
 # 1. Quit running app
 if pgrep -x "$APP_NAME" > /dev/null 2>&1; then
@@ -30,18 +37,18 @@ if [ -d "$APP_DEST" ]; then
 fi
 
 # 3. Unzip
-echo "Extracting ${ZIP_NAME}..."
+echo "Extracting..."
 TEMP_DIR=$(mktemp -d)
-ditto -xk "$ZIP_NAME" "$TEMP_DIR"
+ditto -xk "/tmp/${ZIP_NAME}" "$TEMP_DIR"
 
 # 4. Remove quarantine attribute
 xattr -cr "${TEMP_DIR}/${APP_NAME}.app"
 
 # 5. Move to /Applications
 mv "${TEMP_DIR}/${APP_NAME}.app" "$APP_DEST"
-rm -rf "$TEMP_DIR"
+rm -rf "$TEMP_DIR" "/tmp/${ZIP_NAME}"
 
 echo "Launching ${APP_NAME}..."
 open "$APP_DEST"
 
-echo "Done!"
+echo "Done! ${APP_NAME} ${VERSION} installed."

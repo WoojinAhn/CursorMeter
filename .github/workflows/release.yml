@@ -64,8 +64,7 @@ jobs:
             echo ""
             echo "### Quick Install (recommended)"
             echo '```bash'
-            echo "curl -sL https://raw.githubusercontent.com/WoojinAhn/CursorMeter/main/Scripts/install.sh -o /tmp/install.sh"
-            echo "cd ~/Downloads && bash /tmp/install.sh"
+            echo "curl -sL https://raw.githubusercontent.com/WoojinAhn/CursorMeter/main/Scripts/install.sh | bash"
             echo '```'
             echo ""
             echo "### Manual Install"
