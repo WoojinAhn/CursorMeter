@@ -79,6 +79,10 @@ This app uses Cursor's **undocumented internal APIs** (`/api/usage`, `/api/usage
 
 - [ ] Switch progress display to on-demand when request quota exhausted ([#36](https://github.com/WoojinAhn/CursorMeter/issues/36))
 
+## Contributing
+
+Found a bug or have an idea? [Open an issue](https://github.com/WoojinAhn/CursorMeter/issues) — feedback and suggestions are always welcome.
+
 ## Screenshots
 
 <table>
