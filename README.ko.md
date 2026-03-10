@@ -6,6 +6,13 @@
 
 <h1 align="center">CursorMeter</h1>
 
+<p align="center">
+  <img src="https://img.shields.io/badge/macOS-14%2B-blue" alt="macOS 14+">
+  <img src="https://img.shields.io/badge/Swift-6-orange" alt="Swift 6">
+  <img src="https://img.shields.io/github/license/WoojinAhn/CursorMeter" alt="License">
+  <img src="https://img.shields.io/github/v/release/WoojinAhn/CursorMeter" alt="Release">
+</p>
+
 [Cursor](https://www.cursor.com/) IDE의 사용량을 macOS 메뉴바에서 한눈에 모니터링하는 경량 앱입니다. 브라우저 탭을 열 필요 없이 실시간으로 확인할 수 있습니다.
 
 에디터 내 확장과 달리, CursorMeter는 네이티브 macOS 앱으로 독립 실행됩니다. IDE를 열지 않아도 메뉴바에서 항상 확인 가능하며, Keychain 기반으로 재시작 후에도 로그인이 유지됩니다.

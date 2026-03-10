@@ -6,6 +6,13 @@
 
 <h1 align="center">CursorMeter</h1>
 
+<p align="center">
+  <img src="https://img.shields.io/badge/macOS-14%2B-blue" alt="macOS 14+">
+  <img src="https://img.shields.io/badge/Swift-6-orange" alt="Swift 6">
+  <img src="https://img.shields.io/github/license/WoojinAhn/CursorMeter" alt="License">
+  <img src="https://img.shields.io/github/v/release/WoojinAhn/CursorMeter" alt="Release">
+</p>
+
 A lightweight macOS menu bar app for monitoring [Cursor](https://www.cursor.com/) IDE usage at a glance — no browser tab needed.
 
 Unlike in-editor extensions, CursorMeter runs independently as a native macOS app: always visible in the menu bar whether the IDE is open or not, with persistent login via Keychain across restarts.
