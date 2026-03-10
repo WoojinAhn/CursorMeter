@@ -1,7 +1,7 @@
 **English** | [한국어](README.ko.md)
 
 <p align="center">
-  <img src="Resources/AppIcon.png" width="128" alt="CursorMeter icon">
+  <img src="Resources/AppIcon.png" width="80" alt="CursorMeter icon">
 </p>
 
 <h1 align="center">CursorMeter</h1>
