@@ -17,14 +17,6 @@ A lightweight macOS menu bar app for monitoring [Cursor](https://www.cursor.com/
 
 Unlike in-editor extensions, CursorMeter runs independently as a native macOS app: always visible in the menu bar whether the IDE is open or not, with persistent login via Keychain across restarts.
 
-<p align="center">
-  <img src="docs/screenshots/menubar.png" alt="Menu bar" height="40">
-  &nbsp;&nbsp;&nbsp;
-  <img src="docs/screenshots/popover.png" alt="Popover" width="280">
-  &nbsp;&nbsp;&nbsp;
-  <img src="docs/screenshots/settings.png" alt="Settings" width="280">
-</p>
-
 ## Features
 
 - Gauge ring icon in menu bar with color thresholds (green → yellow → red)
@@ -86,6 +78,21 @@ This app uses Cursor's **undocumented internal APIs** (`/api/usage`, `/api/usage
 ## Roadmap
 
 - [ ] Switch progress display to on-demand when request quota exhausted ([#36](https://github.com/WoojinAhn/CursorMeter/issues/36))
+
+## Screenshots
+
+<table>
+  <tr>
+    <th align="center">Menu bar</th>
+    <th align="center">Popover</th>
+    <th align="center">Settings</th>
+  </tr>
+  <tr>
+    <td align="center" valign="top"><img src="docs/screenshots/menubar.png" alt="Menu bar" height="40"></td>
+    <td align="center" valign="top"><img src="docs/screenshots/popover.png" alt="Popover" width="280"></td>
+    <td align="center" valign="top"><img src="docs/screenshots/settings.png" alt="Settings" width="280"></td>
+  </tr>
+</table>
 
 ## License
 

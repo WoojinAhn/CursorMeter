@@ -17,14 +17,6 @@
 
 에디터 내 확장과 달리, CursorMeter는 네이티브 macOS 앱으로 독립 실행됩니다. IDE를 열지 않아도 메뉴바에서 항상 확인 가능하며, Keychain 기반으로 재시작 후에도 로그인이 유지됩니다.
 
-<p align="center">
-  <img src="docs/screenshots/menubar.png" alt="메뉴바" height="40">
-  &nbsp;&nbsp;&nbsp;
-  <img src="docs/screenshots/popover.png" alt="팝오버" width="280">
-  &nbsp;&nbsp;&nbsp;
-  <img src="docs/screenshots/settings.png" alt="설정" width="280">
-</p>
-
 ## 주요 기능
 
 - 메뉴바 게이지 링 아이콘으로 사용량 시각화 (초록 → 노랑 → 빨강 색상 단계)
@@ -86,6 +78,21 @@ Unit test (LogRedactor, UsageDisplayData, DomainWhitelist, CircularProgressIcon,
 ## 로드맵
 
 - [ ] 요청 한도 소진 시 On-demand 사용량으로 프로그레스 전환 ([#36](https://github.com/WoojinAhn/CursorMeter/issues/36))
+
+## 스크린샷
+
+<table>
+  <tr>
+    <th align="center">메뉴바</th>
+    <th align="center">팝오버</th>
+    <th align="center">설정</th>
+  </tr>
+  <tr>
+    <td align="center" valign="top"><img src="docs/screenshots/menubar.png" alt="메뉴바" height="40"></td>
+    <td align="center" valign="top"><img src="docs/screenshots/popover.png" alt="팝오버" width="280"></td>
+    <td align="center" valign="top"><img src="docs/screenshots/settings.png" alt="설정" width="280"></td>
+  </tr>
+</table>
 
 ## 라이선스
 
