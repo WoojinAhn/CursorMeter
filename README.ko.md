@@ -1,6 +1,6 @@
 [English](README.md) | **한국어**
 
-# CursorMeter
+# <img src="Resources/AppIcon.png" width="32" height="32" alt="CursorMeter icon"> CursorMeter
 
 [Cursor](https://www.cursor.com/) IDE의 사용량을 macOS 메뉴바에서 한눈에 모니터링하는 경량 앱입니다. 브라우저 탭을 열 필요 없이 실시간으로 확인할 수 있습니다.
 

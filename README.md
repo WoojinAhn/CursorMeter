@@ -1,6 +1,6 @@
 **English** | [한국어](README.ko.md)
 
-# CursorMeter
+# <img src="Resources/AppIcon.png" width="32" height="32" alt="CursorMeter icon"> CursorMeter
 
 A lightweight macOS menu bar app for monitoring [Cursor](https://www.cursor.com/) IDE usage at a glance — no browser tab needed.
 
