@@ -63,6 +63,9 @@ jobs:
             echo "## Install"
             echo ""
             echo "### Quick Install (recommended)"
+            echo ""
+            echo 'Downloads, unzips, removes quarantine, and moves to `/Applications` automatically. ([view script](https://github.com/WoojinAhn/CursorMeter/blob/main/Scripts/install.sh))'
+            echo ""
             echo '```bash'
             echo "curl -sL https://raw.githubusercontent.com/WoojinAhn/CursorMeter/main/Scripts/install.sh | bash"
             echo '```'
@@ -80,6 +83,9 @@ jobs:
             echo "## 설치"
             echo ""
             echo "### 빠른 설치 (권장)"
+            echo ""
+            echo '다운로드, 압축 해제, 격리 해제, `/Applications` 이동을 자동으로 수행합니다. ([스크립트 보기](https://github.com/WoojinAhn/CursorMeter/blob/main/Scripts/install.sh))'
+            echo ""
             echo '```bash'
             echo "curl -sL https://raw.githubusercontent.com/WoojinAhn/CursorMeter/main/Scripts/install.sh | bash"
             echo '```'
