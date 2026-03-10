@@ -13,9 +13,9 @@ Unlike in-editor extensions, CursorMeter runs independently as a native macOS ap
 
 ## Features
 
-- Pie chart icon in menu bar visualizing usage (green/yellow/red color levels)
-- View request usage (used/limit) and reset date from the menu bar
-- macOS notifications when usage reaches thresholds (80%/90%, customizable)
+- Gauge ring icon in menu bar with color thresholds (green → yellow → red)
+- View billing usage, per-model request counts, and reset date from the menu bar
+- macOS notifications when usage reaches thresholds (65%/90%, customizable)
 - Menu bar display mode toggle: fraction (used/limit) or percentage (%)
 - Settings UI (refresh interval, notification thresholds, menu bar display format)
 - Launch at login support
