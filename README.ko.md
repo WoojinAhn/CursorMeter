@@ -17,6 +17,13 @@
 
 에디터 내 확장과 달리, CursorMeter는 네이티브 macOS 앱으로 독립 실행됩니다. IDE를 열지 않아도 메뉴바에서 항상 확인 가능하며, Keychain 기반으로 재시작 후에도 로그인이 유지됩니다.
 
+<p align="center">
+  <img src="docs/screenshots/menubar.png" alt="메뉴바" height="40">
+  &nbsp;&nbsp;&nbsp;
+  <img src="docs/screenshots/popover.png" alt="팝오버" width="280">
+  &nbsp;&nbsp;&nbsp;
+  <img src="docs/screenshots/settings.png" alt="설정" width="280">
+</p>
 
 ## 주요 기능
 
