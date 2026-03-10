@@ -81,7 +81,7 @@ Unit test (LogRedactor, UsageDisplayData, DomainWhitelist, CircularProgressIcon,
 
 ## 기여하기
 
-버그를 발견하셨거나 아이디어가 있으신가요? [이슈를 열어주세요](https://github.com/WoojinAhn/CursorMeter/issues) — 피드백과 제안은 언제나 환영합니다.
+버그를 발견하셨거나 아이디어가 있으신가요? [이슈를 열어주세요](https://github.com/WoojinAhn/CursorMeter/issues) — 피드백과 제안은 언제나 환영합니다. 현재 Pull Request는 받지 않습니다.
 
 ## 스크린샷
 

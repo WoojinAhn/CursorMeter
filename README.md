@@ -81,7 +81,7 @@ This app uses Cursor's **undocumented internal APIs** (`/api/usage`, `/api/usage
 
 ## Contributing
 
-Found a bug or have an idea? [Open an issue](https://github.com/WoojinAhn/CursorMeter/issues) — feedback and suggestions are always welcome.
+Found a bug or have an idea? [Open an issue](https://github.com/WoojinAhn/CursorMeter/issues) — feedback and suggestions are always welcome. Pull requests are not accepted at this time.
 
 ## Screenshots
 
