@@ -3,6 +3,7 @@
 *.xcworkspace
 xcuserdata/
 *.xcuserstate
+DerivedData/
 
 # Swift Package Manager
 .build/
@@ -12,11 +13,29 @@ Package.resolved
 # macOS
 .DS_Store
 *.dSYM
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
 
 # Build artifacts
 *.app
 *.zip
 *.dmg
 
+# Environment & secrets
+.env
+.env.*
+
+# Claude Code
+.claude/
+
+# Playwright MCP artifacts
+.playwright-mcp/
+
 # Internal documents (not for public)
 docs/security-audit.md
+
+# Misc
+--pid
