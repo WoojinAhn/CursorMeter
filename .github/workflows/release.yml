@@ -77,6 +77,23 @@ jobs:
             echo ""
             echo "---"
             echo ""
+            echo "## 설치"
+            echo ""
+            echo "### 빠른 설치 (권장)"
+            echo '```bash'
+            echo "curl -sL https://raw.githubusercontent.com/WoojinAhn/CursorMeter/main/Scripts/install.sh | bash"
+            echo '```'
+            echo ""
+            echo "### 수동 설치"
+            echo "1. 아래에서 **CursorMeter-${VERSION}.zip** 다운로드"
+            echo "2. 압축 해제"
+            echo '3. 격리 해제: `xattr -cr CursorMeter.app`'
+            echo '4. 업그레이드 시, 실행 중인 앱 먼저 종료 (메뉴바 → Quit)'
+            echo '5. `CursorMeter.app`을 `/Applications`로 이동'
+            echo "6. Applications 또는 Spotlight에서 실행"
+            echo ""
+            echo "---"
+            echo ""
             echo "## What's Changed"
             if [ -n "$FEATURES" ]; then
               echo ""
