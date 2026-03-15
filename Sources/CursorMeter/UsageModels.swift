@@ -106,6 +106,9 @@ struct UsageDisplayData: Sendable {
     let planUsedCents: Int?
     let planLimitCents: Int?
 
+    // Server-calculated percentage (from totalPercentUsed)
+    let serverPercentUsed: Double?
+
     // Request-based plan — 0 when credit-based
     let requestsUsed: Int
     let requestsLimit: Int
@@ -119,7 +122,13 @@ struct UsageDisplayData: Sendable {
         planLimitCents != nil && planLimitCents! > 0
     }
 
+    /// True when API provides no usable used/limit values (e.g. free plan)
+    var isPercentOnly: Bool {
+        !isCreditBased && requestsLimit == 0 && serverPercentUsed != nil
+    }
+
     var percentUsed: Double {
+        if isPercentOnly, let server = serverPercentUsed { return server }
         if isCreditBased {
             guard let limit = planLimitCents, limit > 0, let used = planUsedCents else { return 0 }
             return Double(used) / Double(limit) * 100.0
@@ -133,6 +142,7 @@ struct UsageDisplayData: Sendable {
     }
 
     var usageText: String {
+        if isPercentOnly { return percentText }
         if isCreditBased {
             return "\(Self.formatUSD(planUsedCents ?? 0)) / \(Self.formatUSD(planLimitCents ?? 0))"
         }
@@ -141,6 +151,7 @@ struct UsageDisplayData: Sendable {
 
     /// Compact fraction text for the menu bar icon (no `$`, 1 decimal for credit)
     var menuBarUsedText: String {
+        if isPercentOnly { return percentText }
         if isCreditBased {
             return Self.formatCompactUSD(planUsedCents ?? 0)
         }
@@ -148,6 +159,7 @@ struct UsageDisplayData: Sendable {
     }
 
     var menuBarLimitText: String {
+        if isPercentOnly { return "" }
         if isCreditBased {
             return Self.formatCompactUSD(planLimitCents ?? 0)
         }
@@ -155,7 +167,8 @@ struct UsageDisplayData: Sendable {
     }
 
     var usageLabel: String {
-        isCreditBased ? "Plan Usage" : "Requests"
+        if isPercentOnly { return "Plan Usage" }
+        return isCreditBased ? "Plan Usage" : "Requests"
     }
 
     var hasOnDemand: Bool {
@@ -220,6 +233,7 @@ struct UsageDisplayData: Sendable {
             membershipType: summary.membershipType,
             planUsedCents: isRequestBased ? nil : plan?.used,
             planLimitCents: isRequestBased ? nil : plan?.limit,
+            serverPercentUsed: plan?.totalPercentUsed,
             requestsUsed: isRequestBased ? (model?.numRequestsTotal ?? model?.numRequests ?? 0) : 0,
             requestsLimit: isRequestBased ? (model?.maxRequestUsage ?? 0) : 0,
             onDemandUsedCents: onDemand?.used,
@@ -251,6 +265,7 @@ struct UsageDisplayData: Sendable {
             membershipType: nil,
             planUsedCents: nil,
             planLimitCents: nil,
+            serverPercentUsed: nil,
             requestsUsed: model?.numRequestsTotal ?? model?.numRequests ?? 0,
             requestsLimit: model?.maxRequestUsage ?? 0,
             onDemandUsedCents: nil,

@@ -344,6 +344,7 @@ final class UsageDisplayDataTests: XCTestCase {
             membershipType: nil,
             planUsedCents: nil,
             planLimitCents: nil,
+            serverPercentUsed: nil,
             requestsUsed: used,
             requestsLimit: limit,
             onDemandUsedCents: nil,
@@ -388,11 +389,82 @@ final class UsageDisplayDataTests: XCTestCase {
         XCTAssertEqual(UsageDisplayData.formatCompactUSD(99), "1.0")
     }
 
+    // MARK: - serverPercentUsed
+
+    func testPaidPlanIgnoresServerPercent() {
+        let data = makeCreditData(usedCents: 800, limitCents: 2000, serverPercent: 3.0)
+        XCTAssertEqual(data.percentUsed, 40.0, accuracy: 0.01, "Paid plan should use local calculation, not server value")
+    }
+
+    func testPercentOnlyUsesServerPercent() {
+        let data = UsageDisplayData(
+            email: "test@test.com", name: "Test", membershipType: "free",
+            planUsedCents: nil, planLimitCents: nil, serverPercentUsed: 5.5,
+            requestsUsed: 0, requestsLimit: 0,
+            onDemandUsedCents: nil, onDemandLimitCents: nil,
+            resetDate: nil, daysUntilReset: 5
+        )
+        XCTAssertTrue(data.isPercentOnly)
+        XCTAssertEqual(data.percentUsed, 5.5, accuracy: 0.01)
+    }
+
+    // MARK: - Free plan (serverPercentUsed only)
+
+    func testFromSummaryFreePlanUsesServerPercent() {
+        let summary = makeSummaryResponse(
+            billingCycleEnd: "2099-04-15T00:00:00.000Z",
+            membershipType: "free",
+            planUsed: 0,
+            planLimit: 0,
+            totalPercentUsed: 5.5
+        )
+        let usage = makeUsageResponse(numRequests: 0, maxRequestUsage: nil)
+        let userInfo = UserInfoResponse(email: "free@test.com", name: "Free")
+
+        let data = UsageDisplayData.from(summary: summary, usage: usage, userInfo: userInfo)
+
+        XCTAssertEqual(data.percentUsed, 5.5, accuracy: 0.01)
+        XCTAssertEqual(data.percentText, "5%")
+        XCTAssertEqual(data.membershipType, "free")
+    }
+
+    func testFreePlanUsageTextShowsPercentOnly() {
+        let summary = makeSummaryResponse(
+            billingCycleEnd: "2099-04-15T00:00:00.000Z",
+            membershipType: "free",
+            planUsed: 0,
+            planLimit: 0,
+            totalPercentUsed: 5.5
+        )
+        let userInfo = UserInfoResponse(email: "free@test.com", name: "Free")
+
+        let data = UsageDisplayData.from(summary: summary, usage: nil, userInfo: userInfo)
+
+        XCTAssertEqual(data.usageText, "5%", "Free plan should show percent instead of 0 / 0")
+    }
+
+    func testFreePlanMenuBarText() {
+        let summary = makeSummaryResponse(
+            billingCycleEnd: "2099-04-15T00:00:00.000Z",
+            membershipType: "free",
+            planUsed: 0,
+            planLimit: 0,
+            totalPercentUsed: 5.5
+        )
+        let userInfo = UserInfoResponse(email: "free@test.com", name: "Free")
+
+        let data = UsageDisplayData.from(summary: summary, usage: nil, userInfo: userInfo)
+
+        XCTAssertEqual(data.menuBarUsedText, "5%")
+        XCTAssertEqual(data.menuBarLimitText, "")
+    }
+
     // MARK: - Helpers
 
     private func makeCreditData(
         usedCents: Int,
         limitCents: Int,
+        serverPercent: Double? = nil,
         daysUntilReset: Int? = 5
     ) -> UsageDisplayData {
         UsageDisplayData(
@@ -401,6 +473,7 @@ final class UsageDisplayDataTests: XCTestCase {
             membershipType: "pro",
             planUsedCents: usedCents,
             planLimitCents: limitCents,
+            serverPercentUsed: serverPercent,
             requestsUsed: 0,
             requestsLimit: 0,
             onDemandUsedCents: nil,
@@ -438,11 +511,13 @@ final class UsageDisplayDataTests: XCTestCase {
 
     private func makeSummaryResponse(
         billingCycleEnd: String?,
+        membershipType: String? = nil,
         planUsed: Int? = nil,
-        planLimit: Int? = nil
+        planLimit: Int? = nil,
+        totalPercentUsed: Double? = nil
     ) -> UsageSummaryResponse {
-        let plan: PlanUsage? = (planUsed != nil || planLimit != nil)
-            ? PlanUsage(enabled: true, used: planUsed, limit: planLimit, remaining: nil, totalPercentUsed: nil)
+        let plan: PlanUsage? = (planUsed != nil || planLimit != nil || totalPercentUsed != nil)
+            ? PlanUsage(enabled: true, used: planUsed, limit: planLimit, remaining: nil, totalPercentUsed: totalPercentUsed)
             : nil
         let individual: IndividualUsage? = plan != nil
             ? IndividualUsage(plan: plan, onDemand: nil)
@@ -450,7 +525,7 @@ final class UsageDisplayDataTests: XCTestCase {
         return UsageSummaryResponse(
             billingCycleStart: nil,
             billingCycleEnd: billingCycleEnd,
-            membershipType: nil,
+            membershipType: membershipType,
             limitType: nil,
             isUnlimited: nil,
             individualUsage: individual,

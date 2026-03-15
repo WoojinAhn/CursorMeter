@@ -131,9 +131,10 @@ final class SettingsViewController: NSViewController {
         criticalValueLabel.stringValue = "\(critical)%"
 
         // Menu bar text
+        let percentOnly = viewModel.usageData?.isPercentOnly == true
         showMenuBarTextToggle.state = viewModel.showMenuBarText ? .on : .off
-        showMenuBarPercentToggle.state = viewModel.showMenuBarPercent ? .on : .off
-        showMenuBarPercentToggle.isEnabled = viewModel.showMenuBarText
+        showMenuBarPercentToggle.state = (viewModel.showMenuBarPercent || percentOnly) ? .on : .off
+        showMenuBarPercentToggle.isEnabled = viewModel.showMenuBarText && !percentOnly
 
         // Launch at login
         launchAtLoginToggle.state = SMAppService.mainApp.status == .enabled ? .on : .off

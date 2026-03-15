@@ -62,7 +62,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let button = statusItem?.button else { return }
 
         if let data = viewModel.usageData {
-            if viewModel.showMenuBarText && viewModel.showMenuBarPercent {
+            let forcePercent = data.isPercentOnly
+            if viewModel.showMenuBarText && (viewModel.showMenuBarPercent || forcePercent) {
                 button.image = CircularProgressIcon.menuBarImageWithPercent(
                     percent: data.percentUsed
                 )

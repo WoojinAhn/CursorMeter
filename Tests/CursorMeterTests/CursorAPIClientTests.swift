@@ -98,6 +98,37 @@ final class CursorAPIClientTests: XCTestCase {
         XCTAssertEqual(result.teamUsage?.onDemand?.limit, 120000)
     }
 
+    func testFetchUsageSummaryFreePlan() async throws {
+        let json = """
+        {
+            "billingCycleStart": "2026-03-15T03:23:58.561Z",
+            "billingCycleEnd": "2026-04-15T03:23:58.561Z",
+            "membershipType": "free",
+            "limitType": "user",
+            "isUnlimited": false,
+            "individualUsage": {
+                "plan": {
+                    "enabled": true,
+                    "used": 0,
+                    "limit": 0,
+                    "remaining": 0,
+                    "breakdown": { "included": 0, "bonus": 2, "total": 2 },
+                    "totalPercentUsed": 1
+                },
+                "onDemand": { "enabled": false, "used": 0, "limit": null, "remaining": null }
+            },
+            "teamUsage": {}
+        }
+        """
+        setMockResponse(statusCode: 200, json: json)
+
+        let result = try await client.fetchUsageSummary(cookieHeader: "session=test")
+
+        XCTAssertEqual(result.membershipType, "free")
+        XCTAssertEqual(result.individualUsage?.plan?.limit, 0)
+        XCTAssertEqual(result.individualUsage?.plan?.totalPercentUsed, 1)
+    }
+
     // MARK: - fetchUserInfo
 
     func testFetchUserInfoSuccess() async throws {
