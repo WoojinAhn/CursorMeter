@@ -62,12 +62,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let button = statusItem?.button else { return }
 
         if let data = viewModel.usageData {
-            let forcePercent = data.isPercentOnly
-            if viewModel.showMenuBarText && (viewModel.showMenuBarPercent || forcePercent) {
+            let mode = data.isPercentOnly ? 2 : viewModel.menuBarDisplayMode
+            if mode == 2 {
                 button.image = CircularProgressIcon.menuBarImageWithPercent(
                     percent: data.percentUsed
                 )
-            } else if viewModel.showMenuBarText {
+            } else if mode == 1 {
                 button.image = CircularProgressIcon.menuBarImageWithText(
                     percent: data.percentUsed,
                     usedText: data.menuBarUsedText,
@@ -174,8 +174,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         withObservationTracking {
             // Access every property that should trigger a status item or popover redraw.
             _ = viewModel.usageData
-            _ = viewModel.showMenuBarText
-            _ = viewModel.showMenuBarPercent
+            _ = viewModel.menuBarDisplayMode
             _ = viewModel.isLoading
             _ = viewModel.errorMessage
             _ = viewModel.authState

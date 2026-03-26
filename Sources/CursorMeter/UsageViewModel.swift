@@ -41,8 +41,8 @@ final class UsageViewModel {
     var notificationEnabled: Bool = true
     var warningThreshold: Int = 80
     var criticalThreshold: Int = 90
-    var showMenuBarText: Bool = false
-    var showMenuBarPercent: Bool = false
+    /// 0 = none, 1 = fraction (e.g. 120/500), 2 = percent (e.g. 24%)
+    var menuBarDisplayMode: Int = 0
 
     // MARK: - Private
 
@@ -193,14 +193,9 @@ final class UsageViewModel {
         UserDefaults.standard.set(value, forKey: "criticalThreshold")
     }
 
-    func setShowMenuBarText(_ show: Bool) {
-        showMenuBarText = show
-        UserDefaults.standard.set(show, forKey: "showMenuBarText")
-    }
-
-    func setShowMenuBarPercent(_ show: Bool) {
-        showMenuBarPercent = show
-        UserDefaults.standard.set(show, forKey: "showMenuBarPercent")
+    func setMenuBarDisplayMode(_ mode: Int) {
+        menuBarDisplayMode = mode
+        UserDefaults.standard.set(mode, forKey: "menuBarDisplayMode")
     }
 
     func checkForUpdate() async {
@@ -233,11 +228,17 @@ final class UsageViewModel {
         if let val = defaults.object(forKey: "criticalThreshold") as? Int {
             criticalThreshold = max(min(val, 100), warningThreshold + 5)
         }
-        if let val = defaults.object(forKey: "showMenuBarText") as? Bool {
-            showMenuBarText = val
-        }
-        if let val = defaults.object(forKey: "showMenuBarPercent") as? Bool {
-            showMenuBarPercent = val
+        if let val = defaults.object(forKey: "menuBarDisplayMode") as? Int {
+            menuBarDisplayMode = val
+        } else {
+            // Migrate from old boolean settings
+            let hadText = defaults.object(forKey: "showMenuBarText") as? Bool ?? false
+            let hadPercent = defaults.object(forKey: "showMenuBarPercent") as? Bool ?? false
+            if hadText && hadPercent {
+                menuBarDisplayMode = 2
+            } else if hadText {
+                menuBarDisplayMode = 1
+            }
         }
     }
 

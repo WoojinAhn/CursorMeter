@@ -19,8 +19,7 @@ final class SettingsViewController: NSViewController {
     private var warningSlider = NSSlider()
     private var criticalValueLabel = NSTextField()
     private var criticalSlider = NSSlider()
-    private var showMenuBarTextToggle = NSButton()
-    private var showMenuBarPercentToggle = NSButton()
+    private var menuBarDisplayPopUp = NSPopUpButton()
     private var launchAtLoginToggle = NSButton()
 
     // Updates row controls
@@ -130,11 +129,15 @@ final class SettingsViewController: NSViewController {
         criticalSlider.integerValue = critical
         criticalValueLabel.stringValue = "\(critical)%"
 
-        // Menu bar text
+        // Menu bar display mode
         let percentOnly = viewModel.usageData?.isPercentOnly == true
-        showMenuBarTextToggle.state = viewModel.showMenuBarText ? .on : .off
-        showMenuBarPercentToggle.state = (viewModel.showMenuBarPercent || percentOnly) ? .on : .off
-        showMenuBarPercentToggle.isEnabled = viewModel.showMenuBarText && !percentOnly
+        if percentOnly {
+            menuBarDisplayPopUp.selectItem(at: 2)
+            menuBarDisplayPopUp.item(at: 1)?.isEnabled = false
+        } else {
+            menuBarDisplayPopUp.selectItem(at: viewModel.menuBarDisplayMode)
+            menuBarDisplayPopUp.item(at: 1)?.isEnabled = true
+        }
 
         // Launch at login
         launchAtLoginToggle.state = SMAppService.mainApp.status == .enabled ? .on : .off
@@ -205,19 +208,23 @@ final class SettingsViewController: NSViewController {
     }
 
     private func makeMenuBarSection() -> NSView {
-        showMenuBarTextToggle = makeCheckbox(
-            title: "Show usage text next to icon",
-            action: #selector(showMenuBarTextChanged)
-        )
-        showMenuBarPercentToggle = makeCheckbox(
-            title: "Show % instead of fraction",
-            action: #selector(showMenuBarPercentChanged)
-        )
+        menuBarDisplayPopUp = NSPopUpButton(frame: .zero, pullsDown: false)
+        menuBarDisplayPopUp.addItems(withTitles: [
+            "None",
+            "Ratio (e.g. 120/500)",
+            "Percent (e.g. 24%)",
+        ])
+        menuBarDisplayPopUp.target = self
+        menuBarDisplayPopUp.action = #selector(menuBarDisplayModeChanged)
+        menuBarDisplayPopUp.selectItem(at: viewModel.menuBarDisplayMode)
 
-        let stack = NSStackView(views: [showMenuBarTextToggle, showMenuBarPercentToggle])
+        let label = makeLabel("Usage text next to icon:")
+        label.textColor = .labelColor
+
+        let stack = NSStackView(views: [label, menuBarDisplayPopUp])
         stack.orientation = .vertical
         stack.alignment = .left
-        stack.spacing = 4
+        stack.spacing = 6
         return stack
     }
 
@@ -331,14 +338,8 @@ final class SettingsViewController: NSViewController {
         criticalValueLabel.stringValue = "\(Int(stepped))%"
     }
 
-    @objc private func showMenuBarTextChanged() {
-        let enabled = showMenuBarTextToggle.state == .on
-        viewModel.setShowMenuBarText(enabled)
-        showMenuBarPercentToggle.isEnabled = enabled
-    }
-
-    @objc private func showMenuBarPercentChanged() {
-        viewModel.setShowMenuBarPercent(showMenuBarPercentToggle.state == .on)
+    @objc private func menuBarDisplayModeChanged() {
+        viewModel.setMenuBarDisplayMode(menuBarDisplayPopUp.indexOfSelectedItem)
     }
 
     @objc private func launchAtLoginChanged() {
