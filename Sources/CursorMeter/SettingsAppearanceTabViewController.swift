@@ -165,7 +165,7 @@ final class SettingsAppearanceTabViewController: NSViewController {
         return SettingsCardFactory.makeCard(units: [
             SettingsCardFactory.makeCardRow(
                 title: "Show weekly chart",
-                caption: "Rolling 7-day usage. Enterprise team accounts only.",
+                caption: "Rolling 7-day usage.",
                 control: weeklyChartToggle
             ),
             SettingsCardFactory.makeDividedUnit(SettingsCardFactory.makeCardRow(
