@@ -519,7 +519,7 @@ final class MenuBarPopoverViewController: NSViewController {
             secondaryRow.isHidden = true
         }
 
-        // Weekly chart (enterprise + master toggle gate).
+        // Weekly chart (availability + master toggle gate).
         if viewModel.weeklyChartEnabled,
            viewModel.weeklyChartAvailable,
            let weekly = viewModel.weeklyData, weekly.count == 7

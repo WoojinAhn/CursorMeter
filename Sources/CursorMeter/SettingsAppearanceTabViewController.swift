@@ -77,7 +77,7 @@ final class SettingsAppearanceTabViewController: NSViewController {
         jumpGlyphStyleSegmented.selectedSegment = viewModel.jumpGlyphStyle.rawValue
         jumpSubRowsContainer.isHidden = !viewModel.jumpEffectEnabled
 
-        // Weekly chart — visible only on enterprise team accounts.
+        // Weekly chart — visible once a weekly fetch has succeeded for the account (#103).
         weeklyChartSection.isHidden = !viewModel.weeklyChartAvailable
         weeklyChartToggle.state = viewModel.weeklyChartEnabled ? .on : .off
         weeklyChartStyleSegmented.selectedSegment = viewModel.weeklyChartStyle.rawValue

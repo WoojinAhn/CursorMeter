@@ -22,7 +22,7 @@ final class WeeklyUsageTests: XCTestCase {
     /// MockURLProtocol receives `URLRequest` with `httpBody` stripped — the
     /// body is delivered via `httpBodyStream` instead. Reads whichever is
     /// available so assertions on body content are resilient.
-    private static func bodyData(from request: URLRequest) -> Data {
+    static func bodyData(from request: URLRequest) -> Data {
         if let direct = request.httpBody { return direct }
         guard let stream = request.httpBodyStream else { return Data() }
         stream.open()
@@ -680,5 +680,148 @@ final class WeeklyUsageTests: XCTestCase {
     private func clearWeeklyChartDefaults() {
         UserDefaults.standard.removeObject(forKey: "weeklyChartEnabled")
         UserDefaults.standard.removeObject(forKey: "weeklyChartStyle")
+    }
+}
+
+@MainActor
+final class PersonalWeeklyPathTests: XCTestCase {
+
+    override func tearDown() {
+        MockURLProtocol.requestHandler = nil
+        super.tearDown()
+    }
+
+    private func makeViewModel() -> UsageViewModel {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockURLProtocol.self]
+        let vm = UsageViewModel(apiClient: CursorAPIClient(configuration: config))
+        vm.updateCheckRunner = { .upToDate }
+        vm.keychainDeleteHandler = {}
+        vm.sessionExpiredNotifier = {}
+        vm.refreshFailingNotifier = {}
+        vm.testHook_setCookieHeader("WorkosCursorSessionToken=t")
+        vm.authState = .loggedIn
+        return vm
+    }
+
+    /// Thread-safe accumulator for request paths + weekly bodies seen by the mock.
+    final class RequestLog: @unchecked Sendable {
+        private let lock = NSLock()
+        private var _paths: [String] = []
+        private var _weeklyBodies: [[String: Any]] = []
+        func record(path: String) { lock.lock(); _paths.append(path); lock.unlock() }
+        func record(weeklyBody: [String: Any]) { lock.lock(); _weeklyBodies.append(weeklyBody); lock.unlock() }
+        var paths: [String] { lock.lock(); defer { lock.unlock() }; return _paths }
+        var weeklyBodies: [[String: Any]] { lock.lock(); defer { lock.unlock() }; return _weeklyBodies }
+    }
+
+    /// Full API surface for a free personal account. Weekly endpoint behavior
+    /// is injectable so failure cases reuse the same handler.
+    private static func freeAccountHandler(
+        log: RequestLog,
+        weeklyStatus: Int = 200
+    ) -> (URLRequest) throws -> (HTTPURLResponse, Data) {
+        { request in
+            let url = request.url!
+            log.record(path: url.path)
+            let ok = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            switch url.path {
+            case "/api/usage-summary":
+                let json = """
+                {"billingCycleStart":"2026-07-15T03:23:58.561Z","billingCycleEnd":"2026-08-15T03:23:58.561Z",
+                 "membershipType":"free","limitType":"user","isUnlimited":false,
+                 "autoModelSelectedDisplayMessage":"You've used 3% of your included total usage",
+                 "individualUsage":{"plan":{"enabled":true,"used":0,"limit":0,"remaining":0,"totalPercentUsed":2.5},
+                                    "onDemand":{"enabled":false,"used":0,"limit":null,"remaining":null}},
+                 "teamUsage":{}}
+                """
+                return (ok, Data(json.utf8))
+            case "/api/auth/me":
+                return (ok, Data("{\"email\":\"p@gmail.com\",\"name\":\"P\"}".utf8))
+            case "/api/usage":
+                return (ok, Data("{\"gpt-4\":{\"numRequests\":0,\"numRequestsTotal\":0,\"numTokens\":0,\"maxTokenUsage\":null,\"maxRequestUsage\":null},\"startOfMonth\":\"2026-07-15T03:23:58.561Z\"}".utf8))
+            case "/api/dashboard/get-filtered-usage-events":
+                if let parsed = try? JSONSerialization.jsonObject(with: WeeklyUsageTests.bodyData(from: request)) as? [String: Any] {
+                    log.record(weeklyBody: parsed)
+                }
+                guard weeklyStatus == 200 else {
+                    return (HTTPURLResponse(url: url, statusCode: weeklyStatus, httpVersion: nil, headerFields: nil)!, Data())
+                }
+                let nowMs = Int(Date().timeIntervalSince1970 * 1000)
+                let json = """
+                {"totalUsageEventsCount":1,"usageEventsDisplay":[
+                  {"timestamp":"\(nowMs)","requestsCosts":1.1,
+                   "kind":"USAGE_EVENT_KIND_CUSTOM_SUBSCRIPTION","chargedCents":4.5}]}
+                """
+                return (ok, Data(json.utf8))
+            default:
+                return (HTTPURLResponse(url: url, statusCode: 404, httpVersion: nil, headerFields: nil)!, Data("{}".utf8))
+            }
+        }
+    }
+
+    func testFreePlanFetchesWeeklyWithTeamZeroAndNoTeamDiscovery() async throws {
+        let vm = makeViewModel()
+        let log = RequestLog()
+        MockURLProtocol.requestHandler = Self.freeAccountHandler(log: log)
+
+        await vm.refresh()
+
+        XCTAssertTrue(vm.weeklyChartAvailable)
+        XCTAssertEqual(vm.weeklyData?.count, 7)
+        let body = try XCTUnwrap(log.weeklyBodies.first)
+        XCTAssertEqual(body["teamId"] as? Int, 0)
+        XCTAssertFalse(body.keys.contains("userId"))
+        XCTAssertFalse(log.paths.contains("/api/dashboard/teams"),
+                       "personal path must not discover teams")
+        XCTAssertFalse(log.paths.contains("/api/dashboard/get-team-spend"),
+                       "personal path must not fetch the roster")
+    }
+
+    func testNilMembershipSkipsWeeklyEntirely() async {
+        let vm = makeViewModel()
+        let log = RequestLog()
+        let base = Self.freeAccountHandler(log: log)
+        // Summary 500s -> legacy usage-only fallback -> membershipType nil.
+        MockURLProtocol.requestHandler = { request in
+            if request.url!.path == "/api/usage-summary" {
+                log.record(path: request.url!.path)
+                return (HTTPURLResponse(url: request.url!, statusCode: 500, httpVersion: nil, headerFields: nil)!, Data())
+            }
+            return try base(request)
+        }
+
+        await vm.refresh()
+
+        XCTAssertNotNil(vm.usageData, "legacy fallback still renders usage")
+        XCTAssertNil(vm.usageData?.membershipType)
+        XCTAssertFalse(vm.weeklyChartAvailable)
+        XCTAssertFalse(log.paths.contains("/api/dashboard/get-filtered-usage-events"),
+                       "nil membership = summary failed; plan unknown, no teamId-0 guess")
+    }
+
+    func testPersonalWeeklyFailureWithoutPriorDataHidesChart() async {
+        let vm = makeViewModel()
+        let log = RequestLog()
+        MockURLProtocol.requestHandler = Self.freeAccountHandler(log: log, weeklyStatus: 500)
+
+        await vm.refresh()
+
+        XCTAssertFalse(vm.weeklyChartAvailable)
+        XCTAssertNil(vm.weeklyData)
+    }
+
+    func testPersonalWeeklyTransientFailureRetainsStaleChart() async {
+        let vm = makeViewModel()
+        let log = RequestLog()
+        MockURLProtocol.requestHandler = Self.freeAccountHandler(log: log)
+        await vm.refresh()
+        XCTAssertEqual(vm.weeklyData?.count, 7)
+
+        MockURLProtocol.requestHandler = Self.freeAccountHandler(log: log, weeklyStatus: 500)
+        await vm.refresh()
+
+        XCTAssertEqual(vm.weeklyData?.count, 7, "stale chart retained on transient failure")
+        XCTAssertTrue(vm.weeklyChartAvailable, "availability survives transient failure with prior data")
     }
 }

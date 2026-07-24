@@ -932,12 +932,25 @@ final class UsageViewModel {
         data: UsageDisplayData,
         userInfo: UserInfoResponse
     ) async {
-        guard data.membershipType?.lowercased() == "enterprise" else {
+        // nil membershipType = usage-summary failed (legacy fallback), which
+        // says nothing about the plan — an enterprise account mid-outage must
+        // not be routed to the personal teamId-0 path (#103 Codex review).
+        guard let membership = data.membershipType?.lowercased() else {
             weeklyChartAvailable = false
             weeklyData = nil
             return
         }
+        if membership == "enterprise" {
+            await refreshWeeklyChartEnterprise(cookieHeader: cookieHeader, userInfo: userInfo)
+        } else {
+            await refreshWeeklyChartPersonal(cookieHeader: cookieHeader)
+        }
+    }
 
+    private func refreshWeeklyChartEnterprise(
+        cookieHeader: String,
+        userInfo: UserInfoResponse
+    ) async {
         guard let teamId = await resolveTeamId(cookieHeader: cookieHeader) else {
             weeklyChartAvailable = false
             weeklyData = nil
@@ -976,6 +989,33 @@ final class UsageViewModel {
             weeklyData = nil
         } catch {
             Log.info("Weekly fetch failed: \(error.localizedDescription)")
+            if weeklyData == nil {
+                weeklyChartAvailable = false
+            }
+        }
+    }
+
+    /// Personal accounts: the events endpoint accepts teamId 0 with no userId
+    /// and scopes to the session cookie (verified live 2026-07-24, free plan).
+    /// No team/roster discovery — two fewer round-trips than enterprise.
+    private func refreshWeeklyChartPersonal(cookieHeader: String) async {
+        do {
+            let events = try await Self.collectWeeklyEvents(
+                apiClient: apiClient,
+                cookieHeader: cookieHeader,
+                teamId: 0,
+                userId: nil,
+                pageSize: Self.weeklyPageSize,
+                maxPages: Self.weeklyMaxPages
+            )
+            weeklyData = events.sevenDayRolling(today: Date(), calendar: .current)
+            weeklyChartAvailable = true
+        } catch APIError.forbidden {
+            Log.info("Personal weekly fetch returned 403 — hiding chart")
+            weeklyChartAvailable = false
+            weeklyData = nil
+        } catch {
+            Log.info("Personal weekly fetch failed: \(error.localizedDescription)")
             if weeklyData == nil {
                 weeklyChartAvailable = false
             }
