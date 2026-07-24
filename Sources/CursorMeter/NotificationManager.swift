@@ -14,6 +14,10 @@ enum NotificationMode: Sendable, Equatable {
     case requestQuota(used: Int, limit: Int)
     case creditPlan(usedCents: Int, limitCents: Int)
     case onDemand(usedCents: Int, limitCents: Int)
+    /// Percent-only plans (e.g. free): the API exposes no usable used/limit
+    /// pair, so the body carries no fraction — a "(0 / 0)" suffix would be
+    /// meaningless (#104).
+    case percentOnly
 }
 
 extension NotificationMode {
@@ -29,6 +33,8 @@ extension NotificationMode {
             return "월 플랜의 \(percent)%를 사용했습니다 (\(Self.formatUSD(used)) / \(Self.formatUSD(limit)))"
         case let .onDemand(used, limit):
             return "On-demand 청구의 \(percent)%를 사용했습니다 (\(Self.formatUSD(used)) / \(Self.formatUSD(limit)))"
+        case .percentOnly:
+            return "월 플랜의 \(percent)%를 사용했습니다"
         }
     }
 
@@ -37,6 +43,7 @@ extension NotificationMode {
         case .requestQuota: return "Request Quota"
         case .creditPlan:   return "Plan"
         case .onDemand:     return "On-demand"
+        case .percentOnly:  return "Plan"
         }
     }
 }

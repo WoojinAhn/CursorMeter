@@ -715,25 +715,12 @@ final class UsageViewModel {
 
         // Check notification thresholds
         if let data = usageData {
-            let mode: NotificationMode = {
-                if data.isOnDemandActive {
-                    return .onDemand(
-                        usedCents: data.onDemandUsedCents ?? 0,
-                        limitCents: data.onDemandLimitCents ?? 0)
-                }
-                if data.isCreditBased {
-                    return .creditPlan(
-                        usedCents: data.planUsedCents ?? 0,
-                        limitCents: data.planLimitCents ?? 0)
-                }
-                return .requestQuota(used: data.requestsUsed, limit: data.requestsLimit)
-            }()
             await notificationManager.checkAndNotify(
                 percentUsed: data.percentUsed,
                 warningThreshold: warningThreshold,
                 criticalThreshold: criticalThreshold,
                 enabled: notificationEnabled,
-                mode: mode
+                mode: Self.notificationMode(for: data)
             )
         }
     }
@@ -1391,6 +1378,29 @@ final class UsageViewModel {
     ///   - first refresh (no baseline)
     ///   - display mode changed (unit mismatch)
     ///   - delta ≤ 0
+    // MARK: - Threshold Notifications
+
+    /// Picks the threshold-notification mode for the refreshed display data.
+    /// Pure so the percent-only branch (#104) is unit-testable: free plans have
+    /// no usable used/limit pair and must not fall through to a "(0 / 0)"
+    /// request-quota body.
+    nonisolated static func notificationMode(for data: UsageDisplayData) -> NotificationMode {
+        if data.isOnDemandActive {
+            return .onDemand(
+                usedCents: data.onDemandUsedCents ?? 0,
+                limitCents: data.onDemandLimitCents ?? 0)
+        }
+        if data.isCreditBased {
+            return .creditPlan(
+                usedCents: data.planUsedCents ?? 0,
+                limitCents: data.planLimitCents ?? 0)
+        }
+        if data.isPercentOnly {
+            return .percentOnly
+        }
+        return .requestQuota(used: data.requestsUsed, limit: data.requestsLimit)
+    }
+
     private func updateJumpState(from data: UsageDisplayData) {
         let mode: JumpEvent.Mode
         let current: Double

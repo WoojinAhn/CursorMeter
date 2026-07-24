@@ -189,6 +189,74 @@ final class NotificationManagerTests: XCTestCase {
         XCTAssertEqual(NotificationMode.requestQuota(used: 0, limit: 0).titleSuffix, "Request Quota")
         XCTAssertEqual(NotificationMode.creditPlan(usedCents: 0, limitCents: 0).titleSuffix, "Plan")
         XCTAssertEqual(NotificationMode.onDemand(usedCents: 0, limitCents: 0).titleSuffix, "On-demand")
+        XCTAssertEqual(NotificationMode.percentOnly.titleSuffix, "Plan")
+    }
+
+    // MARK: - #104 percent-only plans (free): no meaningless "0 / 0" fraction
+
+    func test_body_percentOnly_hasNoFraction() {
+        let s = NotificationMode.percentOnly.body(forPercent: 80)
+        XCTAssertEqual(s, "월 플랜의 80%를 사용했습니다")
+        XCTAssertFalse(s.contains("(0 / 0)"))
+    }
+
+    func test_modeSelection_percentOnlyPlanPicksPercentMode() {
+        // Free plan shape: no usable used/limit, server percent only.
+        let data = UsageDisplayData(
+            email: "x", name: "x", membershipType: "free",
+            planUsedCents: 0, planLimitCents: 0,
+            serverPercentUsed: 82.0,
+            requestsUsed: 0, requestsLimit: 0,
+            onDemandUsedCents: nil, onDemandLimitCents: nil,
+            onDemandEnabled: nil, isOnDemandActive: false,
+            cycleStartDate: nil, resetDate: nil
+        )
+        XCTAssertTrue(data.isPercentOnly)
+        XCTAssertEqual(UsageViewModel.notificationMode(for: data), .percentOnly)
+    }
+
+    func test_modeSelection_existingModesUnchanged() {
+        let credit = UsageDisplayData(
+            email: "x", name: "x", membershipType: "pro",
+            planUsedCents: 1600, planLimitCents: 2000,
+            serverPercentUsed: nil,
+            requestsUsed: 0, requestsLimit: 0,
+            onDemandUsedCents: nil, onDemandLimitCents: nil,
+            onDemandEnabled: nil, isOnDemandActive: false,
+            cycleStartDate: nil, resetDate: nil
+        )
+        XCTAssertEqual(
+            UsageViewModel.notificationMode(for: credit),
+            .creditPlan(usedCents: 1600, limitCents: 2000)
+        )
+
+        let requests = UsageDisplayData(
+            email: "x", name: "x", membershipType: "pro",
+            planUsedCents: nil, planLimitCents: nil,
+            serverPercentUsed: nil,
+            requestsUsed: 757, requestsLimit: 500,
+            onDemandUsedCents: nil, onDemandLimitCents: nil,
+            onDemandEnabled: nil, isOnDemandActive: false,
+            cycleStartDate: nil, resetDate: nil
+        )
+        XCTAssertEqual(
+            UsageViewModel.notificationMode(for: requests),
+            .requestQuota(used: 757, limit: 500)
+        )
+
+        let onDemand = UsageDisplayData(
+            email: "x", name: "x", membershipType: "pro",
+            planUsedCents: 2000, planLimitCents: 2000,
+            serverPercentUsed: nil,
+            requestsUsed: 0, requestsLimit: 0,
+            onDemandUsedCents: 3200, onDemandLimitCents: 4000,
+            onDemandEnabled: true, isOnDemandActive: true,
+            cycleStartDate: nil, resetDate: nil
+        )
+        XCTAssertEqual(
+            UsageViewModel.notificationMode(for: onDemand),
+            .onDemand(usedCents: 3200, limitCents: 4000)
+        )
     }
 
     func testUsageJumpIdentifierPrefixIsDistinct() {
