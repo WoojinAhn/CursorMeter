@@ -879,7 +879,7 @@ final class UsageViewModel {
         apiClient: CursorAPIClient,
         cookieHeader: String,
         teamId: Int,
-        userId: Int,
+        userId: Int?,
         pageSize: Int,
         maxPages: Int,
         today: Date = Date(),

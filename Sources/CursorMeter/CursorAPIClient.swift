@@ -74,16 +74,21 @@ actor CursorAPIClient {
     func fetchWeeklyUsage(
         cookieHeader: String,
         teamId: Int,
-        userId: Int,
+        userId: Int?,
         page: Int,
         pageSize: Int = 100
     ) async throws -> FilteredUsageEventsResponse {
-        let bodyDict: [String: Any] = [
+        // Personal accounts (teamId 0) omit userId entirely — the server scopes
+        // events to the session cookie. Sending "userId": null is unverified;
+        // absent key is the shape confirmed live (#103).
+        var bodyDict: [String: Any] = [
             "teamId": teamId,
-            "userId": userId,
             "page": page,
             "pageSize": pageSize,
         ]
+        if let userId {
+            bodyDict["userId"] = userId
+        }
         let body = try JSONSerialization.data(withJSONObject: bodyDict, options: [])
         let data = try await performRequest(
             url: Self.filteredUsageEventsURL,

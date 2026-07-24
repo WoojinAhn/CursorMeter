@@ -546,6 +546,36 @@ final class WeeklyUsageTests: XCTestCase {
         XCTAssertEqual(parsed["pageSize"] as? Int, 50)
     }
 
+    func testFetchWeeklyUsageOmitsUserIdWhenNil() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockURLProtocol.self]
+        let client = CursorAPIClient(configuration: config)
+        defer { MockURLProtocol.requestHandler = nil }
+
+        var captured: URLRequest?
+        MockURLProtocol.requestHandler = { request in
+            captured = request
+            let json = """
+            { "totalUsageEventsCount": 0, "usageEventsDisplay": [] }
+            """
+            let resp = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (resp, Data(json.utf8))
+        }
+
+        _ = try await client.fetchWeeklyUsage(
+            cookieHeader: "session=x",
+            teamId: 0,
+            userId: nil,
+            page: 1,
+            pageSize: 50
+        )
+
+        let request = try XCTUnwrap(captured)
+        let parsed = try XCTUnwrap(JSONSerialization.jsonObject(with: Self.bodyData(from: request)) as? [String: Any])
+        XCTAssertEqual(parsed["teamId"] as? Int, 0)
+        XCTAssertFalse(parsed.keys.contains("userId"), "nil userId must omit the key entirely (verified live: server accepts absent key)")
+    }
+
     func testFetchWeeklyUsage403ThrowsForbidden() async {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [MockURLProtocol.self]
