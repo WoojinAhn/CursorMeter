@@ -214,10 +214,10 @@ final class UsageViewModel {
     /// Last successful weekly fetch, retained across failed refreshes so the
     /// chart keeps rendering when the network blips.
     var weeklyData: [DayUsage]?
-    /// True when the active account is an enterprise team (membershipType ==
-    /// "enterprise" AND a teamId was discovered AND the analytics endpoint
-    /// responded 200 at least once).
-    var isEnterpriseTeam: Bool = false
+    /// True when a weekly fetch succeeded for the active account (enterprise
+    /// team path or personal teamId-0 path, #103). Gates the popover chart and
+    /// the Settings weekly-chart section.
+    var weeklyChartAvailable: Bool = false
     var weeklyChartEnabled: Bool = true
     var weeklyChartStyle: WeeklyChartStyle = .outline
 
@@ -475,7 +475,7 @@ final class UsageViewModel {
         cachedUserId = nil
         cachedOnDemandLimitDollars = nil
         weeklyData = nil
-        isEnterpriseTeam = false
+        weeklyChartAvailable = false
         previousCycleStart = nil
         isOnDemandLatched = false
         previousPlanUsedCents = nil
@@ -911,18 +911,18 @@ final class UsageViewModel {
     private func applyOptimisticWeekly(_ task: Task<[DayUsage], Error>) async {
         do {
             weeklyData = try await task.value
-            isEnterpriseTeam = true
+            weeklyChartAvailable = true
         } catch APIError.forbidden {
             Log.info("Weekly fetch returned 403 — clearing enterprise cache")
             cachedTeamId = nil
             cachedUserId = nil
             cachedOnDemandLimitDollars = nil
-            isEnterpriseTeam = false
+            weeklyChartAvailable = false
             weeklyData = nil
         } catch {
             Log.info("Weekly fetch failed: \(error.localizedDescription)")
             if weeklyData == nil {
-                isEnterpriseTeam = false
+                weeklyChartAvailable = false
             }
         }
     }
@@ -933,13 +933,13 @@ final class UsageViewModel {
         userInfo: UserInfoResponse
     ) async {
         guard data.membershipType?.lowercased() == "enterprise" else {
-            isEnterpriseTeam = false
+            weeklyChartAvailable = false
             weeklyData = nil
             return
         }
 
         guard let teamId = await resolveTeamId(cookieHeader: cookieHeader) else {
-            isEnterpriseTeam = false
+            weeklyChartAvailable = false
             weeklyData = nil
             return
         }
@@ -951,7 +951,7 @@ final class UsageViewModel {
                 cookieHeader: cookieHeader, teamId: teamId, email: userInfo.email)?.userId
         }
         guard let userId = cachedUserId else {
-            isEnterpriseTeam = false
+            weeklyChartAvailable = false
             weeklyData = nil
             return
         }
@@ -966,18 +966,18 @@ final class UsageViewModel {
                 maxPages: Self.weeklyMaxPages
             )
             weeklyData = events.sevenDayRolling(today: Date(), calendar: .current)
-            isEnterpriseTeam = true
+            weeklyChartAvailable = true
         } catch APIError.forbidden {
             Log.info("Weekly fetch returned 403 — clearing enterprise cache")
             cachedTeamId = nil
             cachedUserId = nil
             cachedOnDemandLimitDollars = nil
-            isEnterpriseTeam = false
+            weeklyChartAvailable = false
             weeklyData = nil
         } catch {
             Log.info("Weekly fetch failed: \(error.localizedDescription)")
             if weeklyData == nil {
-                isEnterpriseTeam = false
+                weeklyChartAvailable = false
             }
         }
     }
@@ -1031,7 +1031,7 @@ final class UsageViewModel {
         usageData = nil
         errorMessage = nil
         weeklyData = nil
-        isEnterpriseTeam = false
+        weeklyChartAvailable = false
         cachedTeamId = nil
         cachedUserId = nil
         cachedOnDemandLimitDollars = nil

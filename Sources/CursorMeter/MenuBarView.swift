@@ -521,7 +521,7 @@ final class MenuBarPopoverViewController: NSViewController {
 
         // Weekly chart (enterprise + master toggle gate).
         if viewModel.weeklyChartEnabled,
-           viewModel.isEnterpriseTeam,
+           viewModel.weeklyChartAvailable,
            let weekly = viewModel.weeklyData, weekly.count == 7
         {
             weeklyChartView.update(
