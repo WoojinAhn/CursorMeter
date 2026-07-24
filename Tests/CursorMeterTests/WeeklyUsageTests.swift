@@ -824,4 +824,54 @@ final class PersonalWeeklyPathTests: XCTestCase {
         XCTAssertEqual(vm.weeklyData?.count, 7, "stale chart retained on transient failure")
         XCTAssertTrue(vm.weeklyChartAvailable, "availability survives transient failure with prior data")
     }
+
+    func testPersonalSuccessCachesWeeklyModeAndLogoutClearsIt() async {
+        let vm = makeViewModel()
+        let log = RequestLog()
+        MockURLProtocol.requestHandler = Self.freeAccountHandler(log: log)
+
+        await vm.refresh()
+        XCTAssertEqual(vm.cachedWeeklyMode, .personal)
+
+        vm.logout()
+        XCTAssertNil(vm.cachedWeeklyMode, "logout clears the weekly mode cache")
+    }
+
+    func testAccountSwitchClearsWeeklyMode() async {
+        let vm = makeViewModel()
+        let log = RequestLog()
+        MockURLProtocol.requestHandler = Self.freeAccountHandler(log: log)
+        await vm.refresh()
+        XCTAssertEqual(vm.cachedWeeklyMode, .personal)
+
+        // Same shape, different email, weekly now failing: the switch must
+        // clear the cached mode, and the failed re-discovery must not restore it.
+        let base = Self.freeAccountHandler(log: log, weeklyStatus: 500)
+        MockURLProtocol.requestHandler = { request in
+            if request.url!.path == "/api/auth/me" {
+                let ok = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (ok, Data("{\"email\":\"other@gmail.com\",\"name\":\"O\"}".utf8))
+            }
+            return try base(request)
+        }
+        await vm.refresh()
+
+        XCTAssertNil(vm.cachedWeeklyMode)
+        XCTAssertNil(vm.weeklyData, "no cross-account weekly leak (#54)")
+    }
+
+    func testPersonal403ClearsWeeklyModeAndHidesChart() async {
+        let vm = makeViewModel()
+        let log = RequestLog()
+        MockURLProtocol.requestHandler = Self.freeAccountHandler(log: log)
+        await vm.refresh()
+        XCTAssertEqual(vm.cachedWeeklyMode, .personal)
+
+        MockURLProtocol.requestHandler = Self.freeAccountHandler(log: log, weeklyStatus: 403)
+        await vm.refresh()
+
+        XCTAssertNil(vm.cachedWeeklyMode)
+        XCTAssertFalse(vm.weeklyChartAvailable)
+        XCTAssertNil(vm.weeklyData)
+    }
 }

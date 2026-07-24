@@ -376,6 +376,16 @@ final class UsageViewModel {
     /// Discovered from `/api/dashboard/get-team-spend` and cached across refreshes.
     private var cachedUserId: Int?
 
+    /// Which weekly-fetch shape succeeded last for the active account. Drives
+    /// the optimistic parallel fetch on subsequent refreshes (#103). Internal
+    /// (not private) so tests can assert invalidation; never mutated outside
+    /// this file.
+    enum WeeklyMode: Equatable, Sendable {
+        case enterprise(teamId: Int, userId: Int)
+        case personal
+    }
+    @ObservationIgnored internal private(set) var cachedWeeklyMode: WeeklyMode?
+
     /// Per-seat on-demand limit (whole dollars) for token-based enterprise plans,
     /// from the team-spend roster. Cached across refreshes (heavier fetch); feeds
     /// the personal on-demand row. nil when unset or not applicable.
@@ -474,6 +484,7 @@ final class UsageViewModel {
         cachedTeamId = nil
         cachedUserId = nil
         cachedOnDemandLimitDollars = nil
+        cachedWeeklyMode = nil
         weeklyData = nil
         weeklyChartAvailable = false
         previousCycleStart = nil
@@ -800,16 +811,26 @@ final class UsageViewModel {
     private static let weeklyMaxPages = 5
     private static let weeklyPageSize = 100
 
-    /// Returns an optimistic weekly task only when we have *both* a cached
-    /// teamId and userId — otherwise we have to discover one first via the
-    /// sequential path.
+    /// Returns an optimistic weekly task only when a prior refresh established
+    /// the fetch shape for this account — otherwise the sequential path inside
+    /// `refreshWeeklyChart` discovers it first.
     private func makeOptimisticWeeklyTask(
         cookieHeader: String
     ) -> Task<[DayUsage], Error>? {
-        guard let teamId = cachedTeamId, let userId = cachedUserId else { return nil }
+        guard let mode = cachedWeeklyMode else { return nil }
         let apiClient = self.apiClient
         let pageSize = Self.weeklyPageSize
         let maxPages = Self.weeklyMaxPages
+        let teamId: Int
+        let userId: Int?
+        switch mode {
+        case let .enterprise(cachedTeam, cachedUser):
+            teamId = cachedTeam
+            userId = cachedUser
+        case .personal:
+            teamId = 0
+            userId = nil
+        }
         return Task {
             try await Self.collectWeeklyEvents(
                 apiClient: apiClient,
@@ -917,6 +938,7 @@ final class UsageViewModel {
             cachedTeamId = nil
             cachedUserId = nil
             cachedOnDemandLimitDollars = nil
+            cachedWeeklyMode = nil
             weeklyChartAvailable = false
             weeklyData = nil
         } catch {
@@ -980,11 +1002,13 @@ final class UsageViewModel {
             )
             weeklyData = events.sevenDayRolling(today: Date(), calendar: .current)
             weeklyChartAvailable = true
+            cachedWeeklyMode = .enterprise(teamId: teamId, userId: userId)
         } catch APIError.forbidden {
             Log.info("Weekly fetch returned 403 — clearing enterprise cache")
             cachedTeamId = nil
             cachedUserId = nil
             cachedOnDemandLimitDollars = nil
+            cachedWeeklyMode = nil
             weeklyChartAvailable = false
             weeklyData = nil
         } catch {
@@ -1010,8 +1034,10 @@ final class UsageViewModel {
             )
             weeklyData = events.sevenDayRolling(today: Date(), calendar: .current)
             weeklyChartAvailable = true
+            cachedWeeklyMode = .personal
         } catch APIError.forbidden {
             Log.info("Personal weekly fetch returned 403 — hiding chart")
+            cachedWeeklyMode = nil
             weeklyChartAvailable = false
             weeklyData = nil
         } catch {
@@ -1075,6 +1101,7 @@ final class UsageViewModel {
         cachedTeamId = nil
         cachedUserId = nil
         cachedOnDemandLimitDollars = nil
+        cachedWeeklyMode = nil
         previousCycleStart = nil
         isOnDemandLatched = false
         // Jump baselines must clear on logout so the next account's first
