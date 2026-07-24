@@ -24,10 +24,17 @@ Pro/Pro+ are unverified but assumed identical; scope decision below covers them.
 
 ## Scope decision
 
-Personal path applies to **every non-enterprise membershipType** (including
-`nil` from the legacy usage-only fallback). If the endpoint rejects a plan we
-didn't verify, the existing failure handling hides the chart quietly — low
-blast radius. (User-approved: "모든 비엔터프라이즈".)
+Personal path applies to **every non-nil, non-enterprise membershipType**.
+`nil` is excluded (Codex review 2026-07-24): a nil membershipType comes from
+the legacy usage-only fallback — i.e. `fetchUsageSummary` *failed*, which says
+nothing about the plan. Routing it to `teamId: 0` could send an enterprise
+account (during a transient summary outage) down the personal path. nil keeps
+today's behavior: chart hidden.
+
+If the endpoint rejects a plan we didn't verify (Pro/Pro+), the existing
+failure handling hides the chart quietly — low blast radius. Unknown future
+membershipType values take the personal path by design (user-approved: "모든
+비엔터프라이즈"); worst case is today's status quo (no chart).
 
 ## Design
 
@@ -38,12 +45,23 @@ entirely (verified working). Enterprise call sites keep passing the resolved id.
 
 ### 2. ViewModel branch — `refreshWeeklyChart`
 
-- `membershipType == "enterprise"` (case-insensitive, as today): existing team
-  path untouched (resolveTeamId → fetchMyTeamMember → collect with real ids).
-- Otherwise: call `collectWeeklyEvents(teamId: 0, userId: nil)` directly —
+Three-way on `membershipType`:
+
+- `"enterprise"` (case-insensitive, as today): existing team path untouched
+  (resolveTeamId → fetchMyTeamMember → collect with real ids).
+- `nil`: hide chart (today's behavior — see Scope decision).
+- Any other value: call `collectWeeklyEvents(teamId: 0, userId: nil)` directly —
   skip the teams and roster fetches entirely (2 fewer round-trips).
-- Failure semantics identical to today: keep previous `weeklyData` on transient
-  failure, hide chart when there is none.
+
+`collectWeeklyEvents` and `fetchWeeklyUsage` both change signature to
+`userId: Int?`, threaded through the paginator; existing enterprise tests
+update mechanically.
+
+Failure semantics identical to today and pinned by test: transient failure
+keeps previous `weeklyData` (stale chart stays visible, availability flag
+stays true); failure with no prior data hides the chart. A 403 clears
+`cachedWeeklyMode` (alongside the existing enterprise cache clears) so the
+next refresh re-discovers the mode.
 
 ### 3. Availability flag rename
 
@@ -53,9 +71,15 @@ three consumers:
 
 - `MenuBarView` chart gate
 - `SettingsAppearanceTabViewController` weekly-chart section visibility
-  (now intentionally visible for personal accounts)
-- `CursorMeterApp` observation-tracking read (must keep tracking the renamed
+  (now intentionally visible for personal accounts). Semantics unchanged from
+  today: the section appears only after a weekly fetch has succeeded, so it is
+  briefly hidden between launch and first success — pre-existing behavior,
+  documented, not a regression.
+- `CursorMeterApp.observePopover` tracking read (must keep tracking the renamed
   property — silent-update rule in CLAUDE.md)
+- `CursorMeterApp.observeSettings` currently tracks only `activeAuthSource`, so
+  an open Settings window never reacts when availability flips (Codex review).
+  Add `_ = viewModel.weeklyChartAvailable` to its tracking block.
 
 ### 4. Optimistic parallel path
 
@@ -68,10 +92,22 @@ var cachedWeeklyMode: WeeklyMode?
 ```
 
 `makeOptimisticWeeklyTask` fires when a mode is cached (enterprise uses cached
-ids as today; personal uses teamId 0 / nil userId). `resetPerAccountState`
-clears the cache (#54 account-switch leak rule). The existing separate
-`cachedTeamId`/`cachedUserId` stay as-is for the hard-limit path; the weekly
-mode cache is additive.
+ids as today; personal uses teamId 0 / nil userId).
+
+**Invalidation points** (all explicit — Codex review caught that `logout()`
+clears caches directly instead of via `resetPerAccountState`):
+
+- `resetPerAccountState()` (account switch, #54)
+- `logout()` (direct clear, alongside `cachedTeamId`/`cachedUserId`)
+- 403 catch arm in the weekly fetch
+
+The existing `cachedTeamId`/`cachedUserId` stay as-is for the hard-limit path;
+the weekly mode cache is additive but follows the same invalidation lifecycle.
+
+Known pre-existing limitation (unchanged by this design): when `/api/auth/me`
+returns a nil email, account-switch detection does not fire and a stale cached
+mode can produce one wasted (discarded) optimistic call — identical exposure to
+today's enterprise optimistic path.
 
 ### 5. Display
 
@@ -86,21 +122,33 @@ that property is dead in production (tests only).
 
 - Personal fetch non-200 / decode failure → same catch arms as today
   (`weeklyData` retained if present, `weeklyChartAvailable = false` when none).
-- 403 clears enterprise caches today; personal path has no caches to clear but
-  shares the same hide behavior.
+- 403 clears enterprise caches today; the personal path clears
+  `cachedWeeklyMode` in the same arm and shares the hide behavior.
 
 ## Testing
 
 Existing MockURLProtocol + `UsageViewModel(apiClient:)` seams. New cases:
 
 1. `fetchWeeklyUsage` with nil userId omits the key from the request body.
-2. Non-enterprise membershipType → request goes out with `teamId: 0`,
-   `weeklyChartAvailable == true` on success, chart data folded.
-3. Personal-path failure with no prior data → chart hidden
+2. Non-enterprise membershipType (e.g. "free") → request goes out with
+   `teamId: 0`, `weeklyChartAvailable == true` on success, chart data folded,
+   and **neither** `/api/dashboard/teams` **nor** `get-team-spend` is ever
+   requested (assert on the MockURLProtocol URL sequence).
+3. `nil` membershipType (summary failure + usage success legacy fallback) →
+   no weekly request at all, chart hidden.
+4. Personal-path failure with no prior data → chart hidden
    (`weeklyChartAvailable == false`).
-4. Account switch → `cachedWeeklyMode` cleared (no cross-account optimistic
-   fetch).
-5. Rename: existing enterprise-path tests updated mechanically.
+5. Personal-path transient failure with prior data → stale `weeklyData`
+   retained and availability stays true (pins today's catch semantics across
+   the rename).
+6. Account switch → `cachedWeeklyMode` cleared (no cross-account optimistic
+   fetch). Logout → `cachedWeeklyMode` cleared.
+7. Rename: existing enterprise-path tests updated mechanically.
+
+Manual verification (not unit-testable — `withObservationTracking` blocks live
+in the app process): after reinstall, confirm via AX path that the popover
+chart appears on the personal account and that an open Settings window shows
+the weekly-chart section after the first successful refresh.
 
 ## Out of scope
 
