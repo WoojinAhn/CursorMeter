@@ -578,10 +578,10 @@ final class UsageViewModel {
         async let userInfoCapture = Self.capture { try await apiClient.fetchUserInfo(cookieHeader: cookieHeader) }
 
         // Optimistic weekly fetch — runs in parallel with the primary batch
-        // once we have a cached teamId + email from a prior refresh. Saves
-        // one round-trip on every subsequent enterprise refresh. First
-        // refresh after login falls back to the sequential path inside
-        // `refreshWeeklyChart`.
+        // once a prior refresh established the account's weekly fetch shape
+        // (cachedWeeklyMode). Saves one round-trip on every subsequent refresh.
+        // First refresh after login/account-switch falls back to the sequential
+        // path inside `refreshWeeklyChart`.
         let optimisticWeekly: Task<[DayUsage], Error>? =
             makeOptimisticWeeklyTask(cookieHeader: cookieHeader)
 
@@ -934,7 +934,7 @@ final class UsageViewModel {
             weeklyData = try await task.value
             weeklyChartAvailable = true
         } catch APIError.forbidden {
-            Log.info("Weekly fetch returned 403 — clearing enterprise cache")
+            Log.info("Optimistic weekly fetch returned 403 — clearing weekly caches")
             cachedTeamId = nil
             cachedUserId = nil
             cachedOnDemandLimitDollars = nil

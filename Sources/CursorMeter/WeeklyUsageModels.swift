@@ -3,8 +3,8 @@ import Foundation
 // MARK: - API Response: /api/dashboard/get-filtered-usage-events
 
 /// Per-event usage stream from Cursor's dashboard backend. Used by the weekly
-/// bar graph (enterprise team accounts). See `docs/API_REFERENCE.md` for the
-/// request shape and the Origin-header requirement.
+/// bar graph (enterprise team + personal accounts, #103). See
+/// `docs/API_REFERENCE.md` for the request shape and the Origin-header requirement.
 struct FilteredUsageEventsResponse: Codable, Sendable {
     let totalUsageEventsCount: Int?
     let usageEventsDisplay: [UsageEvent]

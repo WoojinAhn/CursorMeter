@@ -37,6 +37,8 @@ The `teamId` variant is observed when an enterprise team is active. CursorMeter 
 
 **Token-based enterprise contracts** (`/api/dashboard/teams` → `pricingStrategy: "tokens"`, `adminOnlyUsagePricing: true`) ship **no `plan` object** in `usage-summary`: spend is in `individualUsage.overall.used` (cents, `limit: null`) and the per-seat limit comes from `get-hard-limit` (see below). CursorMeter folds those into the credit-based display (`$used / $limit`, mirroring the dashboard). When the hard limit is unavailable (first refresh before `teamId` is cached, or non-usage-based plans) it falls back to parsing the percentage from `autoModelSelectedDisplayMessage` (e.g. `"You've used 0% of your included total usage"`) into `serverPercentUsed` → percent-only, instead of `0 / 0`. On-demand spend still comes from `teamUsage.onDemand`. See issue #71.
 
+**Free plan** (observed 2026-07-24): `membershipType: "free"`, `plan: {enabled, used: 0, limit: 0, remaining: 0, breakdown: {included, bonus, total}, autoPercentUsed, apiPercentUsed, totalPercentUsed}`, `onDemand: {enabled: false, limit: null}`, `teamUsage: {}`. CursorMeter renders this via percent-only mode (`totalPercentUsed`). Note the dashboard message and the numeric fields can disagree (message "3%", `autoPercentUsed: 5`, `totalPercentUsed: 2.5`) — the app displays `totalPercentUsed`.
+
 ### `GET /api/usage?user=<sub>`
 
 Per-model request counts for the current billing cycle. Dynamic-key payload — model names appear as top-level keys and CursorMeter parses with `Codable` dictionary handling (`UsageModels.swift`).
@@ -62,7 +64,7 @@ Sole source of `teamId` for the analytics endpoints. Used by `CursorAPIClient.fe
 { "teams": [{ "id": 13403082, "name": "..." }] }
 ```
 
-`GET`, no body. Empty / non-200 on personal plans → CursorMeter treats the account as non-enterprise and hides the weekly chart.
+Empty / non-200 on personal plans; observed `{}` (no `teams` key) on a free account 2026-07-24. Personal accounts skip this endpoint entirely for the weekly chart (#103).
 
 ### `POST /api/dashboard/get-hard-limit`
 
@@ -76,7 +78,7 @@ Member-facing monthly spend limit for token-based enterprise contracts. **Requir
 
 ### `POST /api/dashboard/get-filtered-usage-events`
 
-Per-event usage stream. Used by the weekly bar graph (enterprise team accounts only). Returns events newest-first; pagination via `page` / `pageSize`.
+Per-event usage stream. Used by the weekly bar graph (all account types). Returns events newest-first; pagination via `page` / `pageSize`.
 
 Request:
 
@@ -86,6 +88,7 @@ Request:
   - `Origin: https://cursor.com` — **required.** Without it the server returns `{"error":"Invalid origin for state-changing request"}` with no events.
   - `Content-Type: application/json`
 - Body: `{ "teamId": <int>, "userId": <int>, "page": <int, 1-indexed>, "pageSize": <int> }`
+- **Personal accounts** (free verified live 2026-07-24; pro assumed): pass `teamId: 0` and omit `userId` entirely — events are scoped to the session cookie. Observed personal-plan event fields: `kind: "USAGE_EVENT_KIND_CUSTOM_SUBSCRIPTION"`, `customSubscriptionName: "free"`, fractional `requestsCosts` (e.g. 1.1), numeric `owningUser` present in each event.
 
 Response shape (truncated):
 
@@ -151,7 +154,7 @@ Many `/api/dashboard/*` POST endpoints exist (e.g. `get-team-spend`, `get-curren
 
 ## Known limitations / open questions
 
-- **Personal Pro / Free plan compatibility for `/api/v2/analytics/team/*`** — unverified. Endpoints may require `teamId`, or may not exist at all for non-enterprise users. Implement enterprise-team path first, fall back to local snapshot for personal plans.
+- **Personal Pro/Pro+ weekly events** — `teamId: 0` verified on free only; pro assumed identical. Failure degrades to a hidden chart.
 - **Pagination** — none observed. All ranges return a single payload.
 - **Stability** — all paths are undocumented. Any contributor changing the consumer code should re-verify the response shape against a fresh dashboard capture.
 - **Rate limits** — not observed in normal dashboard use; the dashboard issues several dozen requests on load without throttling. The app's `URLSessionConfiguration.ephemeral` already isolates from any shared rate-limit state.
