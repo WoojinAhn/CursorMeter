@@ -128,7 +128,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
                 ? CircularProgressIcon.loginRequiredImage()
                 : CircularProgressIcon.idleImage()
         }
-        let mode = data.isPercentOnly ? 2 : viewModel.menuBarDisplayMode
+        let mode = UsageViewModel.resolvedMenuBarDisplayMode(
+            isPercentOnly: data.isPercentOnly, setting: viewModel.menuBarDisplayMode)
         switch mode {
         case 2:
             return CircularProgressIcon.menuBarImageWithPercent(percent: data.percentUsed)

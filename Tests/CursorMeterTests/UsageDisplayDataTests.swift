@@ -29,13 +29,47 @@ final class UsageDisplayDataTests: XCTestCase {
 
     func testPercentText() {
         let data = makeData(used: 1, limit: 3)
-        // 33.333...% → Int truncates to 33
+        // 33.333...% rounds to 33
         XCTAssertEqual(data.percentText, "33%")
     }
 
     func testPercentTextZero() {
         let data = makeData(used: 0, limit: 100)
         XCTAssertEqual(data.percentText, "0%")
+    }
+
+    func testPercentTextRoundsHalfUpLikeDashboard() {
+        // #106: dashboard says "3%" for totalPercentUsed 2.5 — round, don't truncate.
+        let data = makeData(used: 1, limit: 40) // 2.5%
+        XCTAssertEqual(data.percentText, "3%")
+    }
+
+    func testPercentTextRoundsDown() {
+        let data = makeData(used: 12, limit: 500) // 2.4%
+        XCTAssertEqual(data.percentText, "2%")
+    }
+
+    // MARK: - resolvedMenuBarDisplayMode (#105)
+
+    func testResolvedModeRespectsNoneOnPercentOnly() {
+        XCTAssertEqual(UsageViewModel.resolvedMenuBarDisplayMode(isPercentOnly: true, setting: 0), 0)
+    }
+
+    func testResolvedModeCoercesRatioToPercentOnPercentOnly() {
+        XCTAssertEqual(UsageViewModel.resolvedMenuBarDisplayMode(isPercentOnly: true, setting: 1), 2)
+    }
+
+    func testResolvedModePercentPassesThrough() {
+        XCTAssertEqual(UsageViewModel.resolvedMenuBarDisplayMode(isPercentOnly: true, setting: 2), 2)
+    }
+
+    func testResolvedModeUntouchedWhenNotPercentOnly() {
+        for mode in 0...2 {
+            XCTAssertEqual(
+                UsageViewModel.resolvedMenuBarDisplayMode(isPercentOnly: false, setting: mode),
+                mode
+            )
+        }
     }
 
     // MARK: - usageText
@@ -473,7 +507,7 @@ final class UsageDisplayDataTests: XCTestCase {
         let data = UsageDisplayData.from(summary: summary, usage: usage, userInfo: userInfo)
 
         XCTAssertEqual(data.percentUsed, 5.5, accuracy: 0.01)
-        XCTAssertEqual(data.percentText, "5%")
+        XCTAssertEqual(data.percentText, "6%")
         XCTAssertEqual(data.membershipType, "free")
     }
 
@@ -489,7 +523,7 @@ final class UsageDisplayDataTests: XCTestCase {
 
         let data = UsageDisplayData.from(summary: summary, usage: nil, userInfo: userInfo)
 
-        XCTAssertEqual(data.usageText, "5%", "Free plan should show percent instead of 0 / 0")
+        XCTAssertEqual(data.usageText, "6%", "Free plan should show percent instead of 0 / 0")
     }
 
     func testFreePlanMenuBarText() {
@@ -504,7 +538,7 @@ final class UsageDisplayDataTests: XCTestCase {
 
         let data = UsageDisplayData.from(summary: summary, usage: nil, userInfo: userInfo)
 
-        XCTAssertEqual(data.menuBarUsedText, "5%")
+        XCTAssertEqual(data.menuBarUsedText, "6%")
         XCTAssertEqual(data.menuBarLimitText, "")
     }
 

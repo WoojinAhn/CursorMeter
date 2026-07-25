@@ -122,7 +122,7 @@ enum CircularProgressIcon {
         let font = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .medium)
         let textColor = NSColor.labelColor
 
-        let percentStr = NSAttributedString(string: "\(Int(percent))%", attributes: [
+        let percentStr = NSAttributedString(string: "\(Int(percent.rounded()))%", attributes: [
             .font: font, .foregroundColor: textColor,
         ])
         let textSize = percentStr.size()

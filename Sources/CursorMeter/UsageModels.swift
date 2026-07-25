@@ -193,7 +193,8 @@ struct UsageDisplayData: Sendable {
     }
 
     var percentText: String {
-        "\(Int(percentUsed))%"
+        // Round like Cursor's dashboard message ("3%" for 2.5), not truncate (#106).
+        "\(Int(percentUsed.rounded()))%"
     }
 
     var usageText: String {

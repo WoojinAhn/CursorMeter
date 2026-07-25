@@ -1378,6 +1378,16 @@ final class UsageViewModel {
     ///   - first refresh (no baseline)
     ///   - display mode changed (unit mismatch)
     ///   - delta ≤ 0
+    /// Effective menu-bar text mode. Percent-only plans have no ratio
+    /// denominator, so Ratio (1) coerces to Percent (2) — but None (0) is the
+    /// user saying "no text" and must pass through (#105; the original #48 gate
+    /// respected it, the #49 dropdown migration regressed it). Shared by the
+    /// status-item renderer and the Settings popup so both show the same truth.
+    nonisolated static func resolvedMenuBarDisplayMode(isPercentOnly: Bool, setting: Int) -> Int {
+        if isPercentOnly && setting == 1 { return 2 }
+        return setting
+    }
+
     // MARK: - Threshold Notifications
 
     /// Picks the threshold-notification mode for the refreshed display data.

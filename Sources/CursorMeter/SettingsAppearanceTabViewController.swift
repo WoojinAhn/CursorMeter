@@ -62,15 +62,13 @@ final class SettingsAppearanceTabViewController: NSViewController {
     // MARK: - Public API
 
     func updateUI() {
-        // Menu bar display mode — percent-only plans can't show a ratio.
+        // Menu bar display mode — percent-only plans can't show a ratio, so
+        // Ratio is disabled and the popup reflects the EFFECTIVE mode (None
+        // stays None, #105) via the same resolver the status item uses.
         let percentOnly = viewModel.usageData?.isPercentOnly == true
-        if percentOnly {
-            menuBarDisplayPopUp.selectItem(at: 2)
-            menuBarDisplayPopUp.item(at: 1)?.isEnabled = false
-        } else {
-            menuBarDisplayPopUp.selectItem(at: viewModel.menuBarDisplayMode)
-            menuBarDisplayPopUp.item(at: 1)?.isEnabled = true
-        }
+        menuBarDisplayPopUp.selectItem(at: UsageViewModel.resolvedMenuBarDisplayMode(
+            isPercentOnly: percentOnly, setting: viewModel.menuBarDisplayMode))
+        menuBarDisplayPopUp.item(at: 1)?.isEnabled = !percentOnly
 
         jumpEffectToggle.state = viewModel.jumpEffectEnabled ? .on : .off
         jumpIntensitySegmented.selectedSegment = viewModel.jumpIntensity.rawValue
