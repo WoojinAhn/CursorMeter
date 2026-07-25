@@ -62,13 +62,22 @@ final class SettingsAppearanceTabViewController: NSViewController {
     // MARK: - Public API
 
     func updateUI() {
-        // Menu bar display mode — percent-only plans can't show a ratio, so
-        // Ratio is disabled and the popup reflects the EFFECTIVE mode (None
-        // stays None, #105) via the same resolver the status item uses.
+        // Menu bar display mode — percent-only plans have no ratio denominator
+        // at all (Cursor's own dashboard shows no ratio concept on free), so
+        // the Ratio item is HIDDEN there, not disabled (#107). Items are
+        // tag-addressed (tag = mode value) so removal can't shift the mapping.
+        // The popup reflects the EFFECTIVE mode (None stays None, #105) via
+        // the same resolver the status item uses.
         let percentOnly = viewModel.usageData?.isPercentOnly == true
-        menuBarDisplayPopUp.selectItem(at: UsageViewModel.resolvedMenuBarDisplayMode(
+        let ratioIndex = menuBarDisplayPopUp.indexOfItem(withTag: 1)
+        if percentOnly {
+            if ratioIndex >= 0 { menuBarDisplayPopUp.removeItem(at: ratioIndex) }
+        } else if ratioIndex < 0 {
+            menuBarDisplayPopUp.insertItem(withTitle: Self.ratioItemTitle, at: 1)
+            menuBarDisplayPopUp.item(at: 1)?.tag = 1
+        }
+        menuBarDisplayPopUp.selectItem(withTag: UsageViewModel.resolvedMenuBarDisplayMode(
             isPercentOnly: percentOnly, setting: viewModel.menuBarDisplayMode))
-        menuBarDisplayPopUp.item(at: 1)?.isEnabled = !percentOnly
 
         jumpEffectToggle.state = viewModel.jumpEffectEnabled ? .on : .off
         jumpIntensitySegmented.selectedSegment = viewModel.jumpIntensity.rawValue
@@ -84,13 +93,20 @@ final class SettingsAppearanceTabViewController: NSViewController {
 
     // MARK: - Cards
 
+    private static let ratioItemTitle = "Ratio (e.g. 120/500)"
+
     private func makeMenuBarCard() -> NSView {
         menuBarDisplayPopUp = NSPopUpButton(frame: .zero, pullsDown: false)
         menuBarDisplayPopUp.addItems(withTitles: [
             "None",
-            "Ratio (e.g. 120/500)",
+            Self.ratioItemTitle,
             "Percent (e.g. 24%)",
         ])
+        // tag = persisted mode value; selection/persistence go through tags so
+        // hiding the Ratio item can't shift the mapping (#107).
+        for (index, item) in menuBarDisplayPopUp.itemArray.enumerated() {
+            item.tag = index
+        }
         menuBarDisplayPopUp.target = self
         menuBarDisplayPopUp.action = #selector(menuBarDisplayModeChanged)
 
@@ -174,7 +190,8 @@ final class SettingsAppearanceTabViewController: NSViewController {
     // MARK: - Actions
 
     @objc private func menuBarDisplayModeChanged() {
-        viewModel.setMenuBarDisplayMode(menuBarDisplayPopUp.indexOfSelectedItem)
+        guard let tag = menuBarDisplayPopUp.selectedItem?.tag else { return }
+        viewModel.setMenuBarDisplayMode(tag)
     }
 
     @objc private func jumpEffectToggleChanged() {

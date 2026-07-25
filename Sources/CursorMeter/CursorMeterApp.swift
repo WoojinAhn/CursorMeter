@@ -320,6 +320,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             // #103: weekly-chart section visibility keys on availability; an
             // open Settings window must react when it flips.
             _ = viewModel.weeklyChartAvailable
+            // #107: the Ratio menu item is added/removed based on
+            // usageData.isPercentOnly — an open Settings window must rebuild
+            // when the plan shape changes (account switch, upgrade).
+            _ = viewModel.usageData
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
