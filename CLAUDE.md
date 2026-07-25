@@ -17,12 +17,19 @@ swift build -c release   # Release build
 macOS does not allow overwriting a running app binary. Always follow this sequence:
 
 ```bash
+git pull --ff-only              # 0. Sync with origin — a stale local main silently
+                                #    packages old code (#86; local builds all stamp
+                                #    v0.1.0, so the gap is invisible in the app)
 pkill -9 -x CursorMeter        # 1. Force kill
 rm -rf /Applications/CursorMeter.app  # 2. Delete old bundle
 bash Scripts/package_app.sh     # 3. Build release + create .app
 cp -r CursorMeter.app /Applications/  # 4. Copy new bundle
 open /Applications/CursorMeter.app    # 5. Launch
 ```
+
+`Scripts/capture-settings.sh` wraps this sequence (with a behind-origin guard)
+and then captures per-tab Settings screenshots via AX frames — use it for the
+screenshot-refresh step of the Issue Workflow.
 
 - Local builds stamp version 0.1.0 (always shows "Update available"); only `release.yml` injects the tag version
 
@@ -74,10 +81,19 @@ Popover/Settings live checks run through `osascript` System Events — **element
 |------|------|
 | `CursorMeterApp.swift` | App entry, NSApplicationDelegate + NSStatusItem + NSPopover |
 | `MenuBarView.swift` | Popover UI (NSViewController, 4-section layout) |
-| `SettingsViewController.swift` | Settings window (pure AppKit, NSViewController) |
+| `SettingsTabViewController.swift` | Settings window root — NSTabViewController (.toolbar), 3 tabs, `updateUI()` fan-out (#99) |
+| `SettingsGeneralTabViewController.swift` | General tab: Refresh / Startup / Version+update-check |
+| `SettingsNotificationsTabViewController.swift` | Alerts tab: usage alerts, threshold slider, app-status toggle |
+| `SettingsAppearanceTabViewController.swift` | Display tab: menu bar text, usage jump, weekly chart |
+| `SettingsCardFactory.swift` | Card-row layout factory + `CardBackgroundView`; hard-constraint padding (#101), children must report `preferredContentSize` in `viewWillAppear` |
 | `UsageViewModel.swift` | State management, auto-refresh, settings persistence |
 | `CursorAPIClient.swift` | API calls (actor, ephemeral URLSession) |
 | `UsageModels.swift` | Codable models + display model |
+| `WeeklyUsageModels.swift` | Weekly usage codable + display models |
+| `WeeklyUsageChartView.swift` | Rolling 7-day bar chart in the popover |
+| `UpdateChecker.swift` | GitHub Releases update check (ephemeral session) |
+| `ThresholdRangeSlider.swift` | Dual-thumb warning/critical range slider (#81) |
+| `CursorAppAuthReader.swift` | Reads Cursor IDE credentials from state.vscdb (#54 IDE auth source) |
 | `CircularProgressIcon.swift` | Menu bar progress ring icon + color thresholds |
 | `NotificationManager.swift` | Usage threshold notifications (UserNotifications) |
 | `LoginWindow.swift` | WKWebView login + two-tier domain whitelist + cookie capture validation |
