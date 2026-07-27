@@ -1,1 +1,0 @@
-This file is temporary and will be deleted after issue creation.
