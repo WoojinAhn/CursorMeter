@@ -245,7 +245,34 @@ final class SettingsGeneralTabViewController: NSViewController {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
     }
 
+    /// "2026-07-27T01:20:00Z" → "2026-07-27 10:20" (local). Falls back to the
+    /// raw string on parse failure. Formatter-per-call: runs once per
+    /// updateUI, and a shared mutable DateFormatter is a concurrency footgun.
+    private static func devBuildDateText(_ iso: String?) -> String? {
+        guard let iso else { return nil }
+        let parser = ISO8601DateFormatter()
+        guard let date = parser.date(from: iso) else { return iso }
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.calendar = Calendar(identifier: .gregorian)
+        f.dateFormat = "yyyy-MM-dd HH:mm"
+        return f.string(from: date)
+    }
+
     private func updateUpdatesUI() {
+        // Dev build (#109): show provenance, never the update-check UI — the
+        // stamped 0.1.0 placeholder makes release comparisons meaningless.
+        if let commit = viewModel.devBuildCommit {
+            updateSpinner.isHidden = true
+            updateSpinner.stopAnimation(nil)
+            let date = Self.devBuildDateText(viewModel.devBuildDate).map { " · built \($0)" } ?? ""
+            updateStatusLabel.stringValue = "Dev build \(commit)\(date)"
+            updateStatusLabel.textColor = .secondaryLabelColor
+            checkNowButton.isHidden = true
+            downloadButton.isHidden = true
+            return
+        }
+
         if viewModel.isCheckingUpdate {
             updateSpinner.isHidden = false
             updateSpinner.startAnimation(nil)

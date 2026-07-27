@@ -180,6 +180,16 @@ final class UsageViewModel {
     /// periodic). Gates the periodic re-check for long-running instances (#80).
     @ObservationIgnored private var lastUpdateCheckAt: Date?
 
+    /// Dev-build provenance markers stamped into Info.plist by package_app.sh
+    /// on non-release channels (#109). A non-nil commit short-circuits every
+    /// update-check path — a dev build comparing its placeholder 0.1.0 against
+    /// GitHub Releases is pure noise. Internal (not private) so tests can
+    /// simulate a dev bundle; immutable in production after launch.
+    @ObservationIgnored internal var devBuildCommit: String? =
+        Bundle.main.object(forInfoDictionaryKey: "CMDevBuildCommit") as? String
+    @ObservationIgnored internal var devBuildDate: String? =
+        Bundle.main.object(forInfoDictionaryKey: "CMDevBuildDate") as? String
+
     // MARK: - Settings
 
     var refreshInterval: RefreshInterval = .fiveMinutes
@@ -408,6 +418,7 @@ final class UsageViewModel {
         loadSettings()
         lastUpdateCheckAt = Date()
         Task {
+            guard devBuildCommit == nil else { return }
             let result = await updateCheckRunner()
             await recordUpdateCheckResult(result, source: .automatic)
         }
@@ -691,7 +702,8 @@ final class UsageViewModel {
         // Periodic update re-check rides the refresh cycle (success path
         // only, so an offline stretch can't hammer GitHub) instead of
         // owning a timer — at most one API call per updateRecheckInterval.
-        if Self.shouldRecheckUpdate(lastCheck: lastUpdateCheckAt, now: Date()) {
+        if devBuildCommit == nil,
+           Self.shouldRecheckUpdate(lastCheck: lastUpdateCheckAt, now: Date()) {
             lastUpdateCheckAt = Date()
             Task {
                 let result = await updateCheckRunner()
@@ -1186,6 +1198,7 @@ final class UsageViewModel {
     }
 
     func checkForUpdate() async {
+        guard devBuildCommit == nil else { return }
         isCheckingUpdate = true
         lastUpdateCheckAt = Date()
         async let result = updateCheckRunner()
@@ -1524,6 +1537,12 @@ final class UsageViewModel {
 
     /// Test-only — seeds the in-memory cookie so refresh() proceeds past the
     /// auth guard without touching the Keychain.
+    /// Test-only — seeds the periodic-recheck clock so DevBuildGateTests can
+    /// force the recheck window open without waiting out the real interval.
+    internal func testHook_setLastUpdateCheckAt(_ date: Date?) {
+        lastUpdateCheckAt = date
+    }
+
     internal func testHook_setCookieHeader(_ header: String) {
         cachedCookieHeader = header
     }

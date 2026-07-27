@@ -30,6 +30,7 @@ jobs:
       - name: Build app bundle
         env:
           APP_VERSION: ${{ steps.version.outputs.version }}
+          BUILD_CHANNEL: release
         run: bash Scripts/package_app.sh
 
       - name: Create zip

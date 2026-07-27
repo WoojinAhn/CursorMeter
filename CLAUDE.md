@@ -31,7 +31,7 @@ open /Applications/CursorMeter.app    # 5. Launch
 and then captures per-tab Settings screenshots via AX frames — use it for the
 screenshot-refresh step of the Issue Workflow.
 
-- Local builds stamp version 0.1.0 (always shows "Update available"); only `release.yml` injects the tag version
+- Local builds stamp version 0.1.0 and a `CMDevBuildCommit` Info.plist marker (#109): the app shows "Dev build <hash>" in Settings and skips all update checks. Only `release.yml` (`BUILD_CHANNEL=release`) injects the tag version and omits the marker
 
 ## Log Inspection
 
