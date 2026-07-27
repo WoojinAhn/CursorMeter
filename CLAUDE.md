@@ -48,8 +48,9 @@ Every feature issue follows this sequence:
 2. **Implementation** — Write feature code and test code together
 3. **`swift test`** — All tests must pass
 4. **Commit/push** — Reference issue number in commit message. **After pushing, check CI** (`gh run list --limit 1`) — the Test workflow ran red for a full day of pushes once (#84 strict-isolation break) and was only noticed when it blocked a release. Note: `test.yml` triggers only on **main push + PR** — feature-branch pushes run no CI, so branch work gets its first CI signal at merge (or open a PR)
-5. **Screenshot refresh (UI-visible changes)** — If the change alters anything shown in `docs/screenshots/`, recapture the affected shots in the same issue (AX-path-driven automation; see #91). **PII rule: the real name / company email in the popover header must never appear** — crop the user-info row (precedent: `popover.png`) or use the "Demo User" overlay (precedent: `popover-weekly.png`), and inspect every capture BEFORE `git add`
-6. **Post-close check** — After closing an issue, run `gh issue list --state open` and show remaining issues to the user
+5. **Stale-reference sweep (semantic changes)** — When a change retires or renames a concept (e.g. "enterprise-only"), `grep -r` the old term across code comments, **UI strings**, and docs before committing. Diff-scoped reviews structurally miss stale text outside the diff — six review passes on #103 caught the comments but not the user-facing "Enterprise team accounts only." caption; live verification did
+6. **Screenshot refresh (UI-visible changes)** — If the change alters anything shown in `docs/screenshots/`, recapture the affected shots in the same issue (AX-path-driven automation; see #91). **PII rule: the real name / company email in the popover header must never appear** — crop the user-info row (precedent: `popover.png`) or use the "Demo User" overlay (precedent: `popover-weekly.png`), and inspect every capture BEFORE `git add`
+7. **Post-close check** — After closing an issue, run `gh issue list --state open` and show remaining issues to the user
 
 Out-of-scope discoveries during work (bugs / risks outside the requested change) → record in `.claude/notes.md` (gitignored), do not auto-fix.
 
@@ -67,6 +68,7 @@ Popover/Settings live checks run through `osascript` System Events — **element
 - Popover path: `pop over 1 of menu bar item 1 of menu bar 1` (status-item click toggles — retry-loop open, don't assume state). Buttons/sliders inside are addressable by name; the popover is not exposed as a `window`
 - `switch` is an AppleScript reserved word; NSSwitch AXPress can double-fire its action — to flip a persisted toggle for a capture, use kill → `defaults write` → relaunch instead of clicking the switch
 - Capture via AX frame: `get {position, size}` then `screencapture -x` + `sips` crop (sips silently ignores a crop that keeps the full width — reduce both dimensions)
+- **`screencapture -R` shoots the screen region, not the window** — an occluded target (e.g. terminal on top) captures the wrong window. `set frontmost to true` + `perform action "AXRaise" of window 1` before every region capture
 
 ## Release Workflow
 
