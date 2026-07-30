@@ -38,6 +38,17 @@ jobs:
           APP_VERSION: ${{ steps.version.outputs.version }}
         run: ditto -c -k --keepParent CursorMeter.app "CursorMeter-${APP_VERSION}.zip"
 
+      # Published so a download can be checked for corruption / wrong asset
+      # (#53 M-6). NOT an authenticity guarantee: hash, zip and installer all
+      # come from this same repo, so a repo compromise moves all three.
+      # Publisher authenticity needs Developer ID signing + notarization (#31).
+      - name: Compute checksum
+        env:
+          APP_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          shasum -a 256 "CursorMeter-${APP_VERSION}.zip" > "CursorMeter-${APP_VERSION}.zip.sha256"
+          cat "CursorMeter-${APP_VERSION}.zip.sha256"
+
       - name: Generate release notes
         id: notes
         env:
@@ -71,19 +82,20 @@ jobs:
             echo ""
             echo "### Quick Install (recommended)"
             echo ""
-            echo 'Downloads, unzips, removes quarantine, and moves to `/Applications` automatically. ([view script](https://github.com/WoojinAhn/CursorMeter/blob/main/Scripts/install.sh))'
+            echo 'Downloads, unzips, removes quarantine, and moves to `/Applications` automatically. ([view script](https://github.com/WoojinAhn/CursorMeter/blob/'"${GITHUB_REF_NAME}"'/Scripts/install.sh))'
             echo ""
             echo '```bash'
-            echo "curl -sL https://raw.githubusercontent.com/WoojinAhn/CursorMeter/main/Scripts/install.sh | bash"
+            echo "curl -sL https://raw.githubusercontent.com/WoojinAhn/CursorMeter/${GITHUB_REF_NAME}/Scripts/install.sh | bash"
             echo '```'
             echo ""
             echo "### Manual Install"
             echo "1. Download **CursorMeter-${VERSION}.zip** below"
-            echo "2. Unzip the archive"
-            echo '3. Remove quarantine: `xattr -cr CursorMeter.app`'
-            echo '4. If upgrading, quit the running app first (menu bar → Quit)'
-            echo '5. Move `CursorMeter.app` to `/Applications`'
-            echo "6. Launch from Applications or Spotlight"
+            echo '2. Optional — check the download against the published hash: `shasum -a 256 -c CursorMeter-'"${VERSION}"'.zip.sha256`'
+            echo "3. Unzip the archive"
+            echo '4. Remove quarantine: `xattr -cr CursorMeter.app`'
+            echo '5. If upgrading, quit the running app first (menu bar → Quit)'
+            echo '6. Move `CursorMeter.app` to `/Applications`'
+            echo "7. Launch from Applications or Spotlight"
             echo ""
             echo "---"
             echo ""
@@ -91,19 +103,20 @@ jobs:
             echo ""
             echo "### 빠른 설치 (권장)"
             echo ""
-            echo '다운로드, 압축 해제, 격리 해제, `/Applications` 이동을 자동으로 수행합니다. ([스크립트 보기](https://github.com/WoojinAhn/CursorMeter/blob/main/Scripts/install.sh))'
+            echo '다운로드, 압축 해제, 격리 해제, `/Applications` 이동을 자동으로 수행합니다. ([스크립트 보기](https://github.com/WoojinAhn/CursorMeter/blob/'"${GITHUB_REF_NAME}"'/Scripts/install.sh))'
             echo ""
             echo '```bash'
-            echo "curl -sL https://raw.githubusercontent.com/WoojinAhn/CursorMeter/main/Scripts/install.sh | bash"
+            echo "curl -sL https://raw.githubusercontent.com/WoojinAhn/CursorMeter/${GITHUB_REF_NAME}/Scripts/install.sh | bash"
             echo '```'
             echo ""
             echo "### 수동 설치"
             echo "1. 아래에서 **CursorMeter-${VERSION}.zip** 다운로드"
-            echo "2. 압축 해제"
-            echo '3. 격리 해제: `xattr -cr CursorMeter.app`'
-            echo '4. 업그레이드 시, 실행 중인 앱 먼저 종료 (메뉴바 → Quit)'
-            echo '5. `CursorMeter.app`을 `/Applications`로 이동'
-            echo "6. Applications 또는 Spotlight에서 실행"
+            echo '2. (선택) 게시된 해시로 다운로드 확인: `shasum -a 256 -c CursorMeter-'"${VERSION}"'.zip.sha256`'
+            echo "3. 압축 해제"
+            echo '4. 격리 해제: `xattr -cr CursorMeter.app`'
+            echo '5. 업그레이드 시, 실행 중인 앱 먼저 종료 (메뉴바 → Quit)'
+            echo '6. `CursorMeter.app`을 `/Applications`로 이동'
+            echo "7. Applications 또는 Spotlight에서 실행"
             echo ""
             echo "---"
             echo ""
@@ -129,5 +142,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
-          files: CursorMeter-${{ steps.version.outputs.version }}.zip
+          files: |
+            CursorMeter-${{ steps.version.outputs.version }}.zip
+            CursorMeter-${{ steps.version.outputs.version }}.zip.sha256
           body: ${{ steps.notes.outputs.body }}
