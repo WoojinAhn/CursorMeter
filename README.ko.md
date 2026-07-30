@@ -85,11 +85,6 @@ swift test    # 전체 테스트 실행 (Xcode 필요)
 
 이 앱은 Cursor의 **비공식 내부 엔드포인트** (usage, auth, dashboard API — 전체 목록은 [`docs/API_REFERENCE.md`](docs/API_REFERENCE.md) 참조)를 사용합니다. 해당 엔드포인트는 사전 고지 없이 변경되거나 차단될 수 있습니다.
 
-## 로드맵
-
-- [ ] 주간 차트 막대에 mode (plan/on-demand) 시각 표시 ([#69](https://github.com/WoojinAhn/CursorMeter/issues/69))
-- [ ] 주간 차트에 빌링 사이클 rollover 마커 표시 ([#70](https://github.com/WoojinAhn/CursorMeter/issues/70))
-
 ## 기여하기
 
 버그를 발견하셨거나 아이디어가 있으신가요? [이슈를 열어주세요](https://github.com/WoojinAhn/CursorMeter/issues) — 피드백과 제안은 언제나 환영합니다. 현재 Pull Request는 받지 않습니다.
