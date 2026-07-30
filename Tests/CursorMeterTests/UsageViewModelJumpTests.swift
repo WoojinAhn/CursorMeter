@@ -221,6 +221,7 @@ final class UsageViewModelJumpTests: XCTestCase {
     /// next first refresh is treated as a baseline-set (no jump emitted).
     func test_logout_clearsJumpBaselines() async {
         let vm = await MainActor.run { UsageViewModel() }
+        await MainActor.run { vm.keychainDeleteHandler = {} }  // #82: no real Keychain in tests
         let baseline = makeFixture(requestsUsed: 100, requestsLimit: 500)
         let next = makeFixture(requestsUsed: 150, requestsLimit: 500)
 

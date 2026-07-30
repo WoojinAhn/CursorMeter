@@ -1088,7 +1088,9 @@ final class UsageViewModel {
         lastAccountEmail = nil
         cachedCookieHeader = nil
         do {
-            try KeychainStore.deleteCookieHeader()
+            // Through the seam (#82) — tests calling logout() must not touch
+            // the real Keychain; production default is KeychainStore.
+            try keychainDeleteHandler()
         } catch {
             Log.error("Keychain delete failed: \(error.localizedDescription)")
         }

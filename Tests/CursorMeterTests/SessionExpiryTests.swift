@@ -136,4 +136,17 @@ final class SessionExpiryTests: XCTestCase {
         XCTAssertEqual(spy.notifyCount, 0)
         XCTAssertEqual(spy.keychainDeleteCount, 0)
     }
+
+    /// #82: logout() must delete the credential through the injectable seam,
+    /// not KeychainStore directly — otherwise every test calling logout()
+    /// attempts a REAL keychain delete on the dev machine (-25244 log noise).
+    func test_logout_routesKeychainDeleteThroughSeam() {
+        let spy = ExpirySpy()
+        let vm = makeViewModel(spy: spy)
+
+        vm.logout()
+
+        XCTAssertEqual(spy.keychainDeleteCount, 1)
+        XCTAssertEqual(vm.authState, .loggedOut)
+    }
 }

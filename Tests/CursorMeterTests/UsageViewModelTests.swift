@@ -139,6 +139,7 @@ final class UsageViewModelTests: XCTestCase {
     @MainActor
     func test_latch_resetsOnLogout() async {
         let vm = UsageViewModel()
+        vm.keychainDeleteHandler = {}  // #82: logout() must not touch the real Keychain
         let base = makeFixture(
             requestsUsed: 600, requestsLimit: 500,
             onDemandUsedCents: 100, onDemandLimitCents: 4000, onDemandEnabled: true)
