@@ -53,7 +53,7 @@ See [`SECURITY.md`](SECURITY.md) for the full threat model and reporting policy.
 ## Installation
 
 1. Download the latest `.zip` from [Releases](https://github.com/WoojinAhn/CursorMeter/releases)
-2. Optional — releases publish a matching `.zip.sha256`, so you can check the download:
+2. Optional — if the release includes a `.zip.sha256` asset, you can check the download:
    `shasum -a 256 -c CursorMeter-<version>.zip.sha256`
    (This detects a corrupted or wrong file. It is not a publisher signature — the app is ad-hoc signed, see step 4.)
 3. Unzip and drag `CursorMeter.app` to `/Applications`
