@@ -129,14 +129,16 @@ extension Array where Element == UsageEvent {
     func sevenDayRolling(today: Date = Date(), calendar: Calendar = .current) -> [DayUsage] {
         let startOfToday = calendar.startOfDay(for: today)
         let cutoff = calendar.date(byAdding: .day, value: -6, to: startOfToday)!
-        let formatter = Self.dayKeyFormatter(for: calendar)
 
-        var buckets: [String: (requestsSum: Double, onDemandCents: Double, totalCents: Double, hasOnDemand: Bool)] = [:]
+        // Bucket on the local-midnight `Date` itself — `startOfDay` is already
+        // computed for the window math, so a `yyyy-MM-dd` string key (and the
+        // shared DateFormatter cache behind it) bought nothing and was a data
+        // race off the main actor (#53 M-2).
+        var buckets: [Date: (requestsSum: Double, onDemandCents: Double, totalCents: Double, hasOnDemand: Bool)] = [:]
         for event in self {
             guard let eventDate = event.date else { continue }
-            let day = calendar.startOfDay(for: eventDate)
-            guard day >= cutoff, day <= startOfToday else { continue }
-            let key = formatter.string(from: day)
+            let key = calendar.startOfDay(for: eventDate)
+            guard key >= cutoff, key <= startOfToday else { continue }
             var b = buckets[key] ?? (0, 0, 0, false)
             b.requestsSum += event.requestsCostsSafe
             b.totalCents += event.chargedCentsSafe
@@ -149,8 +151,7 @@ extension Array where Element == UsageEvent {
 
         return (0..<7).reversed().map { offset in
             let day = calendar.date(byAdding: .day, value: -offset, to: startOfToday)!
-            let key = formatter.string(from: day)
-            let b = buckets[key] ?? (0, 0, 0, false)
+            let b = buckets[day] ?? (0, 0, 0, false)
             return DayUsage(
                 date: day,
                 requests: Int(b.requestsSum.rounded()),
@@ -177,21 +178,4 @@ extension Array where Element == UsageEvent {
         return oldest
     }
 
-    /// Cached `yyyy-MM-dd` formatter keyed by calendar timezone. The rolling
-    /// fold runs once per refresh; allocating a fresh `DateFormatter` (~100µs)
-    /// each time is wasteful when the timezone is effectively fixed in
-    /// production. MainActor-only callsites today, but the cache itself is
-    /// read-only after first miss per timezone so concurrent reads are safe.
-    private nonisolated(unsafe) static var formatterCache: [String: DateFormatter] = [:]
-
-    private static func dayKeyFormatter(for calendar: Calendar) -> DateFormatter {
-        let key = calendar.timeZone.identifier
-        if let cached = formatterCache[key] { return cached }
-        let f = DateFormatter()
-        f.calendar = calendar
-        f.timeZone = calendar.timeZone
-        f.dateFormat = "yyyy-MM-dd"
-        formatterCache[key] = f
-        return f
-    }
 }

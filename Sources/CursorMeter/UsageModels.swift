@@ -348,17 +348,18 @@ struct UsageDisplayData: Sendable {
         return formatter.string(from: resetDate)
     }
 
-    private nonisolated(unsafe) static let iso8601: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return f
-    }()
-
     // MARK: - Shared factory helpers
 
+    /// ISO8601DateFormatter is a non-Sendable mutable reference type, so a
+    /// shared static needed `nonisolated(unsafe)` — an opt-out of Swift 6
+    /// checking that silently covered any future off-actor caller (#53 M-2).
+    /// A per-call formatter costs microseconds and this runs a handful of
+    /// times per refresh.
     private static func parseDate(_ string: String?) -> Date? {
         guard let string else { return nil }
-        return iso8601.date(from: string)
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.date(from: string)
     }
 
     private static func requestCount(_ model: ModelUsage?) -> Int {
