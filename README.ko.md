@@ -23,7 +23,7 @@
 - 메뉴바에서 빌링 사용량, 요청 횟수, 리셋 날짜 확인
 - 사용량 임계치 도달 시 macOS 알림 (기본값: 80%/90%, 커스텀 가능)
 - **사용량 점프 이펙트** — 사용량이 한 번에 크게 올라가면 메뉴바 아이콘에 ⚡(중간 점프) 또는 🚀(Max 모드급 점프)가 잠시 표시되어, 갑작스런 증가를 놓치지 않게 합니다. 강도 3단계(Quiet / Normal / Bold)와 글리프 스타일(⚡/🚀 또는 💲/💸) 선택 가능, Bold + 큰 점프 조합에선 macOS 알림도 함께 띄움.
-- **주간 사용량 차트** (엔터프라이즈 팀 계정) — 팝오버에 최근 7일 막대 그래프 표시. 막대 높이는 Cursor의 가중 과금 단위(`requestsCosts`) 합으로 그려져, Max-mode Opus 한 콜이 가벼운 자동완성 수십 개를 상대적으로 압도합니다. 호버 tooltip은 plan 흡수된 날은 가중 단위 정수, on-demand 청구된 날은 실제 달러로 자동 분기. 오늘 강조 스타일 3가지(Outline / Dim / Both) 선택 가능.
+- **주간 사용량 차트** (모든 플랜) — 팝오버에 최근 7일 막대 그래프 표시. 막대 높이는 Cursor의 가중 과금 단위(`requestsCosts`) 합으로 그려져, Max-mode Opus 한 콜이 가벼운 자동완성 수십 개를 상대적으로 압도합니다. 호버 tooltip은 plan 흡수된 날은 가중 단위 정수, on-demand 청구된 날은 실제 달러로 자동 분기. 오늘 강조 스타일 3가지(Outline / Dim / Both) 선택 가능.
 - 메뉴바 표시 모드: 아이콘만, 분수(사용/한도), 퍼센트(%) 중 선택
 - 설정 UI (새로고침 간격, 알림 임계치, 메뉴바 표시 형식, 점프 이펙트 강도, 주간 차트 스타일)
 - 로그인 시 자동 실행 지원
@@ -53,8 +53,11 @@
 ## 설치
 
 1. [Releases](https://github.com/WoojinAhn/CursorMeter/releases)에서 최신 `.zip` 다운로드
-2. 압축 해제 후 `CursorMeter.app`을 `/Applications`로 이동
-3. 최초 실행 시 macOS가 차단할 수 있습니다 (미서명 앱). 우회 방법:
+2. (선택) 릴리즈에 `.zip.sha256` 자산이 있으면 다운로드를 확인할 수 있습니다:
+   `shasum -a 256 -c CursorMeter-<version>.zip.sha256`
+   (손상되거나 잘못된 파일을 걸러냅니다. 배포자 서명이 아닙니다 — 앱은 ad-hoc 서명이므로 4단계 참고.)
+3. 압축 해제 후 `CursorMeter.app`을 `/Applications`로 이동
+4. 최초 실행 시 macOS가 차단할 수 있습니다 (미서명 앱). 우회 방법:
    - 앱을 **우클릭** → **열기** → 대화상자에서 **열기** 클릭
    - 또는: 시스템 설정 → 개인정보 보호 및 보안 → **확인 없이 열기** 클릭
 
@@ -97,7 +100,7 @@ swift test    # 전체 테스트 실행 (Xcode 필요)
   <tr>
     <th align="center">메뉴바</th>
     <th align="center">팝오버</th>
-    <th align="center">주간 차트 (엔터프라이즈)</th>
+    <th align="center">주간 차트</th>
     <th align="center">설정</th>
   </tr>
   <tr>

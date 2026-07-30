@@ -34,6 +34,16 @@ CursorMeter는 비공개 Cursor API를 쿠키 기반 세션 자격증명으로 �
 
 로그인 WebView는 CursorMeter가 서드파티 origin을 로드하는 유일한 지점입니다. 나머지(`/api/usage-summary`, `/api/usage`, `/api/auth/me`)는 `URLSessionConfiguration.ephemeral`로 `cursor.com`에 직접 HTTPS 통신합니다.
 
+## Cursor IDE 자격증명 재사용 (#54)
+
+같은 Mac에 설치된 Cursor IDE가 로그인되어 있으면, CursorMeter는 사용자에게 다시 로그인을 요구하지 않고 IDE의 세션에서 자격증명을 파생합니다.
+
+- **읽는 대상:** `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`의 단일 키 — `cursorAuth/accessToken`.
+- **읽는 방식:** 읽기 전용 SQLite 연결(`SQLITE_OPEN_READONLY`, busy timeout 250 ms)을 매 읽기마다 열고 닫습니다. IDE의 저장소에 쓰거나 락을 걸지 않습니다.
+- **읽지 않는 것:** `cursorAuth/refreshToken` 및 그 외 모든 키. CursorMeter는 토큰 갱신을 직접 수행하지 않고, IDE가 이미 유지하는 액세스 토큰만 재사용합니다.
+- **로깅:** 합성된 세션 헤더는 다른 모든 자격증명과 동일하게 취급되어 절대 로그에 남지 않습니다 (LogRedactor 정책 참고).
+- **위협 모델:** 사용자 자신의 머신에 있는 사용자 자신의 자격증명이며, CursorMeter가 이미 보유한 Keychain 저장 쿠키와 동일한 신뢰 경계 안에 있습니다. 새로운 비밀 자산 유형이 추가되지 않으며, 브라우저 로그인(WebView) 경로는 fallback으로 계속 사용 가능합니다.
+
 ## WebView 화이트리스트 정책
 
 로그인 WebView(`LoginWindow.swift`)는 모든 navigation을 2계층 호스트 화이트리스트로 검증합니다. 동일한 검증이 `decidePolicyFor navigationAction`과 `decidePolicyFor navigationResponse` 양쪽에서 수행되며, 두 콜백 모두 `scheme == "https"`까지 확인합니다 — 호스트가 화이트리스트에 있더라도 평문 HTTP나 `file:` / `javascript:` / `data:` 스킴은 거부합니다.
