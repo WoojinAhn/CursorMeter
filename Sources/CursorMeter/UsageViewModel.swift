@@ -719,8 +719,21 @@ final class UsageViewModel {
 
         // Weekly chart: consume the optimistic task if we had one, otherwise
         // fall through to the sequential path that resolves teamId first.
-        if let task = optimisticWeekly, !accountSwitched {
-            await applyOptimisticWeekly(task)
+        // The optimistic task was built from a cached shape BEFORE this
+        // refresh's membershipType was known — if the plan changed underneath
+        // it, its result is for the wrong shape and must be discarded (#110).
+        let modeContradicted = Self.weeklyModeContradicts(
+            cachedWeeklyMode, membershipType: usageData?.membershipType)
+        if modeContradicted {
+            Log.info("Weekly mode contradicts the reported membership — re-discovering")
+            optimisticWeekly?.cancel()
+            clearWeeklyDiscoveryCaches()
+        }
+        if let task = optimisticWeekly, !accountSwitched, !modeContradicted {
+            let needsRediscovery = await applyOptimisticWeekly(task)
+            if needsRediscovery, let data = usageData {
+                await refreshWeeklyChart(cookieHeader: cookieHeader, data: data, userInfo: userInfo)
+            }
         } else if let data = usageData {
             await refreshWeeklyChart(cookieHeader: cookieHeader, data: data, userInfo: userInfo)
         }
@@ -928,23 +941,76 @@ final class UsageViewModel {
         return collected
     }
 
-    private func applyOptimisticWeekly(_ task: Task<[DayUsage], Error>) async {
+    /// True when a cached fetch shape contradicts the membership the server
+    /// just reported — a personal cache on an account that is now enterprise,
+    /// or vice versa (#110). A nil membershipType means usage-summary failed
+    /// and says nothing about the plan, so it never counts as a contradiction
+    /// (#103).
+    nonisolated static func weeklyModeContradicts(
+        _ mode: WeeklyMode?, membershipType: String?
+    ) -> Bool {
+        guard let mode, let membership = membershipType?.lowercased() else { return false }
+        let isEnterprise = membership == "enterprise"
+        switch mode {
+        case .enterprise: return !isEnterprise
+        case .personal:   return isEnterprise
+        }
+    }
+
+    /// A 400/404 from the weekly endpoint means the request shape itself is
+    /// wrong (stale team/user ids, or a plan that no longer accepts it) — the
+    /// cached shape must go so the next refresh re-discovers. 5xx / network
+    /// errors are transient and must NOT throw away a working cache (#110).
+    nonisolated static func weeklyErrorInvalidatesShape(_ error: Error) -> Bool {
+        if case APIError.httpError(let statusCode) = error {
+            return statusCode == 400 || statusCode == 404
+        }
+        return false
+    }
+
+    private func clearWeeklyDiscoveryCaches() {
+        cachedTeamId = nil
+        cachedUserId = nil
+        cachedOnDemandLimitDollars = nil
+        cachedWeeklyMode = nil
+    }
+
+    /// Returns true when the caller should fall through to the sequential
+    /// discovery path in this same refresh (the cached shape was rejected).
+    private func applyOptimisticWeekly(_ task: Task<[DayUsage], Error>) async -> Bool {
         do {
             weeklyData = try await task.value
             weeklyChartAvailable = true
+            return false
         } catch APIError.forbidden {
             Log.info("Optimistic weekly fetch returned 403 — clearing weekly caches")
-            cachedTeamId = nil
-            cachedUserId = nil
-            cachedOnDemandLimitDollars = nil
-            cachedWeeklyMode = nil
+            clearWeeklyDiscoveryCaches()
             weeklyChartAvailable = false
             weeklyData = nil
+            return false
         } catch {
+            if Self.weeklyErrorInvalidatesShape(error) {
+                // Enterprise has team/user ids worth re-discovering; personal is
+                // a fixed teamId-0 shape, so repeating it in the same refresh
+                // would just re-send the rejected call (#110).
+                let canRediscover = cachedWeeklyMode.map { mode in
+                    if case .enterprise = mode { return true } else { return false }
+                } ?? false
+                clearWeeklyDiscoveryCaches()
+                if canRediscover {
+                    Log.info("Optimistic weekly fetch rejected the cached shape — re-discovering")
+                    return true
+                }
+                Log.info("Weekly fetch rejected the request shape — hiding chart")
+                weeklyChartAvailable = false
+                weeklyData = nil
+                return false
+            }
             Log.info("Weekly fetch failed: \(error.localizedDescription)")
             if weeklyData == nil {
                 weeklyChartAvailable = false
             }
+            return false
         }
     }
 
@@ -1004,16 +1070,24 @@ final class UsageViewModel {
             cachedWeeklyMode = .enterprise(teamId: teamId, userId: userId)
         } catch APIError.forbidden {
             Log.info("Weekly fetch returned 403 — clearing enterprise cache")
-            cachedTeamId = nil
-            cachedUserId = nil
-            cachedOnDemandLimitDollars = nil
-            cachedWeeklyMode = nil
+            clearWeeklyDiscoveryCaches()
             weeklyChartAvailable = false
             weeklyData = nil
         } catch {
-            Log.info("Weekly fetch failed: \(error.localizedDescription)")
-            if weeklyData == nil {
+            // 400/404 = the team/user shape is stale; drop it so the next
+            // refresh re-discovers rather than repeating a doomed call (#110).
+            if Self.weeklyErrorInvalidatesShape(error) {
+                // Freshly discovered ids were rejected too — not a transient
+                // blip, so stop showing a chart that can no longer be refreshed.
+                Log.info("Weekly fetch rejected the enterprise shape — clearing cache and hiding chart")
+                clearWeeklyDiscoveryCaches()
                 weeklyChartAvailable = false
+                weeklyData = nil
+            } else {
+                Log.info("Weekly fetch failed: \(error.localizedDescription)")
+                if weeklyData == nil {
+                    weeklyChartAvailable = false
+                }
             }
         }
     }
@@ -1040,9 +1114,16 @@ final class UsageViewModel {
             weeklyChartAvailable = false
             weeklyData = nil
         } catch {
-            Log.info("Personal weekly fetch failed: \(error.localizedDescription)")
-            if weeklyData == nil {
+            if Self.weeklyErrorInvalidatesShape(error) {
+                Log.info("Personal weekly fetch rejected the request shape — hiding chart")
+                cachedWeeklyMode = nil
                 weeklyChartAvailable = false
+                weeklyData = nil
+            } else {
+                Log.info("Personal weekly fetch failed: \(error.localizedDescription)")
+                if weeklyData == nil {
+                    weeklyChartAvailable = false
+                }
             }
         }
     }

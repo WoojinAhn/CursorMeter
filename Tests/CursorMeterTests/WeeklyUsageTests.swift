@@ -875,3 +875,251 @@ final class PersonalWeeklyPathTests: XCTestCase {
         XCTAssertNil(vm.weeklyData)
     }
 }
+
+/// #110: a cached weekly fetch shape must not survive a plan change or a
+/// wrong-shape rejection. Only 403 cleared it before, so a persistent 400/404
+/// (or an enterprise↔personal flip) left a stale chart pinned forever.
+@MainActor
+final class WeeklyModeInvalidationTests: XCTestCase {
+
+    override func tearDown() {
+        MockURLProtocol.requestHandler = nil
+        super.tearDown()
+    }
+
+    private func makeViewModel() -> UsageViewModel {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockURLProtocol.self]
+        let vm = UsageViewModel(apiClient: CursorAPIClient(configuration: config))
+        vm.updateCheckRunner = { .upToDate }
+        vm.keychainDeleteHandler = {}
+        vm.sessionExpiredNotifier = {}
+        vm.refreshFailingNotifier = {}
+        vm.testHook_setCookieHeader("WorkosCursorSessionToken=t")
+        vm.authState = .loggedIn
+        return vm
+    }
+
+    final class PathLog: @unchecked Sendable {
+        private let lock = NSLock()
+        private var _paths: [String] = []
+        func record(_ p: String) { lock.lock(); _paths.append(p); lock.unlock() }
+        func reset() { lock.lock(); _paths.removeAll(); lock.unlock() }
+        var paths: [String] { lock.lock(); defer { lock.unlock() }; return _paths }
+    }
+
+    /// One handler covering both plan shapes; `membership` drives usage-summary
+    /// and `weeklyStatus` the events endpoint, so a single test can flip an
+    /// account's plan between refreshes.
+    private static func handler(
+        log: PathLog,
+        membership: String,
+        weeklyStatus: Int = 200
+    ) -> (URLRequest) throws -> (HTTPURLResponse, Data) {
+        { request in
+            let url = request.url!
+            log.record(url.path)
+            let ok = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            switch url.path {
+            case "/api/usage-summary":
+                let json = """
+                {"billingCycleStart":"2026-07-15T03:23:58.561Z","billingCycleEnd":"2026-08-15T03:23:58.561Z",
+                 "membershipType":"\(membership)","limitType":"user","isUnlimited":false,
+                 "individualUsage":{"plan":{"enabled":true,"used":10,"limit":2000,"remaining":1990,"totalPercentUsed":0.5}}}
+                """
+                return (ok, Data(json.utf8))
+            case "/api/auth/me":
+                return (ok, Data("{\"email\":\"u@t.com\",\"name\":\"U\"}".utf8))
+            case "/api/usage":
+                return (ok, Data("{\"startOfMonth\":\"2026-07-15T03:23:58.561Z\"}".utf8))
+            case "/api/dashboard/teams":
+                return (ok, Data("{\"teams\":[{\"id\":77,\"name\":\"T\"}]}".utf8))
+            case "/api/dashboard/get-team-spend":
+                return (ok, Data("{\"teamMemberSpend\":[{\"userId\":42,\"email\":\"u@t.com\",\"hardLimitOverrideDollars\":null}]}".utf8))
+            case "/api/dashboard/get-filtered-usage-events":
+                guard weeklyStatus == 200 else {
+                    return (HTTPURLResponse(url: url, statusCode: weeklyStatus, httpVersion: nil, headerFields: nil)!, Data())
+                }
+                let nowMs = Int(Date().timeIntervalSince1970 * 1000)
+                let json = """
+                {"totalUsageEventsCount":1,"usageEventsDisplay":[
+                  {"timestamp":"\(nowMs)","requestsCosts":2,
+                   "kind":"USAGE_EVENT_KIND_INCLUDED_IN_BUSINESS","chargedCents":8}]}
+                """
+                return (ok, Data(json.utf8))
+            default:
+                return (HTTPURLResponse(url: url, statusCode: 404, httpVersion: nil, headerFields: nil)!, Data("{}".utf8))
+            }
+        }
+    }
+
+    // MARK: - Pure contradiction check
+
+    func test_modeContradiction_matrix() {
+        let ent = UsageViewModel.WeeklyMode.enterprise(teamId: 1, userId: 2)
+        XCTAssertFalse(UsageViewModel.weeklyModeContradicts(nil, membershipType: "free"))
+        XCTAssertFalse(UsageViewModel.weeklyModeContradicts(.personal, membershipType: nil),
+                       "nil membership = summary failed; says nothing about the plan (#103)")
+        XCTAssertFalse(UsageViewModel.weeklyModeContradicts(.personal, membershipType: "free"))
+        XCTAssertFalse(UsageViewModel.weeklyModeContradicts(ent, membershipType: "Enterprise"))
+        XCTAssertTrue(UsageViewModel.weeklyModeContradicts(.personal, membershipType: "enterprise"))
+        XCTAssertTrue(UsageViewModel.weeklyModeContradicts(ent, membershipType: "pro"))
+    }
+
+    // MARK: - Plan change invalidates the cached shape
+
+    func test_planUpgrade_discardsPersonalModeAndRediscovers() async {
+        let vm = makeViewModel()
+        let log = PathLog()
+        MockURLProtocol.requestHandler = Self.handler(log: log, membership: "free")
+        await vm.refresh()
+        XCTAssertEqual(vm.cachedWeeklyMode, .personal)
+
+        // Account becomes enterprise; the cached personal shape must not be used.
+        log.reset()
+        MockURLProtocol.requestHandler = Self.handler(log: log, membership: "enterprise")
+        await vm.refresh()
+
+        XCTAssertTrue(log.paths.contains("/api/dashboard/teams"),
+                      "must re-discover the enterprise shape instead of reusing the personal cache")
+        XCTAssertEqual(vm.cachedWeeklyMode, .enterprise(teamId: 77, userId: 42))
+        XCTAssertTrue(vm.weeklyChartAvailable)
+    }
+
+    func test_planDowngrade_discardsEnterpriseMode() async {
+        let vm = makeViewModel()
+        let log = PathLog()
+        MockURLProtocol.requestHandler = Self.handler(log: log, membership: "enterprise")
+        await vm.refresh()
+        XCTAssertEqual(vm.cachedWeeklyMode, .enterprise(teamId: 77, userId: 42))
+
+        log.reset()
+        MockURLProtocol.requestHandler = Self.handler(log: log, membership: "free")
+        await vm.refresh()
+
+        XCTAssertEqual(vm.cachedWeeklyMode, .personal)
+        XCTAssertFalse(log.paths.contains("/api/dashboard/get-team-spend"),
+                       "personal path must skip roster discovery")
+    }
+
+    // MARK: - Wrong-shape rejections (400/404)
+
+    func test_weekly400_clearsModeSoNextRefreshRediscovers() async {
+        let vm = makeViewModel()
+        let log = PathLog()
+        MockURLProtocol.requestHandler = Self.handler(log: log, membership: "enterprise")
+        await vm.refresh()
+        XCTAssertEqual(vm.cachedWeeklyMode, .enterprise(teamId: 77, userId: 42))
+
+        MockURLProtocol.requestHandler = Self.handler(log: log, membership: "enterprise", weeklyStatus: 400)
+        await vm.refresh()
+
+        XCTAssertNil(vm.cachedWeeklyMode, "400 = wrong request shape; the cached ids must go")
+    }
+
+    func test_weekly404_clearsMode() async {
+        let vm = makeViewModel()
+        let log = PathLog()
+        MockURLProtocol.requestHandler = Self.handler(log: log, membership: "free")
+        await vm.refresh()
+        XCTAssertEqual(vm.cachedWeeklyMode, .personal)
+
+        MockURLProtocol.requestHandler = Self.handler(log: log, membership: "free", weeklyStatus: 404)
+        await vm.refresh()
+
+        XCTAssertNil(vm.cachedWeeklyMode)
+    }
+
+    /// A rejected request shape is not a blip: the chart must come down rather
+    /// than pin data that can no longer be refreshed (Codex review P1).
+    func test_persistent400_hidesStaleChart() async {
+        let vm = makeViewModel()
+        let log = PathLog()
+        MockURLProtocol.requestHandler = Self.handler(log: log, membership: "free")
+        await vm.refresh()
+        XCTAssertEqual(vm.weeklyData?.count, 7)
+
+        MockURLProtocol.requestHandler = Self.handler(log: log, membership: "free", weeklyStatus: 400)
+        await vm.refresh()
+
+        XCTAssertNil(vm.cachedWeeklyMode)
+        XCTAssertNil(vm.weeklyData, "stale chart must not survive a rejected shape")
+        XCTAssertFalse(vm.weeklyChartAvailable)
+    }
+
+    /// Personal is a fixed teamId-0 shape — a rejection must not trigger an
+    /// identical retry inside the same refresh (Codex review P2).
+    func test_personal400_doesNotRetryInSameRefresh() async {
+        let vm = makeViewModel()
+        let log = PathLog()
+        MockURLProtocol.requestHandler = Self.handler(log: log, membership: "free")
+        await vm.refresh()
+        XCTAssertEqual(vm.cachedWeeklyMode, .personal)
+
+        log.reset()
+        MockURLProtocol.requestHandler = Self.handler(log: log, membership: "free", weeklyStatus: 400)
+        await vm.refresh()
+
+        let weeklyCalls = log.paths.filter { $0 == "/api/dashboard/get-filtered-usage-events" }.count
+        XCTAssertEqual(weeklyCalls, 1, "one rejected call, no same-refresh repeat")
+    }
+
+    /// Enterprise DOES have ids worth re-discovering: a rejected cached shape
+    /// should recover within the same refresh when discovery succeeds.
+    func test_enterprise400_rediscoversAndRecoversInSameRefresh() async {
+        let vm = makeViewModel()
+        let log = PathLog()
+        MockURLProtocol.requestHandler = Self.handler(log: log, membership: "enterprise")
+        await vm.refresh()
+        XCTAssertEqual(vm.cachedWeeklyMode, .enterprise(teamId: 77, userId: 42))
+
+        // Reject only the first (optimistic) events call of the next refresh;
+        // the re-discovered call succeeds.
+        let rejectedFirst = RejectFirstEventsCall(inner: Self.handler(log: log, membership: "enterprise"))
+        log.reset()
+        MockURLProtocol.requestHandler = { try rejectedFirst.handle($0) }
+        await vm.refresh()
+
+        XCTAssertTrue(log.paths.contains("/api/dashboard/teams"), "re-discovery ran")
+        XCTAssertEqual(vm.weeklyData?.count, 7, "chart recovered in the same refresh")
+        XCTAssertTrue(vm.weeklyChartAvailable)
+        XCTAssertEqual(vm.cachedWeeklyMode, .enterprise(teamId: 77, userId: 42))
+    }
+
+    /// Serves 400 for the first events call, then delegates to the inner handler.
+    final class RejectFirstEventsCall: @unchecked Sendable {
+        private let lock = NSLock()
+        private var seen = false
+        private let inner: (URLRequest) throws -> (HTTPURLResponse, Data)
+        init(inner: @escaping (URLRequest) throws -> (HTTPURLResponse, Data)) { self.inner = inner }
+        func handle(_ request: URLRequest) throws -> (HTTPURLResponse, Data) {
+            if request.url!.path == "/api/dashboard/get-filtered-usage-events" {
+                var first = false
+                lock.lock(); if !seen { seen = true; first = true }; lock.unlock()
+                if first {
+                    return (HTTPURLResponse(url: request.url!, statusCode: 400,
+                                            httpVersion: nil, headerFields: nil)!, Data())
+                }
+            }
+            return try inner(request)
+        }
+    }
+
+    /// The counterpart: a transient server error must NOT throw away a working
+    /// cache — that was the flaw in the original clear-after-N-failures sketch.
+    func test_weekly500_keepsModeAndChart() async {
+        let vm = makeViewModel()
+        let log = PathLog()
+        MockURLProtocol.requestHandler = Self.handler(log: log, membership: "free")
+        await vm.refresh()
+        XCTAssertEqual(vm.cachedWeeklyMode, .personal)
+        XCTAssertEqual(vm.weeklyData?.count, 7)
+
+        MockURLProtocol.requestHandler = Self.handler(log: log, membership: "free", weeklyStatus: 500)
+        await vm.refresh()
+
+        XCTAssertEqual(vm.cachedWeeklyMode, .personal, "5xx is transient — keep the shape")
+        XCTAssertEqual(vm.weeklyData?.count, 7, "stale chart retained")
+        XCTAssertTrue(vm.weeklyChartAvailable)
+    }
+}
