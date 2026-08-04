@@ -131,6 +131,12 @@ final class UsageViewModel {
     /// Consecutive failed refreshes (any failure except the unauthorized →
     /// logout path). Drives the stale-data indicator (#77).
     private(set) var consecutiveFailureCount = 0
+    /// Awake-only failure counter feeding the refresh-failing notification
+    /// (#112). Failures while the display is asleep (system sleep / dark
+    /// wake) are expected noise and don't advance it, so the ==threshold
+    /// edge can't fire mid-sleep — while `consecutiveFailureCount` above
+    /// keeps the stale indicator truthful across the same stretch.
+    @ObservationIgnored private(set) var notificationFailureCount = 0
     /// Wall-clock time of the last successful refresh — the stale line's
     /// "Last updated" timestamp.
     private(set) var lastSuccessAt: Date?
@@ -255,6 +261,13 @@ final class UsageViewModel {
     /// UNUserNotificationCenter (SPM test host crash) or queue work.
     @ObservationIgnored internal var updateAvailableNotifier: (@MainActor (_ version: String, _ releaseURL: String) async -> Void)?
     @ObservationIgnored internal var refreshFailingNotifier: (@MainActor () async -> Void)?
+
+    /// #112 sleep-aware notification seams. Same nil contract as the #83
+    /// notifiers: production wires them in CursorMeterApp; nil → treated as
+    /// display-awake / skip withdrawal, so the SPM test host never touches
+    /// CGDisplay* or UNUserNotificationCenter.
+    @ObservationIgnored internal var displayAsleepChecker: (() -> Bool)?
+    @ObservationIgnored internal var refreshFailingWithdrawer: (@MainActor () -> Void)?
 
     /// Update-check runner, injectable for tests (#83). The startup/periodic
     /// checks otherwise hit the real GitHub API from the SPM test host (whose
@@ -696,6 +709,10 @@ final class UsageViewModel {
         Log.info("Usage data refreshed")
         lastSuccessAt = Date()
         consecutiveFailureCount = 0
+        notificationFailureCount = 0
+        // #112: recovery clears any lingering "connection trouble" banner —
+        // idempotent at the UNUserNotificationCenter layer, so unconditional.
+        refreshFailingWithdrawer?()
         networkRetryTask?.cancel()
         networkRetryTask = nil
 
@@ -767,6 +784,7 @@ final class UsageViewModel {
         // Expired session has its own dedicated UI; stale must not leak
         // into the next login.
         consecutiveFailureCount = 0
+        notificationFailureCount = 0
         // stopAutoRefresh() cancels the auto-refresh task this code may be
         // running inside — notify FIRST so the notification awaits don't run
         // in a cancelled task. Re-entrance meanwhile is blocked by isRefreshing.
@@ -787,13 +805,11 @@ final class UsageViewModel {
     private func handleRefreshError(_ error: Error) async {
         if case APIError.forbidden = error {
             errorMessage = "Access denied (subscription may be inactive)"
-            consecutiveFailureCount += 1
-            await maybeNotifyRefreshFailing()
+            await registerRefreshFailure()
             Log.error("API returned 403 Forbidden")
             return
         }
-        consecutiveFailureCount += 1
-        await maybeNotifyRefreshFailing()
+        await registerRefreshFailure()
         if usageData == nil {
             // URLSession failures are wrapped as `APIError.networkError(URLError)`
             // by the API client, so direct cast misses offline cases. Unwrap both
@@ -1328,12 +1344,25 @@ final class UsageViewModel {
         Log.error("Session expiry recorded (#84) — total \(updated.count) entries")
     }
 
-    /// Fires the refresh-failing notification on the 4→5 transition only.
-    /// The unauthorized path never reaches this (it resets the counter and
-    /// routes to the session-expired notification, #76).
+    /// Registers a non-auth refresh failure (#112): every failure drives the
+    /// stale indicator, but only display-awake failures advance the
+    /// notification counter — a nil checker (test host without an explicit
+    /// override) counts as awake.
+    private func registerRefreshFailure() async {
+        consecutiveFailureCount += 1
+        if displayAsleepChecker?() != true {
+            notificationFailureCount += 1
+            await maybeNotifyRefreshFailing()
+        }
+    }
+
+    /// Fires the refresh-failing notification on the 4→5 transition of the
+    /// awake-only counter (#112). The unauthorized path never reaches this
+    /// (it resets the counters and routes to the session-expired
+    /// notification, #76).
     private func maybeNotifyRefreshFailing() async {
         guard Self.shouldNotifyRefreshFailing(
-            failureCount: consecutiveFailureCount,
+            failureCount: notificationFailureCount,
             enabled: appStatusNotificationEnabled
         ), let refreshFailingNotifier else { return }
         await refreshFailingNotifier()

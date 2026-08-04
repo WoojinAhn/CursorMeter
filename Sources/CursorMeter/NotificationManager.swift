@@ -270,6 +270,14 @@ final class NotificationManager {
         )
     }
 
+    /// Removes a delivered refresh-failing banner once refresh recovers
+    /// (#112) — otherwise a banner delivered during sleep lingers in
+    /// Notification Center long after the data is fresh again. Idempotent.
+    func withdrawRefreshFailing() {
+        UNUserNotificationCenter.current()
+            .removeDeliveredNotifications(withIdentifiers: [Self.refreshFailingIdentifier])
+    }
+
     // MARK: - Notification Click Routing (#79, #83)
 
     /// Pure routing decision for a clicked notification, including userInfo

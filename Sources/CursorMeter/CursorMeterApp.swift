@@ -43,6 +43,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         viewModel.refreshFailingNotifier = { [manager = notificationManager] in
             await manager.notifyRefreshFailing()
         }
+        viewModel.refreshFailingWithdrawer = { [manager = notificationManager] in
+            manager.withdrawRefreshFailing()
+        }
+        // #112: failures during system sleep / dark wake must not count
+        // toward the connection-trouble notification. Display power stays
+        // off through dark wake and NSWorkspace sleep events can be missed
+        // entirely (app launched lid-closed), so a direct state query beats
+        // observer flags. CGDisplayIsAsleep: macOS 10.2+, not deprecated.
+        viewModel.displayAsleepChecker = { CGDisplayIsAsleep(CGMainDisplayID()) != 0 }
 
         // #54: IDE credential source. Wired here (nil default in the view
         // model) so the SPM test host can never read the real state.vscdb.
