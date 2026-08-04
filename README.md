@@ -79,7 +79,7 @@ Requires Swift 6.0+ and Xcode.
 swift test    # Run all tests (requires Xcode)
 ```
 
-400+ tests across 24 suites: view-model logic (credential chain, stale detection, thresholds, jump events), custom controls (dual-thumb range slider), notification rules, log redaction, and API-client integration via a URLProtocol mock. See [test-checklist.md](docs/test-checklist.md) for manual test scenarios.
+Test suites cover view-model logic (credential chain, stale detection, thresholds, jump events), custom controls (dual-thumb range slider), notification rules, log redaction, and API-client integration via a URLProtocol mock. See [test-checklist.md](docs/test-checklist.md) for manual test scenarios.
 
 ## Disclaimer
 

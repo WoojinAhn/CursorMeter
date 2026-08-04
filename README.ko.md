@@ -79,7 +79,7 @@ Swift 6.0+ 및 Xcode가 필요합니다.
 swift test    # 전체 테스트 실행 (Xcode 필요)
 ```
 
-24개 스위트, 400+ 테스트: 뷰모델 로직(인증 체인, stale 감지, 임계치, 점프 이벤트), 커스텀 컨트롤(듀얼썸 range slider), 알림 규칙, 로그 마스킹, URLProtocol mock 기반 API 클라이언트 통합 테스트. 수동 테스트 항목은 [test-checklist.md](docs/test-checklist.md) 참고.
+테스트 스위트는 뷰모델 로직(인증 체인, stale 감지, 임계치, 점프 이벤트), 커스텀 컨트롤(듀얼썸 range slider), 알림 규칙, 로그 마스킹, URLProtocol mock 기반 API 클라이언트 통합 테스트를 다룹니다. 수동 테스트 항목은 [test-checklist.md](docs/test-checklist.md) 참고.
 
 ## 주의사항
 
