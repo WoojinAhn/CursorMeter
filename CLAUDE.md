@@ -38,6 +38,7 @@ screenshot-refresh step of the Issue Workflow.
 - `log` is a zsh builtin — use `/usr/bin/log` to invoke macOS unified logging
 - `Log.info` entries require `--info --debug` flags: `/usr/bin/log show --predicate 'subsystem == "com.cursormeter"' --info --debug --last 5m`
 - **Always add `AND process == "CursorMeter"` to the predicate** — `swift test` runs log under the same subsystem from the xctest host, and mixed output has caused misdiagnosis (phantom session-expiry events)
+- `APIError error N` in log lines maps to NSError codes by payload, NOT declaration order: httpError=0, networkError=1, unauthorized=2, forbidden=3 (#112 diagnosis)
 - Simulate session expiry: `security add-generic-password -U -s com.cursormeter.session -a cursor-cookie-header -w "WorkosCursorSessionToken=INVALID"` → relaunch
 
 ## Issue Workflow
