@@ -5,6 +5,23 @@ import SQLite3
 struct IDECredential: Sendable, Equatable {
     let cookieHeader: String   // "WorkosCursorSessionToken=<id>%3A%3A<jwt>"
     let expiresAt: Date
+    /// From `cursorAuth/cachedEmail` or `cursorAuth/email` — used when
+    /// `/api/auth/me` 404s for GitHub-numeric identities.
+    let email: String?
+    /// From `cursorAuth/cachedScopedProfile.displayName`.
+    let name: String?
+
+    init(
+        cookieHeader: String,
+        expiresAt: Date,
+        email: String? = nil,
+        name: String? = nil
+    ) {
+        self.cookieHeader = cookieHeader
+        self.expiresAt = expiresAt
+        self.email = email
+        self.name = name
+    }
 }
 
 /// Reads the Cursor IDE's access token from its local state DB and synthesizes
@@ -51,9 +68,16 @@ struct CursorAppAuthReader: Sendable {
               let userID = Self.userID(fromSub: claims.sub)
         else { return nil }
 
+        let email = Self.readString(db: db, key: "cursorAuth/cachedEmail")
+            ?? Self.readString(db: db, key: "cursorAuth/email")
+        let name = Self.displayName(
+            fromProfileJSON: Self.readString(db: db, key: "cursorAuth/cachedScopedProfile"))
+
         return IDECredential(
             cookieHeader: Self.makeCookieHeader(userID: userID, jwt: jwt),
-            expiresAt: claims.exp
+            expiresAt: claims.exp,
+            email: email,
+            name: name
         )
     }
 
@@ -84,5 +108,31 @@ struct CursorAppAuthReader: Sendable {
 
     nonisolated static func makeCookieHeader(userID: String, jwt: String) -> String {
         "WorkosCursorSessionToken=\(userID)%3A%3A\(jwt)"
+    }
+
+    /// Single-key string read on an already-open handle. Returns nil on
+    /// missing key or empty value. Never logs the value.
+    nonisolated static func readString(db: OpaquePointer?, key: String) -> String? {
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(
+            db, "SELECT value FROM ItemTable WHERE key = ?",
+            -1, &stmt, nil) == SQLITE_OK
+        else { return nil }
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_text(stmt, 1, key, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        guard sqlite3_step(stmt) == SQLITE_ROW,
+              let cString = sqlite3_column_text(stmt, 0)
+        else { return nil }
+        let value = String(cString: cString).trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+        return value.isEmpty ? nil : value
+    }
+
+    nonisolated static func displayName(fromProfileJSON json: String?) -> String? {
+        guard let json, let data = json.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let name = object["displayName"] as? String
+        else { return nil }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }

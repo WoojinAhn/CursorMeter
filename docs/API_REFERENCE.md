@@ -66,6 +66,26 @@ Sole source of `teamId` for the analytics endpoints. Used by `CursorAPIClient.fe
 
 Empty / non-200 on personal plans; observed `{}` (no `teams` key) on a free account 2026-07-24. Personal accounts skip this endpoint entirely for the weekly chart (#103).
 
+### `POST /api/dashboard/get-current-period-usage`
+
+Split included-usage meters for plans that separate Cursor Models vs Other Models (Ultra observed 2026-09-03). Empty JSON body + `Origin: https://cursor.com`. `{"teamId":0}` returns 400 on personal/Ultra.
+
+```json
+{
+  "planUsage": {
+    "autoPercentUsed": 31.88,
+    "apiPercentUsed": 85.65,
+    "totalPercentUsed": 39.56
+  }
+}
+```
+
+- `autoPercentUsed` → popover **Cursor Models** bar (Grok / Composer)
+- `apiPercentUsed` → popover **Other Models** bar
+- `totalPercentUsed` → menu-bar ring / "Included in Ultra" headline percent
+
+When this call fails, CursorMeter falls back to the same three fields on `/api/usage-summary` → `individualUsage.plan` (present on Ultra and some personal plans).
+
 ### `POST /api/dashboard/get-hard-limit`
 
 Member-facing monthly spend limit for token-based enterprise contracts. **Requires `{"teamId": <id>}` in the body** — an empty body returns `{"noUsageBasedAllowed": true}` (all fields nil). Bare-host + `Origin: https://cursor.com` like the other dashboard POSTs.
@@ -150,7 +170,7 @@ Other observed analytics endpoints, all with the same `startDate=/endDate=/teamI
 
 ### Dashboard POST endpoints
 
-Many `/api/dashboard/*` POST endpoints exist (e.g. `get-team-spend`, `get-current-billing-cycle`, `get-hard-limit`, `get-credit-grants-balance`). Not currently planned for use; recorded for future spend/forecast features.
+Many `/api/dashboard/*` POST endpoints exist (e.g. `get-team-spend`, `get-current-billing-cycle`, `get-hard-limit`, `get-credit-grants-balance`). `get-current-period-usage` is now used (see above). The rest are recorded for future spend/forecast features.
 
 ## Known limitations / open questions
 
