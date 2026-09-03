@@ -36,9 +36,17 @@ final class MenuBarPopoverViewController: NSViewController {
     private let usageValueLabel  = NSTextField(labelWithString: "")
     private let refreshButton    = NSButton()
 
-    // Progress row
+    // Progress row (single-meter plans)
+    private let progressRow      = NSStackView()
     private let progressBar      = ColoredProgressBar()
     private let percentLabel     = NSTextField(labelWithString: "")
+
+    // Dual bucket meters (Ultra / split-quota plans)
+    private let bucketMetersStack = NSStackView()
+    private let cursorModelsBar   = ColoredProgressBar()
+    private let otherModelsBar    = ColoredProgressBar()
+    private let cursorModelsPercentLabel = NSTextField(labelWithString: "")
+    private let otherModelsPercentLabel  = NSTextField(labelWithString: "")
 
     // Secondary metric row (hidden when no secondary data). In normal mode shows
     // On-demand; in on-demand mode shows the previous primary (Requests or Plan).
@@ -278,8 +286,7 @@ final class MenuBarPopoverViewController: NSViewController {
 
         dataStack.addArrangedSubview(usageRow)
 
-        // --- Progress bar + percent ---
-        let progressRow = NSStackView()
+        // --- Progress bar + percent (single-meter plans) ---
         progressRow.orientation = .horizontal
         progressRow.spacing = 6
         progressRow.translatesAutoresizingMaskIntoConstraints = false
@@ -298,6 +305,32 @@ final class MenuBarPopoverViewController: NSViewController {
         progressRow.addArrangedSubview(percentLabel)
 
         dataStack.addArrangedSubview(progressRow)
+
+        // --- Dual bucket meters (Cursor Models / Other Models) ---
+        bucketMetersStack.orientation = .vertical
+        bucketMetersStack.alignment = .leading
+        bucketMetersStack.spacing = 10
+        bucketMetersStack.translatesAutoresizingMaskIntoConstraints = false
+        bucketMetersStack.addArrangedSubview(
+            makeBucketMeter(
+                title: "Cursor Models",
+                subtitle: "Includes Cursor Grok and Composer",
+                bar: cursorModelsBar,
+                percentLabel: cursorModelsPercentLabel,
+                barColor: NSColor.systemCyan
+            )
+        )
+        bucketMetersStack.addArrangedSubview(
+            makeBucketMeter(
+                title: "Other Models",
+                subtitle: nil,
+                bar: otherModelsBar,
+                percentLabel: otherModelsPercentLabel,
+                barColor: NSColor.labelColor
+            )
+        )
+        bucketMetersStack.isHidden = true
+        dataStack.addArrangedSubview(bucketMetersStack)
 
         // --- Secondary metric row ---
         secondaryRow.orientation = .horizontal
@@ -500,10 +533,30 @@ final class MenuBarPopoverViewController: NSViewController {
         refreshButton.isEnabled     = !viewModel.isLoading
         refreshButton.isHidden      = (viewModel.authState != .loggedIn)
 
-        // Progress
-        progressBar.progress = min(data.percentUsed / 100.0, 1.0)
-        progressBar.barColor = CircularProgressIcon.tokenColor(for: data.percentUsed)
-        percentLabel.stringValue = data.percentText
+        // Progress: Ultra split-quota plans get the dashboard dual meters;
+        // on-demand mode keeps the single bar so the spend latch stays obvious.
+        if data.hasBucketMeters, !data.isOnDemandActive {
+            progressRow.isHidden = true
+            bucketMetersStack.isHidden = false
+            applyBucketMeter(
+                percent: data.cursorModelsPercent,
+                bar: cursorModelsBar,
+                label: cursorModelsPercentLabel,
+                fallbackColor: NSColor.systemCyan
+            )
+            applyBucketMeter(
+                percent: data.otherModelsPercent,
+                bar: otherModelsBar,
+                label: otherModelsPercentLabel,
+                fallbackColor: NSColor.labelColor
+            )
+        } else {
+            bucketMetersStack.isHidden = true
+            progressRow.isHidden = false
+            progressBar.progress = min(data.percentUsed / 100.0, 1.0)
+            progressBar.barColor = CircularProgressIcon.tokenColor(for: data.percentUsed)
+            percentLabel.stringValue = data.percentText
+        }
 
         // Secondary metric row (label + value vary by mode — see UsageDisplayData)
         if let label = data.secondaryUsageLabel, let value = data.secondaryUsageValue {
@@ -717,6 +770,67 @@ final class MenuBarPopoverViewController: NSViewController {
     }
 
     // MARK: - Factory helpers
+
+    private func makeBucketMeter(
+        title: String,
+        subtitle: String?,
+        bar: ColoredProgressBar,
+        percentLabel: NSTextField,
+        barColor: NSColor
+    ) -> NSView {
+        let titleLabel = NSTextField(labelWithString: title)
+        titleLabel.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        titleLabel.textColor = NSColor.labelColor
+        titleLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        titleLabel.lineBreakMode = .byTruncatingTail
+
+        percentLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+        percentLabel.textColor = NSColor.secondaryLabelColor
+        percentLabel.alignment = .right
+        percentLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+
+        let header = NSStackView(views: [titleLabel, percentLabel])
+        header.orientation = .horizontal
+        header.spacing = 6
+
+        bar.barColor = barColor
+        bar.translatesAutoresizingMaskIntoConstraints = false
+        bar.heightAnchor.constraint(equalToConstant: 6).isActive = true
+
+        let block = NSStackView()
+        block.orientation = .vertical
+        block.alignment = .leading
+        block.spacing = 3
+        block.translatesAutoresizingMaskIntoConstraints = false
+        block.addArrangedSubview(header)
+        block.addArrangedSubview(bar)
+        header.widthAnchor.constraint(equalTo: block.widthAnchor).isActive = true
+        bar.widthAnchor.constraint(equalTo: block.widthAnchor).isActive = true
+
+        if let subtitle {
+            let caption = NSTextField(wrappingLabelWithString: subtitle)
+            caption.font = NSFont.systemFont(ofSize: 9)
+            caption.textColor = NSColor.tertiaryLabelColor
+            caption.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            block.addArrangedSubview(caption)
+            caption.widthAnchor.constraint(lessThanOrEqualTo: block.widthAnchor).isActive = true
+        }
+
+        return block
+    }
+
+    private func applyBucketMeter(
+        percent: Double?,
+        bar: ColoredProgressBar,
+        label: NSTextField,
+        fallbackColor: NSColor
+    ) {
+        let value = percent ?? 0
+        bar.progress = min(value / 100.0, 1.0)
+        bar.barColor = fallbackColor
+        label.stringValue = "\(Int(value.rounded()))% used"
+    }
 
     private func makeDivider() -> NSBox {
         let box = NSBox()

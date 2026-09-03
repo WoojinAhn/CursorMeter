@@ -69,6 +69,7 @@ final class SettingsAppearanceTabViewController: NSViewController {
         // The popup reflects the EFFECTIVE mode (None stays None, #105) via
         // the same resolver the status item uses.
         let percentOnly = viewModel.usageData?.isPercentOnly == true
+            || viewModel.usageData?.hasBucketMeters == true
         let ratioIndex = menuBarDisplayPopUp.indexOfItem(withTag: 1)
         if percentOnly {
             if ratioIndex >= 0 { menuBarDisplayPopUp.removeItem(at: ratioIndex) }

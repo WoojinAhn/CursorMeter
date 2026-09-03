@@ -18,6 +18,7 @@ actor CursorAPIClient {
     private static let filteredUsageEventsURL = URL(string: "https://cursor.com/api/dashboard/get-filtered-usage-events")!
     private static let teamSpendURL = URL(string: "https://cursor.com/api/dashboard/get-team-spend")!
     private static let hardLimitURL = URL(string: "https://cursor.com/api/dashboard/get-hard-limit")!
+    private static let currentPeriodUsageURL = URL(string: "https://cursor.com/api/dashboard/get-current-period-usage")!
 
     private let session: URLSession
 
@@ -114,6 +115,20 @@ actor CursorAPIClient {
             origin: "https://cursor.com"
         )
         return try JSONDecoder().decode(TeamSpendResponse.self, from: data)
+    }
+
+    /// Current-cycle split quota (Cursor Models vs Other Models). Empty body —
+    /// `{"teamId":0}` 400s on personal/Ultra. Same Origin requirement as the
+    /// other dashboard POSTs.
+    func fetchCurrentPeriodUsage(cookieHeader: String) async throws -> CurrentPeriodUsageResponse {
+        let data = try await performRequest(
+            url: Self.currentPeriodUsageURL,
+            cookieHeader: cookieHeader,
+            method: "POST",
+            body: Data("{}".utf8),
+            origin: "https://cursor.com"
+        )
+        return try JSONDecoder().decode(CurrentPeriodUsageResponse.self, from: data)
     }
 
     /// Member-facing monthly spend limit for token-based enterprise contracts.

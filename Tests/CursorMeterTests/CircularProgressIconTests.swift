@@ -91,6 +91,14 @@ final class CircularProgressIconTests: XCTestCase {
         XCTAssertGreaterThan(image.size.width, 0)
     }
 
+    func testMenuBarImageWithCustomLabelIsWiderThanSinglePercent() {
+        let single = CircularProgressIcon.menuBarImageWithPercent(percent: 32)
+        let dual = CircularProgressIcon.menuBarImageWithPercent(
+            percent: 86, label: "32% · 86%")
+        XCTAssertGreaterThan(dual.size.width, single.size.width)
+        XCTAssertEqual(dual.size.height, 22)
+    }
+
     // MARK: - Login Required Image (#76)
 
     func testLoginRequiredImageIsWiderThanIdle() {

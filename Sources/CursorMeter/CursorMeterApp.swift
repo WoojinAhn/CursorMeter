@@ -138,18 +138,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
                 : CircularProgressIcon.idleImage()
         }
         let mode = UsageViewModel.resolvedMenuBarDisplayMode(
-            isPercentOnly: data.isPercentOnly, setting: viewModel.menuBarDisplayMode)
+            isPercentOnly: data.isPercentOnly || data.hasBucketMeters,
+            setting: viewModel.menuBarDisplayMode)
+        let ringPercent = data.menuBarRingPercent
         switch mode {
         case 2:
-            return CircularProgressIcon.menuBarImageWithPercent(percent: data.percentUsed)
+            return CircularProgressIcon.menuBarImageWithPercent(
+                percent: ringPercent,
+                label: data.hasBucketMeters ? data.menuBarBucketText : nil)
         case 1:
             return CircularProgressIcon.menuBarImageWithText(
-                percent: data.percentUsed,
+                percent: ringPercent,
                 usedText: data.menuBarUsedText,
                 limitText: data.menuBarLimitText
             )
         default:
-            return CircularProgressIcon.menuBarImage(percent: data.percentUsed)
+            return CircularProgressIcon.menuBarImage(percent: ringPercent)
         }
     }
 

@@ -548,7 +548,10 @@ final class UsageViewModel {
             setIDEAvailability(ideCredential != nil)
             if let ide = ideCredential {
                 do {
-                    try await runRefreshAttempt(cookieHeader: ide.cookieHeader)
+                    try await runRefreshAttempt(
+                        cookieHeader: ide.cookieHeader,
+                        identityFallback: UserInfoResponse(email: ide.email, name: ide.name)
+                    )
                     authState = .loggedIn
                     activeAuthSource = .cursorIDE
                     return
@@ -591,7 +594,10 @@ final class UsageViewModel {
     /// One credential's full refresh batch (#54): fetch, decode, apply state,
     /// and success-path side effects. Throws instead of handling errors so the
     /// credential chain in refresh() can decide fallback vs terminal handling.
-    private func runRefreshAttempt(cookieHeader: String) async throws {
+    private func runRefreshAttempt(
+        cookieHeader: String,
+        identityFallback: UserInfoResponse = UserInfoResponse(email: nil, name: nil)
+    ) async throws {
         let apiClient = self.apiClient
         // `async let` (not unstructured `Task {}`) keeps the three calls
         // tied to refresh()'s cancellation lifecycle; `capture` turns each
@@ -600,6 +606,7 @@ final class UsageViewModel {
         async let summaryCapture = Self.capture { try await apiClient.fetchUsageSummary(cookieHeader: cookieHeader) }
         async let usageCapture = Self.capture { try await apiClient.fetchUsage(cookieHeader: cookieHeader) }
         async let userInfoCapture = Self.capture { try await apiClient.fetchUserInfo(cookieHeader: cookieHeader) }
+        async let periodCapture = Self.capture { try await apiClient.fetchCurrentPeriodUsage(cookieHeader: cookieHeader) }
 
         // Optimistic weekly fetch — runs in parallel with the primary batch
         // once a prior refresh established the account's weekly fetch shape
@@ -617,6 +624,7 @@ final class UsageViewModel {
         let userInfoRes = await userInfoCapture
         let summaryRes = await summaryCapture
         let usageRes = await usageCapture
+        let periodRes = await periodCapture
 
         // Expiry check runs over ALL results before any decode failure can
         // abort the refresh — the 2026-07-03 incident: /api/auth/me decode
@@ -625,9 +633,24 @@ final class UsageViewModel {
             throw APIError.unauthorized
         }
 
-        let userInfo = try userInfoRes.get()
+        // Identity is optional when usage data is present. GitHub-linked
+        // accounts store `sub` as `github|<numeric>`; `/api/auth/me` 404s
+        // "User not found" for that prefix while usage-summary still 200s.
+        // Failing the whole refresh on that 404 is what showed as
+        // "Server error (404)" with a working session.
         let summary = try? summaryRes.get()
         let usage = try? usageRes.get()
+        let userInfo: UserInfoResponse
+        if case .success(let info) = userInfoRes {
+            userInfo = info
+        } else if summary != nil || usage != nil {
+            userInfo = identityFallback
+            Log.info("auth/me unavailable — using cached identity fallback")
+        } else if case .failure(let error) = userInfoRes {
+            throw error
+        } else {
+            throw APIError.httpError(statusCode: 0)
+        }
 
         // The IDE credential can silently belong to a different account than
         // the previous refresh (#54) — reset per-account state BEFORE applying
@@ -676,7 +699,8 @@ final class UsageViewModel {
             baseData = UsageDisplayData.from(
                 summary: summary, usage: usage, userInfo: userInfo,
                 perUserMonthlyLimitDollars: perUserMonthlyLimitDollars,
-                perUserOnDemandLimitDollars: perUserOnDemandLimitDollars)
+                perUserOnDemandLimitDollars: perUserOnDemandLimitDollars,
+                period: try? periodRes.get())
         } else if let usage {
             baseData = UsageDisplayData.from(usage: usage, userInfo: userInfo)
         } else {
