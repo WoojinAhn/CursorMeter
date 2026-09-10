@@ -113,6 +113,13 @@ enum WeeklyChartStyle: Int, Sendable, CaseIterable {
     case both = 2
 }
 
+enum WeeklyChartStatus: Equatable, Sendable {
+    case hidden
+    case ready
+    case stale
+    case unavailable
+}
+
 @Observable
 @MainActor
 final class UsageViewModel {
@@ -241,6 +248,16 @@ final class UsageViewModel {
 
     var effectiveWeeklyChartMetric: WeeklyChartMetric {
         (weeklyData ?? []).effectiveMetric(preferred: weeklyChartMetric)
+    }
+    private(set) var weeklyLastUpdated: Date?
+    private(set) var weeklyConsecutiveFailureCount = 0
+
+    var weeklyChartStatus: WeeklyChartStatus {
+        guard weeklyChartEnabled else { return .hidden }
+        if weeklyData != nil {
+            return weeklyConsecutiveFailureCount >= 2 ? .stale : .ready
+        }
+        return weeklyConsecutiveFailureCount > 0 ? .unavailable : .hidden
     }
 
     // MARK: - Private
@@ -515,8 +532,7 @@ final class UsageViewModel {
         cachedUserId = nil
         cachedOnDemandLimitDollars = nil
         cachedWeeklyMode = nil
-        weeklyData = nil
-        weeklyChartAvailable = false
+        resetWeeklyChartState()
         previousCycleStart = nil
         isOnDemandLatched = false
         previousPlanUsedCents = nil
@@ -580,6 +596,8 @@ final class UsageViewModel {
                 authState = activeAuthSource == nil ? .loggedOut : .loginRequired
             }
             activeAuthSource = nil
+            clearWeeklyDiscoveryCaches()
+            resetWeeklyChartState()
             return
         }
         do {
@@ -787,6 +805,8 @@ final class UsageViewModel {
         }
         authState = .loginRequired
         usageData = nil
+        clearWeeklyDiscoveryCaches()
+        resetWeeklyChartState()
         // Expired session has its own dedicated UI; stale must not leak
         // into the next login.
         consecutiveFailureCount = 0
@@ -998,18 +1018,38 @@ final class UsageViewModel {
         cachedWeeklyMode = nil
     }
 
+    private func resetWeeklyChartState() {
+        weeklyData = nil
+        weeklyChartAvailable = false
+        weeklyLastUpdated = nil
+        weeklyConsecutiveFailureCount = 0
+    }
+
+    private func recordWeeklySuccess(_ data: [DayUsage]) {
+        weeklyData = data
+        weeklyChartAvailable = true
+        weeklyLastUpdated = Date()
+        weeklyConsecutiveFailureCount = 0
+    }
+
+    private func recordWeeklyFailure(discardData: Bool = false) {
+        weeklyConsecutiveFailureCount += 1
+        if discardData {
+            weeklyData = nil
+        }
+        weeklyChartAvailable = weeklyData != nil
+    }
+
     /// Returns true when the caller should fall through to the sequential
     /// discovery path in this same refresh (the cached shape was rejected).
     private func applyOptimisticWeekly(_ task: Task<[DayUsage], Error>) async -> Bool {
         do {
-            weeklyData = try await task.value
-            weeklyChartAvailable = true
+            recordWeeklySuccess(try await task.value)
             return false
         } catch APIError.forbidden {
             Log.info("Optimistic weekly fetch returned 403 — clearing weekly caches")
             clearWeeklyDiscoveryCaches()
-            weeklyChartAvailable = false
-            weeklyData = nil
+            recordWeeklyFailure(discardData: true)
             return false
         } catch {
             if Self.weeklyErrorInvalidatesShape(error) {
@@ -1025,14 +1065,11 @@ final class UsageViewModel {
                     return true
                 }
                 Log.info("Weekly fetch rejected the request shape — hiding chart")
-                weeklyChartAvailable = false
-                weeklyData = nil
+                recordWeeklyFailure(discardData: true)
                 return false
             }
             Log.info("Weekly fetch failed: \(error.localizedDescription)")
-            if weeklyData == nil {
-                weeklyChartAvailable = false
-            }
+            recordWeeklyFailure()
             return false
         }
     }
@@ -1062,8 +1099,7 @@ final class UsageViewModel {
         userInfo: UserInfoResponse
     ) async {
         guard let teamId = await resolveTeamId(cookieHeader: cookieHeader) else {
-            weeklyChartAvailable = false
-            weeklyData = nil
+            recordWeeklyFailure(discardData: true)
             return
         }
 
@@ -1074,8 +1110,7 @@ final class UsageViewModel {
                 cookieHeader: cookieHeader, teamId: teamId, email: userInfo.email)?.userId
         }
         guard let userId = cachedUserId else {
-            weeklyChartAvailable = false
-            weeklyData = nil
+            recordWeeklyFailure(discardData: true)
             return
         }
 
@@ -1088,14 +1123,12 @@ final class UsageViewModel {
                 pageSize: Self.weeklyPageSize,
                 maxPages: Self.weeklyMaxPages
             )
-            weeklyData = events.sevenDayRolling(today: Date(), calendar: .current)
-            weeklyChartAvailable = true
+            recordWeeklySuccess(events.sevenDayRolling(today: Date(), calendar: .current))
             cachedWeeklyMode = .enterprise(teamId: teamId, userId: userId)
         } catch APIError.forbidden {
             Log.info("Weekly fetch returned 403 — clearing enterprise cache")
             clearWeeklyDiscoveryCaches()
-            weeklyChartAvailable = false
-            weeklyData = nil
+            recordWeeklyFailure(discardData: true)
         } catch {
             // 400/404 = the team/user shape is stale; drop it so the next
             // refresh re-discovers rather than repeating a doomed call (#110).
@@ -1104,13 +1137,10 @@ final class UsageViewModel {
                 // blip, so stop showing a chart that can no longer be refreshed.
                 Log.info("Weekly fetch rejected the enterprise shape — clearing cache and hiding chart")
                 clearWeeklyDiscoveryCaches()
-                weeklyChartAvailable = false
-                weeklyData = nil
+                recordWeeklyFailure(discardData: true)
             } else {
                 Log.info("Weekly fetch failed: \(error.localizedDescription)")
-                if weeklyData == nil {
-                    weeklyChartAvailable = false
-                }
+                recordWeeklyFailure()
             }
         }
     }
@@ -1128,25 +1158,20 @@ final class UsageViewModel {
                 pageSize: Self.weeklyPageSize,
                 maxPages: Self.weeklyMaxPages
             )
-            weeklyData = events.sevenDayRolling(today: Date(), calendar: .current)
-            weeklyChartAvailable = true
+            recordWeeklySuccess(events.sevenDayRolling(today: Date(), calendar: .current))
             cachedWeeklyMode = .personal
         } catch APIError.forbidden {
             Log.info("Personal weekly fetch returned 403 — hiding chart")
             cachedWeeklyMode = nil
-            weeklyChartAvailable = false
-            weeklyData = nil
+            recordWeeklyFailure(discardData: true)
         } catch {
             if Self.weeklyErrorInvalidatesShape(error) {
                 Log.info("Personal weekly fetch rejected the request shape — hiding chart")
                 cachedWeeklyMode = nil
-                weeklyChartAvailable = false
-                weeklyData = nil
+                recordWeeklyFailure(discardData: true)
             } else {
                 Log.info("Personal weekly fetch failed: \(error.localizedDescription)")
-                if weeklyData == nil {
-                    weeklyChartAvailable = false
-                }
+                recordWeeklyFailure()
             }
         }
     }
@@ -1201,8 +1226,7 @@ final class UsageViewModel {
         authState = .loggedOut
         usageData = nil
         errorMessage = nil
-        weeklyData = nil
-        weeklyChartAvailable = false
+        resetWeeklyChartState()
         cachedTeamId = nil
         cachedUserId = nil
         cachedOnDemandLimitDollars = nil

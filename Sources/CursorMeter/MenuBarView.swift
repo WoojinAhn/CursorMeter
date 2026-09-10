@@ -51,6 +51,13 @@ final class MenuBarPopoverViewController: NSViewController {
     private lazy var weeklyChartView = WeeklyUsageChartView(frame: .zero)
     private var weeklyChartHeightConstraint: NSLayoutConstraint!
     private var weeklyChartTopConstraint: NSLayoutConstraint!
+    private let weeklyStatusLabel = NSTextField(labelWithString: "")
+    @MainActor private static let weeklyTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "MMM d, HH:mm"
+        return formatter
+    }()
 
     // Reset + interval row
     private let resetLabel       = NSTextField(labelWithString: "")
@@ -340,6 +347,17 @@ final class MenuBarPopoverViewController: NSViewController {
         weeklyChartTopConstraint.constant = 0
         weeklyChartView.isHidden = true
 
+        weeklyStatusLabel.font = NSFont.systemFont(ofSize: 11)
+        weeklyStatusLabel.textColor = CircularProgressIcon.warnColor
+        weeklyStatusLabel.isHidden = true
+        weeklyStatusLabel.lineBreakMode = .byTruncatingTail
+        weeklyStatusLabel.setAccessibilityIdentifier("weeklyChartStatus")
+        weeklyStatusLabel.setContentCompressionResistancePriority(
+            .init(NSLayoutConstraint.Priority.fittingSizeCompression.rawValue - 1),
+            for: .horizontal
+        )
+        dataStack.addArrangedSubview(weeklyStatusLabel)
+
         // --- Reset date + interval ---
         let bottomRow = NSStackView()
         bottomRow.orientation = .horizontal
@@ -532,12 +550,31 @@ final class MenuBarPopoverViewController: NSViewController {
             setWeeklyChartVisible(false)
         }
 
+        updateWeeklyStatus()
+
         // Reset
         resetLabel.stringValue = data.resetText ?? ""
         resetLabel.toolTip = data.resetAbsoluteText
 
         // Interval popup
         syncIntervalPopUp()
+    }
+
+    private func updateWeeklyStatus() {
+        weeklyStatusLabel.isHidden = true
+        guard viewModel.authState == .loggedIn else { return }
+        switch viewModel.weeklyChartStatus {
+        case .stale:
+            guard let updated = viewModel.weeklyLastUpdated else { return }
+            weeklyStatusLabel.stringValue = "Weekly data: \(Self.weeklyTimeFormatter.string(from: updated))"
+            weeklyStatusLabel.toolTip = "Weekly refresh failed. Showing the last successful data; retrying on the next refresh."
+        case .unavailable:
+            weeklyStatusLabel.stringValue = "Weekly activity unavailable — retrying"
+            weeklyStatusLabel.toolTip = "Weekly activity could not be loaded; retrying on the next refresh."
+        case .hidden, .ready:
+            return
+        }
+        weeklyStatusLabel.isHidden = false
     }
 
     private func setWeeklyChartVisible(_ visible: Bool) {

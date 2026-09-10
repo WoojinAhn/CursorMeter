@@ -1,0 +1,42 @@
+<div id="cm116">
+  <style>
+    #cm116 { --surface:light-dark(#f3f3f3,#242424);--ink:light-dark(#222,#eee);--muted:light-dark(#666,#bbb);--line:light-dark(#d3d3d3,#464646);--warn:light-dark(#8b5d10,#dfb35b);--bar:light-dark(#37834a,#48a561);color:var(--ink);font:14px/1.5 -apple-system,BlinkMacSystemFont,sans-serif; }
+    #cm116 *{box-sizing:border-box}
+    #cm116 .controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:18px}
+    #cm116 select{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:5px;padding:6px;max-width:100%}
+    #cm116 .pair{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}
+    #cm116 h3{font-size:16px;font-weight:500;margin:0 0 10px}
+    #cm116 .popover{padding:16px;background:var(--surface);border:1px solid var(--line);border-radius:16px}
+    #cm116 .summary{display:flex;justify-content:space-between;gap:8px;font-variant-numeric:tabular-nums}
+    #cm116 .progress{margin:12px 0;height:5px;background:var(--line);border-radius:4px}
+    #cm116 .progress span{display:block;width:4%;height:100%;background:var(--bar);border-radius:4px}
+    #cm116 .chart{display:flex;gap:7px;align-items:flex-end;height:112px;padding-top:10px}
+    #cm116 .column{flex:1;text-align:center;min-width:0;color:var(--muted);font-size:12px}
+    #cm116 .bar{width:100%;background:var(--bar);border-radius:2px 2px 0 0;margin-bottom:4px}
+    #cm116 .status{font-size:12px;color:var(--warn);margin-top:10px}
+    #cm116 .reset{font-size:12px;color:var(--muted);margin-top:12px}
+    #cm116 .menu{border-top:1px solid var(--line);padding-top:10px;margin-top:8px;color:var(--muted)}
+    #cm116 .note{font-size:12px;color:var(--muted);margin-top:12px}
+    @media(max-width:580px){#cm116 .pair{grid-template-columns:1fr}}
+  </style>
+  <div class="controls"><label for="cm116-state">Weekly fetch state</label><select id="cm116-state"><option value="stale">Cached chart · repeated failures</option><option value="first">First fetch failed</option><option value="empty">Success · no activity</option><option value="off">Chart disabled</option></select></div>
+  <div class="pair">
+    <section><h3>Before</h3><div class="popover" id="cm116-before"></div></section>
+    <section><h3>After · weekly-specific status</h3><div class="popover" id="cm116-after" aria-live="polite"></div></section>
+  </div>
+  <div class="note">Synthetic data · Plan summary succeeds in every example · No new notification or retry button</div>
+  <script>
+    (()=>{const root=document.getElementById('cm116');const days=['Fri','Sat','Sun','Mon','Tue','Wed','Thu'];
+      function draw(){const state=root.querySelector('#cm116-state').value;
+        ['before','after'].forEach(side=>{const panel=root.querySelector('#cm116-'+side);panel.replaceChildren();
+          const top=document.createElement('div');top.innerHTML='<div class="summary"><span>Plan Usage</span><span>$16.00 / $400.00</span></div><div class="progress"><span></span></div>';panel.appendChild(top);
+          if(state==='stale'||state==='empty'){const chart=document.createElement('div');chart.className='chart';chart.setAttribute('role','img');chart.setAttribute('aria-label',state==='empty'?'No activity in the last seven days':'Cached weekly activity chart');
+            days.forEach((day,i)=>{const column=document.createElement('div');column.className='column';const bar=document.createElement('div');bar.className='bar';bar.style.height=((state==='empty'?2:[2,2,2,70,90,2,2][i]))+'px';column.appendChild(bar);column.appendChild(document.createTextNode(day));chart.appendChild(column)});panel.appendChild(chart)}
+          if(side==='after'&&(state==='stale'||state==='first')){const status=document.createElement('div');status.className='status';status.textContent=state==='stale'?'Weekly data: Sep 11, 10:42':'Weekly activity unavailable — retrying';panel.appendChild(status)}
+          const bottom=document.createElement('div');bottom.innerHTML='<div class="reset">Resets in 26 days</div><div class="menu">Open Dashboard<br>Settings…</div>';panel.appendChild(bottom);
+        });
+      }
+      root.querySelector('#cm116-state').addEventListener('change',draw);draw();
+    })();
+  </script>
+</div>

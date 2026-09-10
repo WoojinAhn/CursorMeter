@@ -326,8 +326,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     private func observeSettings() {
         withObservationTracking {
             _ = viewModel.activeAuthSource
-            // #103: weekly-chart section visibility keys on availability; an
-            // open Settings window must react when it flips.
+            _ = viewModel.authState
             _ = viewModel.weeklyChartAvailable
             _ = viewModel.weeklyData
             _ = viewModel.weeklyChartMetric
@@ -445,6 +444,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             _ = viewModel.weeklyChartStyle
             _ = viewModel.weeklyChartMetric
             _ = viewModel.consecutiveFailureCount
+            _ = viewModel.weeklyLastUpdated
+            _ = viewModel.weeklyConsecutiveFailureCount
             _ = viewModel.lastSuccessAt
             _ = viewModel.ideCredentialAvailable
             _ = viewModel.browserLoginEnabled
