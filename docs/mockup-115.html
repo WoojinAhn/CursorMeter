@@ -1,0 +1,64 @@
+<div id="cm115">
+  <style>
+    #cm115 { --surface: light-dark(#f3f3f3,#242424); --ink: light-dark(#222,#eee); --muted: light-dark(#656565,#bbb); --line: light-dark(#d3d3d3,#464646); --field: light-dark(#fff,#383838); --bar: light-dark(#318047,#40a65b); color:var(--ink); font:14px/1.5 -apple-system,BlinkMacSystemFont,sans-serif; }
+    #cm115 * { box-sizing:border-box; }
+    #cm115 .pair { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px; }
+    #cm115 h3 { font-size:16px;font-weight:500;margin:0 0 10px; }
+    #cm115 .settings { border:1px solid var(--line);border-radius:12px;background:var(--surface);padding:16px; }
+    #cm115 .title { margin-bottom:8px;font-weight:500; }
+    #cm115 .row { display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0; }
+    #cm115 .row+.row { border-top:1px solid var(--line); }
+    #cm115 .caption { color:var(--muted);font-size:12px; }
+    #cm115 select { font:inherit;background:var(--field);color:var(--ink);border:1px solid var(--line);border-radius:5px;padding:4px 7px;max-width:150px; }
+    #cm115 .segments { display:flex;border:1px solid var(--line);border-radius:5px;overflow:hidden; }
+    #cm115 .segments span { padding:3px 7px;font-size:12px; }
+    #cm115 .segments span:last-child { background:var(--field); }
+    #cm115 .preview { margin-top:14px;padding:14px;background:var(--surface);border:1px solid var(--line);border-radius:12px; }
+    #cm115 .bars { display:flex;gap:20px;justify-content:center;align-items:flex-end;height:140px; }
+    #cm115 .column { width:66px;display:flex;flex-direction:column;align-items:center;gap:3px;font-variant-numeric:tabular-nums; }
+    #cm115 .bar { width:50px;background:var(--bar);border-radius:2px 2px 0 0;transition:height .25s; }
+    #cm115 .foot { color:var(--muted);font-size:12px;margin-top:12px; }
+    #cm115 .on { color:var(--bar);font-weight:500; }
+    @media(max-width:580px){#cm115 .pair{grid-template-columns:1fr}}
+    @media(prefers-reduced-motion:reduce){#cm115 .bar{transition:none}}
+  </style>
+  <div class="pair">
+    <section>
+      <h3>Before</h3>
+      <div class="settings">
+        <div class="title">Display / Weekly Chart</div>
+        <div class="row"><div>Show weekly chart<div class="caption">Rolling 7-day usage.</div></div><span class="on">On</span></div>
+        <div class="row"><span>Today</span><div class="segments"><span>Outline</span><span>Dim</span><span>Both</span></div></div>
+      </div>
+      <div class="preview" role="img" aria-label="Current: heights use weighted units; dollar hover values shown for comparison.">
+        <div class="bars"><div class="column"><span>$4.00</span><div class="bar" style="height:66px"></div><span>Mon</span></div><div class="column"><span>$3.00</span><div class="bar" style="height:100px"></div><span>Tue</span></div></div>
+        <div class="foot">Height: usage units · Hover: amount</div>
+      </div>
+    </section>
+    <section>
+      <h3>After · choose chart metric</h3>
+      <div class="settings">
+        <div class="title">Display / Weekly Chart</div>
+        <div class="row"><div>Show weekly chart<div class="caption">Rolling 7-day usage.</div></div><span class="on">On</span></div>
+        <div class="row"><label for="cm115-metric">Chart metric</label><select id="cm115-metric"><option value="amount">Amount</option><option value="units">Usage units</option></select></div>
+        <div class="caption" id="cm115-caption">Total usage value, including plan-covered usage.</div>
+        <div class="row"><span>Today</span><div class="segments"><span>Outline</span><span>Dim</span><span>Both</span></div></div>
+      </div>
+      <div class="preview" aria-live="polite">
+        <div class="bars"><div class="column"><span id="cm115-mon">$4.00</span><div class="bar" id="cm115-mon-bar" style="height:100px"></div><span>Mon</span></div><div class="column"><span id="cm115-tue">$3.00</span><div class="bar" id="cm115-tue-bar" style="height:75px"></div><span>Tue</span></div></div>
+        <div class="foot" id="cm115-unit">Height and hover: amount</div>
+      </div>
+    </section>
+  </div>
+  <div class="foot">Synthetic example · Mon: 100 units / $4 · Tue: 150 units / $3 · Default: Amount</div>
+  <script>
+    (()=>{const root=document.getElementById('cm115'); const find=id=>root.querySelector('#cm115-'+id);
+      find('metric').addEventListener('change',()=>{const amount=find('metric').value==='amount';
+        find('mon').textContent=amount?'$4.00':'100 units';find('tue').textContent=amount?'$3.00':'150 units';
+        find('mon-bar').style.height=amount?'100px':'66px';find('tue-bar').style.height=amount?'75px':'100px';
+        find('unit').textContent=amount?'Height and hover: amount':'Height and hover: usage units';
+        find('caption').textContent=amount?'Total usage value, including plan-covered usage.':'Weighted activity, not the number of requests.';
+      });
+    })();
+  </script>
+</div>

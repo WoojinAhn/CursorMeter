@@ -46,9 +46,7 @@ final class MenuBarPopoverViewController: NSViewController {
     private let secondaryKey      = NSTextField(labelWithString: "")
     private let secondaryValue    = NSTextField(labelWithString: "")
 
-    // Weekly chart (enterprise teams only). `lazy var` so a user who never
-    // opens the popover (or who's on a non-enterprise account) doesn't pay
-    // for the chart NSView allocation up front.
+    // Allocate chart views only when the popover is first opened.
     private lazy var weeklyChartContainer = NSView()
     private lazy var weeklyChartView = WeeklyUsageChartView(frame: .zero)
     private var weeklyChartHeightConstraint: NSLayoutConstraint!
@@ -527,7 +525,7 @@ final class MenuBarPopoverViewController: NSViewController {
             weeklyChartView.update(
                 days: weekly,
                 style: viewModel.weeklyChartStyle,
-                creditBased: data.isCreditBased
+                metric: viewModel.weeklyChartMetric
             )
             setWeeklyChartVisible(true)
         } else {

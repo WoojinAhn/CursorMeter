@@ -26,6 +26,7 @@ private enum SettingsKey: String {
     case jumpGlyphStyle
     case weeklyChartEnabled
     case weeklyChartStyle
+    case weeklyChartMetric
     case appStatusNotificationEnabled
     case lastNotifiedUpdateVersion
     case sessionExpiryHistory
@@ -236,6 +237,11 @@ final class UsageViewModel {
     var weeklyChartAvailable: Bool = false
     var weeklyChartEnabled: Bool = true
     var weeklyChartStyle: WeeklyChartStyle = .outline
+    var weeklyChartMetric: WeeklyChartMetric = .amount
+
+    var effectiveWeeklyChartMetric: WeeklyChartMetric {
+        (weeklyData ?? []).effectiveMetric(preferred: weeklyChartMetric)
+    }
 
     // MARK: - Private
 
@@ -1287,6 +1293,11 @@ final class UsageViewModel {
         UserDefaults.standard.set(style.rawValue, for: .weeklyChartStyle)
     }
 
+    func setWeeklyChartMetric(_ metric: WeeklyChartMetric) {
+        weeklyChartMetric = metric
+        UserDefaults.standard.set(metric.rawValue, for: .weeklyChartMetric)
+    }
+
     func setActivityRefreshEnabled(_ enabled: Bool) {
         activityRefreshEnabled = enabled
         UserDefaults.standard.set(enabled, for: .activityRefreshEnabled)
@@ -1421,6 +1432,7 @@ final class UsageViewModel {
         if let val = defaults.object(for: .weeklyChartEnabled) as? Bool {
             weeklyChartEnabled = val
         }
+        weeklyChartMetric = WeeklyChartMetric(storedValue: defaults.object(for: .weeklyChartMetric) as? String)
         if let raw = defaults.object(for: .weeklyChartStyle) as? Int,
            let style = WeeklyChartStyle(rawValue: raw)
         {

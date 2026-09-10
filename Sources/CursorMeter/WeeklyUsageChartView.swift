@@ -7,10 +7,7 @@ import AppKit
 final class WeeklyUsageChartView: NSView {
     private var days: [DayUsage] = []
     private var style: WeeklyChartStyle = .outline
-    /// True when the active plan denominates usage in dollars (token-based
-    /// enterprise). Drives tooltip unit for plan-covered days — see
-    /// `tooltipText(for:creditBased:)` (#72).
-    private var creditBased: Bool = false
+    private var metric: WeeklyChartMetric = .amount
     private var hoverIndex: Int?
     private var trackingArea: NSTrackingArea?
 
@@ -21,22 +18,17 @@ final class WeeklyUsageChartView: NSView {
         return f
     }()
 
-    /// Renders the hover tooltip label in the unit matching that day's billing
-    /// mode and the active plan's denominator:
-    /// - On-demand day → on-demand cents charged (`$X.XX`)
-    /// - Plan day, token-based enterprise (`creditBased == true`) → total cents
-    ///   consumed across all events that day (`$X.XX`) — matches the popover's
-    ///   `$used / $limit` denominator.
-    /// - Plan day, request-quota plan → raw weighted-unit integer
-    ///   (matches Cursor's `Requests: X/Y` denominator).
-    nonisolated static func tooltipText(for day: DayUsage, creditBased: Bool) -> String {
-        if day.isOnDemand {
-            return String(format: "$%.2f", Double(day.onDemandCents) / 100)
+    nonisolated static func tooltipText(for day: DayUsage, metric: WeeklyChartMetric) -> String {
+        guard let value = metric.value(for: day) else { return "Amount unavailable" }
+        switch metric {
+        case .amount:
+            return String(format: "$%.2f", value / 100)
+        case .usageUnits:
+            if value > 0, value < 0.01 { return "<0.01 units" }
+            let number = String(format: "%.2f", value)
+                .replacingOccurrences(of: #"\.?0+$"#, with: "", options: .regularExpression)
+            return "\(number) units"
         }
-        if creditBased {
-            return String(format: "$%.2f", Double(day.totalChargedCents) / 100)
-        }
-        return "\(day.requests)"
     }
 
     override init(frame: NSRect) {
@@ -47,10 +39,10 @@ final class WeeklyUsageChartView: NSView {
 
     required init?(coder: NSCoder) { nil }
 
-    func update(days: [DayUsage], style: WeeklyChartStyle, creditBased: Bool) {
+    func update(days: [DayUsage], style: WeeklyChartStyle, metric: WeeklyChartMetric) {
         self.days = days
         self.style = style
-        self.creditBased = creditBased
+        self.metric = days.effectiveMetric(preferred: metric)
         self.hoverIndex = nil
         needsDisplay = true
     }
@@ -132,29 +124,30 @@ final class WeeklyUsageChartView: NSView {
         guard days.count == 7 else { return }
 
         let chart = chartRect
-        let weeklyMax = days.map(\.requests).max() ?? 0
-        let yMaxRaw = Double(weeklyMax) * 1.05
+        let weeklyMax = days.compactMap { metric.value(for: $0) }.max() ?? 0
+        let yMaxRaw = weeklyMax * 1.05
         let yMax: Double = yMaxRaw > 0 ? yMaxRaw : 1
 
         drawBars(in: ctx, chart: chart, weeklyMax: weeklyMax, yMax: yMax)
         drawHoverTooltip(in: ctx, chart: chart, yMax: yMax)
     }
 
-    private func drawBars(in ctx: CGContext, chart: NSRect, weeklyMax: Int, yMax: Double) {
+    private func drawBars(in ctx: CGContext, chart: NSRect, weeklyMax: Double, yMax: Double) {
         for (i, day) in days.enumerated() {
-            let normalized = Double(day.requests) / yMax
+            let value = metric.value(for: day) ?? 0
+            let normalized = value / yMax
             let h = max(CGFloat(normalized) * chart.height, 0)
 
             let dimmed = (style == .dimOthers || style == .both) && !day.isToday
             let alpha: CGFloat = dimmed ? 0.35 : 1.0
 
-            if day.requests == 0 {
+            if value == 0 {
                 // Bottom-aligned placeholder dot keeps every day's baseline aligned.
                 let rect = barFrame(index: i, height: 1.5)
                 CircularProgressIcon.accentColor.withAlphaComponent(0.45 * alpha).setFill()
                 NSBezierPath(rect: rect).fill()
             } else {
-                let color = heatColor(requests: day.requests, weeklyMax: weeklyMax)
+                let color = heatColor(value: value, weeklyMax: weeklyMax)
                 let rect = barFrame(index: i, height: h)
                 let path = NSBezierPath(roundedRect: rect, xRadius: 1.5, yRadius: 1.5)
                 color.withAlphaComponent(alpha).setFill()
@@ -171,9 +164,9 @@ final class WeeklyUsageChartView: NSView {
         }
     }
 
-    private func heatColor(requests: Int, weeklyMax: Int) -> NSColor {
+    private func heatColor(value: Double, weeklyMax: Double) -> NSColor {
         guard weeklyMax > 0 else { return CircularProgressIcon.accentColor }
-        let pct = Double(requests) / Double(weeklyMax) * 100
+        let pct = value / weeklyMax * 100
         if pct >= 85 { return CircularProgressIcon.critColor }
         if pct >= 60 { return CircularProgressIcon.warnColor }
         return CircularProgressIcon.accentColor
@@ -196,7 +189,7 @@ final class WeeklyUsageChartView: NSView {
     private func drawHoverTooltip(in ctx: CGContext, chart: NSRect, yMax: Double) {
         guard let idx = hoverIndex else { return }
         let day = days[idx]
-        let text = NSAttributedString(string: Self.tooltipText(for: day, creditBased: creditBased), attributes: [
+        let text = NSAttributedString(string: Self.tooltipText(for: day, metric: metric), attributes: [
             .font: NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .medium),
             .foregroundColor: NSColor.white,
         ])
@@ -206,7 +199,7 @@ final class WeeklyUsageChartView: NSView {
         let boxW = textSize.width + padX * 2
         let boxH = textSize.height + padY * 2
 
-        let normalized = Double(day.requests) / yMax
+        let normalized = (metric.value(for: day) ?? 0) / yMax
         let barH = max(CGFloat(normalized) * chart.height, 1.5)
         let frame = barFrame(index: idx, height: barH)
 

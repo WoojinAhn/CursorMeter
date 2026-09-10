@@ -329,6 +329,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             // #103: weekly-chart section visibility keys on availability; an
             // open Settings window must react when it flips.
             _ = viewModel.weeklyChartAvailable
+            _ = viewModel.weeklyData
+            _ = viewModel.weeklyChartMetric
             // #107: the Ratio menu item is added/removed based on
             // usageData.isPercentOnly — an open Settings window must rebuild
             // when the plan shape changes (account switch, upgrade).
@@ -441,6 +443,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             _ = viewModel.weeklyChartAvailable
             _ = viewModel.weeklyChartEnabled
             _ = viewModel.weeklyChartStyle
+            _ = viewModel.weeklyChartMetric
             _ = viewModel.consecutiveFailureCount
             _ = viewModel.lastSuccessAt
             _ = viewModel.ideCredentialAvailable
@@ -459,4 +462,3 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         }
     }
 }
-

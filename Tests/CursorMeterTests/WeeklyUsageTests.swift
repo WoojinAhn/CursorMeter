@@ -337,7 +337,8 @@ final class WeeklyUsageTests: XCTestCase {
         requests: Int = 0,
         isOnDemand: Bool = false,
         onDemandCents: Int = 0,
-        totalChargedCents: Int = 0
+        amountCents: Double? = nil,
+        usageUnits: Double? = nil
     ) -> DayUsage {
         DayUsage(
             date: Date(timeIntervalSince1970: 0),
@@ -345,38 +346,40 @@ final class WeeklyUsageTests: XCTestCase {
             isToday: false,
             isOnDemand: isOnDemand,
             onDemandCents: onDemandCents,
-            totalChargedCents: totalChargedCents
+            totalChargedCents: Int((amountCents ?? 0).rounded()),
+            usageUnits: usageUnits,
+            amountCents: amountCents
         )
     }
 
-    func testTooltipTextPlanDayRequestQuotaShowsInteger() {
-        let d = day(requests: 929, totalChargedCents: 1234)
-        // Request-quota plan: integer wins, totalChargedCents ignored.
-        XCTAssertEqual(WeeklyUsageChartView.tooltipText(for: d, creditBased: false), "929")
+    func testTooltipUsageUnitsLabelsWholeAndFractionalValues() {
+        XCTAssertEqual(WeeklyUsageChartView.tooltipText(for: day(requests: 0), metric: .usageUnits), "0 units")
+        XCTAssertEqual(WeeklyUsageChartView.tooltipText(for: day(requests: 929), metric: .usageUnits), "929 units")
+        XCTAssertEqual(WeeklyUsageChartView.tooltipText(for: day(usageUnits: 12.30), metric: .usageUnits), "12.3 units")
+        XCTAssertEqual(WeeklyUsageChartView.tooltipText(for: day(usageUnits: 0.001), metric: .usageUnits), "<0.01 units")
     }
 
-    func testTooltipTextOnDemandDayShowsDollarsRegardlessOfPlanType() {
-        let d = day(requests: 50, isOnDemand: true, onDemandCents: 96, totalChargedCents: 200)
-        XCTAssertEqual(WeeklyUsageChartView.tooltipText(for: d, creditBased: false), "$0.96")
-        XCTAssertEqual(WeeklyUsageChartView.tooltipText(for: d, creditBased: true), "$0.96")
+    func testTooltipMixedDayAmountIncludesPlanAndOnDemand() {
+        let d = day(requests: 50, isOnDemand: true, onDemandCents: 96, amountCents: 200)
+        XCTAssertEqual(WeeklyUsageChartView.tooltipText(for: d, metric: .amount), "$2.00")
+        XCTAssertEqual(WeeklyUsageChartView.tooltipText(for: d, metric: .usageUnits), "50 units")
     }
 
-    func testTooltipTextOnDemandDayRoundsCentsToTwoDecimals() {
-        let d = day(requests: 10, isOnDemand: true, onDemandCents: 4000)
-        XCTAssertEqual(WeeklyUsageChartView.tooltipText(for: d, creditBased: false), "$40.00")
+    func testTooltipAmountFormatsFractionalCentsAsDollars() {
+        let d = day(requests: 10, amountCents: 95.69)
+        XCTAssertEqual(WeeklyUsageChartView.tooltipText(for: d, metric: .amount), "$0.96")
     }
 
-    // #72 — token-based enterprise plan: plan-day tooltip switches to dollars
-    // (matches the popover's `$used / $limit` denominator).
-
-    func testTooltipTextPlanDayTokenBasedShowsDollars() {
-        let d = day(requests: 929, totalChargedCents: 520)
-        XCTAssertEqual(WeeklyUsageChartView.tooltipText(for: d, creditBased: true), "$5.20")
+    func testTooltipZeroAmountIsDistinctFromMissingAmount() {
+        XCTAssertEqual(WeeklyUsageChartView.tooltipText(for: day(amountCents: 0), metric: .amount), "$0.00")
+        XCTAssertEqual(WeeklyUsageChartView.tooltipText(for: day(), metric: .amount), "Amount unavailable")
     }
 
-    func testTooltipTextPlanDayTokenBasedZeroCents() {
-        let d = day(requests: 0, totalChargedCents: 0)
-        XCTAssertEqual(WeeklyUsageChartView.tooltipText(for: d, creditBased: true), "$0.00")
+    func testTooltipFallbackUsesUnitsEvenForDayWithAmount() {
+        let days = [day(requests: 20, amountCents: 400), day(requests: 30)]
+        let metric = days.effectiveMetric(preferred: .amount)
+        XCTAssertEqual(WeeklyUsageChartView.tooltipText(for: days[0], metric: metric), "20 units")
+        XCTAssertEqual(WeeklyUsageChartView.tooltipText(for: days[1], metric: metric), "30 units")
     }
 
     // MARK: - sevenDayRolling — totalChargedCents accumulates across all kinds (#72)

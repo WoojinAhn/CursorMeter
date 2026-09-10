@@ -23,7 +23,7 @@ Unlike in-editor extensions, CursorMeter runs independently as a native macOS ap
 - View billing usage, request counts, and reset date from the menu bar
 - macOS notifications when usage reaches customizable thresholds (default: 80%/90%)
 - **Usage-jump effect** — menu bar icon flashes ⚡ on a moderate jump and 🚀 on a Max-mode-sized jump, so a sudden spike is hard to miss. Three intensity levels (Quiet / Normal / Bold) and a choice of glyph style (⚡/🚀 or 💲/💸); Bold also raises a macOS notification on tier-2 jumps.
-- **Weekly usage chart** (all plans) — rolling 7-day bar graph in the popover. Bar heights sum Cursor's weighted billing units (`requestsCosts`), so a single Max-mode Opus call correctly outweighs many light auto-completes. Hover tooltip switches per day: raw weighted-unit integer on plan-covered days, real dollars charged on on-demand days. Configurable today-highlight (Outline / Dim others / Both).
+- **Weekly usage chart** (all plans) — rolling 7-day bar graph with a choice of **Amount** (default) or **Usage units** in Settings → Display. Bar height, color, and hover tooltip use the same metric. Amount includes plan-covered and on-demand usage value, not just additional charges; if monetary data is missing, the chart uses weighted usage units (`requestsCosts`) instead. Configurable today-highlight (Outline / Dim others / Both).
 - Menu bar display mode: icon only, fraction (used/limit), or percentage (%)
 - Settings UI (refresh interval, notification thresholds, menu bar display format, jump-effect intensity, weekly-chart style)
 - Launch at login support

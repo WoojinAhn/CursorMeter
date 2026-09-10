@@ -29,7 +29,7 @@ struct UsageEvent: Codable, Sendable {
     /// Opus calls can weigh 100+. Same unit as the plan limit (`Requests: 519 / 2000`).
     /// Nullable on errored / non-chargeable events.
     let requestsCosts: Double?
-    /// Event classification — drives per-day chart mode (plan vs on-demand).
+    /// Event classification — distinguishes included usage from on-demand billing.
     /// Observed values: `USAGE_EVENT_KIND_INCLUDED_IN_BUSINESS`, `_FREE_CREDIT`,
     /// `_ERRORED_NOT_CHARGED`, `_USAGE_BASED`. Unknown values are treated as plan.
     let kind: String?
@@ -69,8 +69,7 @@ struct UsageEvent: Codable, Sendable {
     }
 
     /// True when this event was billed to the user's on-demand cap (i.e. plan
-    /// did not absorb it). Determines whether the containing day renders as an
-    /// on-demand day in the weekly chart.
+    /// did not absorb it). Used to aggregate the on-demand-only portion.
     var isOnDemandBilled: Bool {
         kind == "USAGE_EVENT_KIND_USAGE_BASED"
     }
@@ -108,25 +107,71 @@ struct TeamMember: Codable, Sendable {
 
 // MARK: - 7-day rolling display model
 
+enum WeeklyChartMetric: String, CaseIterable, Sendable {
+    case amount
+    case usageUnits
+
+    init(storedValue: String?) {
+        self = storedValue.flatMap(Self.init(rawValue:)) ?? .amount
+    }
+
+    /// Amount values use cents; formatting converts them to dollars at the UI boundary.
+    func value(for day: DayUsage) -> Double? {
+        switch self {
+        case .amount: day.amountCents
+        case .usageUnits: day.usageUnits
+        }
+    }
+}
+
 struct DayUsage: Sendable, Equatable {
     let date: Date
-    /// Sum of `requestsCosts` across every event of the day. Drives bar height
-    /// regardless of mode — keeps the y-axis comparable across the 7-day window
-    /// even when some bars are plan days and others are on-demand days.
+    /// Rounded sum of `requestsCosts`, retained for existing request displays.
     let requests: Int
     let isToday: Bool
     /// True when any event of the day was billed `_USAGE_BASED` (on-demand).
-    /// Drives the tooltip label switch (`$X.XX` instead of the raw integer).
     let isOnDemand: Bool
-    /// Sum of `chargedCents` across the day's on-demand-billed events only.
-    /// Zero on plan-only days. Displayed as `$X.XX` in the tooltip when
-    /// `isOnDemand == true`.
+    /// Rounded cents across on-demand-billed events only; zero on plan-only days.
     let onDemandCents: Int
-    /// Sum of `chargedCents` across every event of the day (regardless of kind).
-    /// Used as the plan-day tooltip value on token-based enterprise plans where
-    /// the plan denominator itself is dollars (#72). Request-quota plans ignore
-    /// this and keep the raw `requests` integer in the tooltip.
+    /// Legacy rounded cents across every event, treating missing amounts as zero.
+    /// Metric-based displays use `amountCents` to preserve availability and precision.
     let totalChargedCents: Int
+    /// Unrounded weighted units across every event of the day.
+    let usageUnits: Double
+    /// Unrounded cents across every event, or nil if any monetary value is missing.
+    /// A day with no events has a known zero amount.
+    let amountCents: Double?
+
+    init(
+        date: Date,
+        requests: Int,
+        isToday: Bool,
+        isOnDemand: Bool,
+        onDemandCents: Int,
+        totalChargedCents: Int,
+        usageUnits: Double? = nil,
+        amountCents: Double? = nil
+    ) {
+        self.date = date
+        self.requests = requests
+        self.isToday = isToday
+        self.isOnDemand = isOnDemand
+        self.onDemandCents = onDemandCents
+        self.totalChargedCents = totalChargedCents
+        self.usageUnits = usageUnits ?? Double(requests)
+        self.amountCents = amountCents
+    }
+}
+
+extension Array where Element == DayUsage {
+    var isAmountAvailable: Bool {
+        !isEmpty && allSatisfy { $0.amountCents != nil }
+    }
+
+    /// Keep the entire chart on one comparable scale when monetary data is incomplete.
+    func effectiveMetric(preferred: WeeklyChartMetric) -> WeeklyChartMetric {
+        preferred == .amount && !isAmountAvailable ? .usageUnits : preferred
+    }
 }
 
 extension Array where Element == UsageEvent {
@@ -146,14 +191,15 @@ extension Array where Element == UsageEvent {
         // computed for the window math, so a `yyyy-MM-dd` string key (and the
         // shared DateFormatter cache behind it) bought nothing and was a data
         // race off the main actor (#53 M-2).
-        var buckets: [Date: (requestsSum: Double, onDemandCents: Double, totalCents: Double, hasOnDemand: Bool)] = [:]
+        var buckets: [Date: (requestsSum: Double, onDemandCents: Double, totalCents: Double, hasOnDemand: Bool, amountAvailable: Bool)] = [:]
         for event in self {
             guard let eventDate = event.date else { continue }
             let key = calendar.startOfDay(for: eventDate)
             guard key >= cutoff, key <= startOfToday else { continue }
-            var b = buckets[key] ?? (0, 0, 0, false)
+            var b = buckets[key] ?? (0, 0, 0, false, true)
             b.requestsSum += event.requestsCostsSafe
             b.totalCents += event.chargedCentsSafe
+            b.amountAvailable = b.amountAvailable && (event.chargedCents?.isFinite == true)
             if event.isOnDemandBilled {
                 b.hasOnDemand = true
                 b.onDemandCents += event.chargedCentsSafe
@@ -163,14 +209,16 @@ extension Array where Element == UsageEvent {
 
         return (0..<7).reversed().map { offset in
             let day = calendar.date(byAdding: .day, value: -offset, to: startOfToday)!
-            let b = buckets[day] ?? (0, 0, 0, false)
+            let b = buckets[day] ?? (0, 0, 0, false, true)
             return DayUsage(
                 date: day,
                 requests: Int(b.requestsSum.rounded()),
                 isToday: offset == 0,
                 isOnDemand: b.hasOnDemand,
                 onDemandCents: Int(b.onDemandCents.rounded()),
-                totalChargedCents: Int(b.totalCents.rounded())
+                totalChargedCents: Int(b.totalCents.rounded()),
+                usageUnits: b.requestsSum,
+                amountCents: b.amountAvailable ? b.totalCents : nil
             )
         }
     }
