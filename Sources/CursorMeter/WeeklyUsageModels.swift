@@ -8,6 +8,18 @@ import Foundation
 struct FilteredUsageEventsResponse: Codable, Sendable {
     let totalUsageEventsCount: Int?
     let usageEventsDisplay: [UsageEvent]
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        totalUsageEventsCount = try container.decodeIfPresent(Int.self, forKey: .totalUsageEventsCount)
+        // Empty pages omit the event array (#108). Require the total in that
+        // shape so an unrelated/error JSON object still fails decoding.
+        if totalUsageEventsCount != nil, !container.contains(.usageEventsDisplay) {
+            usageEventsDisplay = []
+        } else {
+            usageEventsDisplay = try container.decode([UsageEvent].self, forKey: .usageEventsDisplay)
+        }
+    }
 }
 
 struct UsageEvent: Codable, Sendable {

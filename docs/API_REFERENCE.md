@@ -39,6 +39,8 @@ The `teamId` variant is observed when an enterprise team is active. CursorMeter 
 
 **Free plan** (observed 2026-07-24): `membershipType: "free"`, `plan: {enabled, used: 0, limit: 0, remaining: 0, breakdown: {included, bonus, total}, autoPercentUsed, apiPercentUsed, totalPercentUsed}`, `onDemand: {enabled: false, limit: null}`, `teamUsage: {}`. CursorMeter renders this via percent-only mode (`totalPercentUsed`). Note the dashboard message and the numeric fields can disagree (message "3%", `autoPercentUsed: 5`, `totalPercentUsed: 2.5`) — the app displays `totalPercentUsed`.
 
+**Ultra personal plan** (observed 2026-09-10, #108): `membershipType: "ultra"`, `individualUsage.plan.used/limit` are populated in cents, `teamUsage: {}`, and the legacy `/api/usage` response has `maxRequestUsage: null`. The existing credit-based display handles this shape. `plan.totalPercentUsed`, the dashboard display message, and `used / limit * 100` can differ; the app currently shows the monetary ratio on credit-based plans. Their exact relationship remains unverified. On-demand was disabled on the inspected account, so its live activation path remains unverified.
+
 ### `GET /api/usage?user=<sub>`
 
 Per-model request counts for the current billing cycle. Dynamic-key payload — model names appear as top-level keys and CursorMeter parses with `Codable` dictionary handling (`UsageModels.swift`).
@@ -88,7 +90,7 @@ Request:
   - `Origin: https://cursor.com` — **required.** Without it the server returns `{"error":"Invalid origin for state-changing request"}` with no events.
   - `Content-Type: application/json`
 - Body: `{ "teamId": <int>, "userId": <int>, "page": <int, 1-indexed>, "pageSize": <int> }`
-- **Personal accounts** (free verified live 2026-07-24; pro assumed): pass `teamId: 0` and omit `userId` entirely — events are scoped to the session cookie. Observed personal-plan event fields: `kind: "USAGE_EVENT_KIND_CUSTOM_SUBSCRIPTION"`, `customSubscriptionName: "free"`, fractional `requestsCosts` (e.g. 1.1), numeric `owningUser` present in each event.
+- **Personal accounts** (free verified live 2026-07-24; Ultra verified live 2026-09-10; Pro unverified): pass `teamId: 0` and omit `userId` entirely — events are scoped to the session cookie. Free events use `kind: "USAGE_EVENT_KIND_CUSTOM_SUBSCRIPTION"`, `customSubscriptionName: "free"`; Ultra events use `kind: "USAGE_EVENT_KIND_INCLUDED_IN_ULTRA"`, `isTokenBasedCall: true`. Both can carry fractional `requestsCosts` and `chargedCents`. Ultra included events remain plan activity, not on-demand charges.
 
 Response shape (truncated):
 
@@ -122,7 +124,8 @@ Important shape notes:
 
 - **`timestamp` is a string of UTC epoch milliseconds.** Convert to `Date` via `TimeInterval(timestamp)! / 1000`.
 - **`requestsCosts` is the weighted billing unit** — light auto-complete calls weigh 1–2, Max-mode Opus calls can weigh 100+. Cursor's plan limit (e.g. 2000) is denominated in this same unit.
-- **Events are returned newest-first by timestamp** within a page. Pagination walks backwards in time; stop when the oldest event in the latest page is older than your window.
+- **Events are returned newest-first by timestamp** within a page. Pagination walks backwards in time; stop when the oldest event in the latest page is older than your window or the collected count reaches `totalUsageEventsCount`.
+- **Empty pages can omit `usageEventsDisplay`** (Ultra verified 2026-09-10). A response containing only `totalUsageEventsCount` represents an empty page, even when that total is nonzero. Requiring the array caused recent-only activity histories to disappear after a successful first page (#108).
 - `chargedCents` is the dollar charge for the event. Ratio `chargedCents / requestsCosts` is usually 4 (= $0.04/unit) but some models (gpt-5.5-medium, claude-opus-4-7-high) use 2, and errored / non-chargeable events use 0.
 
 ## Endpoints observed (not yet used)
@@ -154,8 +157,8 @@ Many `/api/dashboard/*` POST endpoints exist (e.g. `get-team-spend`, `get-curren
 
 ## Known limitations / open questions
 
-- **Personal Pro/Pro+ weekly events** — `teamId: 0` verified on free only; pro assumed identical. Failure degrades to a hidden chart.
-- **Pagination** — none observed. All ranges return a single payload.
+- **Personal Pro/Pro+ weekly events** — `teamId: 0` verified on free and Ultra; Pro/Pro+ remain unverified. Failure degrades to a hidden chart.
+- **Pagination** — the app stops at the reported total, an empty page, or the 7-day cutoff, with a safety cap of 5 pages of 100 events. Histories exceeding that cap can be incomplete.
 - **Stability** — all paths are undocumented. Any contributor changing the consumer code should re-verify the response shape against a fresh dashboard capture.
 - **Rate limits** — not observed in normal dashboard use; the dashboard issues several dozen requests on load without throttling. The app's `URLSessionConfiguration.ephemeral` already isolates from any shared rate-limit state.
 

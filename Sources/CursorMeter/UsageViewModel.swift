@@ -951,6 +951,7 @@ final class UsageViewModel {
             let events = response.usageEventsDisplay
             collected.append(contentsOf: events)
             if events.isEmpty { break }
+            if let total = response.totalUsageEventsCount, collected.count >= total { break }
             guard let oldest = events.oldestEventDate() else { break }
             if oldest < cutoff { break }
         }

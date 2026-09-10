@@ -102,6 +102,28 @@ final class WeeklyUsageTests: XCTestCase {
         XCTAssertTrue(response.usageEventsDisplay.isEmpty)
     }
 
+    func testParseEmptyPageWithOmittedEvents() throws {
+        // Cursor omits the repeated field on empty pages, even when earlier
+        // pages contain events and the account-wide total is nonzero (#108).
+        for total in [0, 80] {
+            let response = try JSONDecoder().decode(
+                FilteredUsageEventsResponse.self,
+                from: Data("{\"totalUsageEventsCount\":\(total)}".utf8)
+            )
+            XCTAssertEqual(response.totalUsageEventsCount, total)
+            XCTAssertTrue(response.usageEventsDisplay.isEmpty)
+        }
+    }
+
+    func testParseMalformedEventsStillFails() {
+        for json in ["{}", "{\"error\":\"unavailable\"}",
+                     "{\"totalUsageEventsCount\":1,\"usageEventsDisplay\":[{}]}"] {
+            XCTAssertThrowsError(try JSONDecoder().decode(
+                FilteredUsageEventsResponse.self, from: Data(json.utf8)
+            ))
+        }
+    }
+
     func testParseEventReadsKindAndChargedCents() throws {
         // Real payload has many extra keys (model, tokenUsage, etc.); only the
         // four fields below are needed by the chart logic.
@@ -412,7 +434,7 @@ final class WeeklyUsageTests: XCTestCase {
             let oldMs = Int(self.date("2026-05-05").timeIntervalSince1970 * 1000)
             let newMs = Int(self.date("2026-05-12").timeIntervalSince1970 * 1000)
             let json = """
-            { "totalUsageEventsCount": 2,
+            { "totalUsageEventsCount": 600,
               "usageEventsDisplay": [
                 {"timestamp": "\(newMs)", "requestsCosts": 1},
                 {"timestamp": "\(oldMs)", "requestsCosts": 1}
@@ -776,6 +798,64 @@ final class PersonalWeeklyPathTests: XCTestCase {
                        "personal path must not discover teams")
         XCTAssertFalse(log.paths.contains("/api/dashboard/get-team-spend"),
                        "personal path must not fetch the roster")
+    }
+
+    func testUltraRecentActivitySurvivesPaginationAndCachedRefresh() async throws {
+        let vm = makeViewModel()
+        let log = RequestLog()
+        let base = Self.freeAccountHandler(log: log)
+        MockURLProtocol.requestHandler = { request in
+            let url = request.url!
+            let ok = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            switch url.path {
+            case "/api/usage-summary":
+                let json = """
+                {"membershipType":"ultra",
+                 "individualUsage":{"plan":{"enabled":true,"used":1200,"limit":40000,"totalPercentUsed":0.5},
+                                    "onDemand":{"enabled":false,"used":0,"limit":null}},
+                 "teamUsage":{}}
+                """
+                return (ok, Data(json.utf8))
+            case "/api/dashboard/get-filtered-usage-events":
+                log.record(path: url.path)
+                let body = try JSONSerialization.jsonObject(with: WeeklyUsageTests.bodyData(from: request)) as! [String: Any]
+                log.record(weeklyBody: body)
+                guard body["page"] as? Int == 1 else {
+                    return (ok, Data("{\"totalUsageEventsCount\":2}".utf8))
+                }
+                let nowMs = Int(Date().timeIntervalSince1970 * 1000)
+                let json = """
+                {"totalUsageEventsCount":2,"usageEventsDisplay":[
+                  {"timestamp":"\(nowMs)","requestsCosts":0.9,
+                   "kind":"USAGE_EVENT_KIND_INCLUDED_IN_ULTRA","chargedCents":3.6},
+                  {"timestamp":"\(nowMs)","requestsCosts":5.1,
+                   "kind":"USAGE_EVENT_KIND_INCLUDED_IN_ULTRA","chargedCents":20.4}]}
+                """
+                return (ok, Data(json.utf8))
+            default:
+                return try base(request)
+            }
+        }
+
+        for _ in 0..<2 {
+            await vm.refresh()
+            XCTAssertTrue(vm.weeklyChartAvailable)
+            XCTAssertEqual(vm.cachedWeeklyMode, .personal)
+            XCTAssertEqual(vm.weeklyData?.count, 7)
+            XCTAssertEqual(vm.weeklyData?.last?.requests, 6)
+            XCTAssertEqual(vm.weeklyData?.last?.totalChargedCents, 24)
+            XCTAssertEqual(vm.weeklyData?.last?.isOnDemand, false)
+            XCTAssertEqual(vm.usageData?.membershipType, "ultra")
+            XCTAssertEqual(vm.usageData?.usageText, "$12.00 / $400.00")
+        }
+        XCTAssertEqual(log.weeklyBodies.count, 2, "one page per refresh once the total is reached")
+        for body in log.weeklyBodies {
+            XCTAssertEqual(body["page"] as? Int, 1)
+            XCTAssertEqual(body["teamId"] as? Int, 0)
+            XCTAssertNil(body["userId"])
+        }
+        XCTAssertFalse(log.paths.contains("/api/dashboard/teams"))
+        XCTAssertFalse(log.paths.contains("/api/dashboard/get-team-spend"))
     }
 
     func testNilMembershipSkipsWeeklyEntirely() async {
