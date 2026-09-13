@@ -13,6 +13,36 @@ cleanup() {
 }
 trap cleanup EXIT
 
+if ! MACHINE_ARCH=$(uname -m); then
+    echo "Error: Could not determine this Mac's architecture."
+    exit 1
+fi
+
+ASSET_SUFFIX=""
+case "$MACHINE_ARCH" in
+    arm64) ;;
+    x86_64)
+        # Rosetta terminals report x86_64 on Apple Silicon. -i treats the
+        # absent translation key on Intel as normal, without hiding other errors.
+        if ! TRANSLATED=$(sysctl -in sysctl.proc_translated); then
+            echo "Error: Could not determine whether this terminal is running under Rosetta."
+            exit 1
+        fi
+        case "$TRANSLATED" in
+            1) ;;
+            0|"") ASSET_SUFFIX="-x86_64" ;;
+            *)
+                echo "Error: Unexpected Rosetta status: ${TRANSLATED}."
+                exit 1
+                ;;
+        esac
+        ;;
+    *)
+        echo "Error: Unsupported architecture: ${MACHINE_ARCH}."
+        exit 1
+        ;;
+esac
+
 # Fetch latest release info from GitHub API. `-f` so an HTTP error is a hard
 # failure instead of an error page flowing into the parser below.
 echo "Fetching latest release..."
@@ -35,7 +65,7 @@ if [ -z "$VERSION" ]; then
     exit 1
 fi
 
-ZIP_NAME="${APP_NAME}-${VERSION#v}.zip"
+ZIP_NAME="${APP_NAME}-${VERSION#v}${ASSET_SUFFIX}.zip"
 # Match the exact asset name — picking the first browser_download_url breaks as
 # soon as the release carries any other asset (checksums, etc.).
 ZIP_URL=$(echo "$RELEASE_JSON" \

@@ -50,12 +50,26 @@ See [`SECURITY.md`](SECURITY.md) for the full threat model and reporting policy.
 ## Requirements
 
 - macOS 14 (Sonoma) or later
+- Apple Silicon or Intel Mac (Intel requires a release with an `x86_64` ZIP)
 
 ## Installation
 
-1. Download the latest `.zip` from [Releases](https://github.com/WoojinAhn/CursorMeter/releases)
+### Quick Install (recommended)
+
+Run the same command on Apple Silicon and Intel Macs. The script detects your Mac, downloads the matching build, verifies its checksum when published, and installs it in `/Applications`.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/WoojinAhn/CursorMeter/main/Scripts/install.sh | bash
+```
+
+Intel installation requires a release with an `x86_64` ZIP. If the latest release does not include one yet, the script stops without replacing your existing app.
+
+### Manual Install
+
+1. Download the ZIP for your Mac from [Releases](https://github.com/WoojinAhn/CursorMeter/releases): **Apple Silicon:** `CursorMeter-<version>.zip`; **Intel:** `CursorMeter-<version>-x86_64.zip` (when included in the release).
 2. Optional — if the release includes a `.zip.sha256` asset, you can check the download:
    `shasum -a 256 -c CursorMeter-<version>.zip.sha256`
+   For Intel, use `CursorMeter-<version>-x86_64.zip.sha256` instead.
    (This detects a corrupted or wrong file. It is not a publisher signature — the app is ad-hoc signed, see step 4.)
 3. Unzip and drag `CursorMeter.app` to `/Applications`
 4. On first launch, macOS may block the app (unsigned). To bypass:
@@ -72,7 +86,7 @@ bash Scripts/package_app.sh
 cp -r CursorMeter.app /Applications/
 ```
 
-Requires Swift 6.0+ and Xcode.
+Requires Swift 6.0+ and Xcode. To build for a specific architecture, run `BUILD_ARCH=arm64 bash Scripts/package_app.sh` or `BUILD_ARCH=x86_64 bash Scripts/package_app.sh`. Both produce `CursorMeter.app`; set `APP_OUTPUT_DIR` to keep them in separate directories.
 
 ## Testing
 

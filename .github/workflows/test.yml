@@ -7,8 +7,14 @@ on:
 
 jobs:
   test:
-    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
       - name: Run tests
         run: swift test
+      - name: Test installer
+        run: python3 -m unittest discover -s Scripts/tests -p 'test_*.py' -v

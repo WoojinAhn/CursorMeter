@@ -50,12 +50,26 @@
 ## 요구사항
 
 - macOS 14 (Sonoma) 이상
+- Apple Silicon 또는 Intel Mac (Intel은 `x86_64` ZIP이 포함된 릴리스 필요)
 
 ## 설치
 
-1. [Releases](https://github.com/WoojinAhn/CursorMeter/releases)에서 최신 `.zip` 다운로드
+### 빠른 설치 (권장)
+
+Apple Silicon과 Intel Mac에서 같은 명령어를 실행하면 됩니다. 스크립트가 Mac을 자동 판별해 맞는 빌드를 다운로드하고, 체크섬이 게시되어 있으면 검증한 뒤 `/Applications`에 설치합니다.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/WoojinAhn/CursorMeter/main/Scripts/install.sh | bash
+```
+
+Intel 설치에는 `x86_64` ZIP이 포함된 릴리스가 필요합니다. 최신 릴리스에 해당 파일이 아직 없으면 기존 앱을 교체하지 않고 중단합니다.
+
+### 수동 설치
+
+1. [Releases](https://github.com/WoojinAhn/CursorMeter/releases)에서 Mac에 맞는 ZIP 다운로드: **Apple Silicon:** `CursorMeter-<version>.zip`; **Intel:** `CursorMeter-<version>-x86_64.zip` (릴리스에 포함된 경우).
 2. (선택) 릴리즈에 `.zip.sha256` 자산이 있으면 다운로드를 확인할 수 있습니다:
    `shasum -a 256 -c CursorMeter-<version>.zip.sha256`
+   Intel은 대신 `CursorMeter-<version>-x86_64.zip.sha256` 파일을 사용합니다.
    (손상되거나 잘못된 파일을 걸러냅니다. 배포자 서명이 아닙니다 — 앱은 ad-hoc 서명이므로 4단계 참고.)
 3. 압축 해제 후 `CursorMeter.app`을 `/Applications`로 이동
 4. 최초 실행 시 macOS가 차단할 수 있습니다 (미서명 앱). 우회 방법:
@@ -72,7 +86,7 @@ bash Scripts/package_app.sh
 cp -r CursorMeter.app /Applications/
 ```
 
-Swift 6.0+ 및 Xcode가 필요합니다.
+Swift 6.0+ 및 Xcode가 필요합니다. 특정 아키텍처로 빌드하려면 `BUILD_ARCH=arm64 bash Scripts/package_app.sh` 또는 `BUILD_ARCH=x86_64 bash Scripts/package_app.sh`를 실행합니다. 둘 다 `CursorMeter.app`을 생성하며, `APP_OUTPUT_DIR`을 지정하면 서로 다른 디렉터리에 보관할 수 있습니다.
 
 ## 테스트
 

@@ -8,14 +8,25 @@ APP_VERSION="${APP_VERSION:-0.1.0}"
 # channel, not APP_VERSION inference — a local APP_VERSION=x build must not
 # masquerade as a release.
 BUILD_CHANNEL="${BUILD_CHANNEL:-dev}"
-BUILD_DIR=".build/release"
-APP_BUNDLE="${APP_NAME}.app"
+BUILD_ARCH="${BUILD_ARCH:-$(uname -m)}"
+case "$BUILD_ARCH" in
+    arm64|x86_64) ;;
+    *) echo "Error: Unsupported build architecture: ${BUILD_ARCH}"; exit 1 ;;
+esac
+BUILD_TRIPLE="${BUILD_ARCH}-apple-macosx14.0"
+APP_BUNDLE="${APP_OUTPUT_DIR:-.}/${APP_NAME}.app"
 CONTENTS="${APP_BUNDLE}/Contents"
 MACOS="${CONTENTS}/MacOS"
 RESOURCES="${CONTENTS}/Resources"
 
-echo "Building ${APP_NAME} v${APP_VERSION} in release mode..."
-swift build -c release
+echo "Building ${APP_NAME} v${APP_VERSION} for ${BUILD_ARCH} in release mode..."
+swift build -c release --triple "$BUILD_TRIPLE"
+BUILD_DIR=$(swift build -c release --triple "$BUILD_TRIPLE" --show-bin-path)
+ACTUAL_ARCH=$(lipo -archs "${BUILD_DIR}/${APP_NAME}")
+if [ "$ACTUAL_ARCH" != "$BUILD_ARCH" ]; then
+    echo "Error: Expected ${BUILD_ARCH} binary, got ${ACTUAL_ARCH}."
+    exit 1
+fi
 
 DEV_KEYS=""
 if [ "${BUILD_CHANNEL}" != "release" ]; then
@@ -79,7 +90,10 @@ ${DEV_KEYS}
 PLIST
 
 # Create entitlements
-cat > "${CONTENTS}/entitlements.plist" << 'ENTITLEMENTS'
+# Keep signing inputs outside the bundle so its sealed resources stay intact.
+ENTITLEMENTS_PATH=$(mktemp)
+trap 'rm -f "$ENTITLEMENTS_PATH"' EXIT
+cat > "$ENTITLEMENTS_PATH" << 'ENTITLEMENTS'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -92,10 +106,8 @@ ENTITLEMENTS
 
 # Ad-hoc sign with entitlements
 echo "Signing (ad-hoc)..."
-codesign -s - --force --deep --entitlements "${CONTENTS}/entitlements.plist" "${APP_BUNDLE}"
-
-# Clean up entitlements from bundle (only needed at signing time)
-rm "${CONTENTS}/entitlements.plist"
+codesign -s - --force --deep --entitlements "$ENTITLEMENTS_PATH" "${APP_BUNDLE}"
+codesign --verify --deep --strict "$APP_BUNDLE"
 
 echo "Done! ${APP_BUNDLE} v${APP_VERSION} created."
 if [ "${BUILD_CHANNEL}" != "release" ]; then
