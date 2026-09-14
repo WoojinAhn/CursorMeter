@@ -18,7 +18,7 @@ final class CursorAppAuthReaderTests: XCTestCase {
     }
 
     /// Fixture state.vscdb replica in a fresh temp dir. token == nil → row absent.
-    private func makeFixtureDB(token: String?) -> String {
+    private func makeFixtureDB(token: String?, extras: [String: String] = [:]) -> String {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("vscdb-fixture-\(UUID().uuidString)")
         try! FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -30,6 +30,14 @@ final class CursorAppAuthReaderTests: XCTestCase {
             var stmt: OpaquePointer?
             sqlite3_prepare_v2(db, "INSERT INTO ItemTable (key, value) VALUES ('cursorAuth/accessToken', ?)", -1, &stmt, nil)
             sqlite3_bind_text(stmt, 1, token, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            XCTAssertEqual(sqlite3_step(stmt), SQLITE_DONE)
+            sqlite3_finalize(stmt)
+        }
+        for (key, value) in extras {
+            var stmt: OpaquePointer?
+            sqlite3_prepare_v2(db, "INSERT INTO ItemTable (key, value) VALUES (?, ?)", -1, &stmt, nil)
+            sqlite3_bind_text(stmt, 1, key, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            sqlite3_bind_text(stmt, 2, value, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
             XCTAssertEqual(sqlite3_step(stmt), SQLITE_DONE)
             sqlite3_finalize(stmt)
         }
@@ -58,7 +66,17 @@ final class CursorAppAuthReaderTests: XCTestCase {
     func testUserIDFromSub() {
         XCTAssertEqual(CursorAppAuthReader.userID(fromSub: "auth0|user_42"), "user_42")
         XCTAssertEqual(CursorAppAuthReader.userID(fromSub: "a|b|user_9"), "user_9")
+        XCTAssertEqual(CursorAppAuthReader.userID(fromSub: "github|18259276"), "18259276")
         XCTAssertNil(CursorAppAuthReader.userID(fromSub: "nopipe"))
+    }
+
+    func testDisplayNameFromProfileJSON() {
+        XCTAssertEqual(
+            CursorAppAuthReader.displayName(fromProfileJSON: #"{"displayName":"Ada"}"#),
+            "Ada")
+        XCTAssertNil(CursorAppAuthReader.displayName(fromProfileJSON: nil))
+        XCTAssertNil(CursorAppAuthReader.displayName(fromProfileJSON: "{}"))
+        XCTAssertNil(CursorAppAuthReader.displayName(fromProfileJSON: #"{"displayName":"  "}"#))
     }
 
     func testMakeCookieHeader() {
@@ -77,6 +95,28 @@ final class CursorAppAuthReaderTests: XCTestCase {
         XCTAssertEqual(cred?.cookieHeader, "WorkosCursorSessionToken=user_01ABC%3A%3A\(jwt)")
         XCTAssertEqual(cred?.expiresAt.timeIntervalSince1970 ?? 0,
                        now.timeIntervalSince1970 + 7200, accuracy: 1)
+        XCTAssertNil(cred?.email)
+        XCTAssertNil(cred?.name)
+    }
+
+    func testReadPicksCachedEmailAndDisplayName() {
+        let jwt = makeJWT(exp: now.timeIntervalSince1970 + 7200)
+        let extras: [String: String] = [
+            "cursorAuth/cachedEmail": "dev@example.com",
+            "cursorAuth/cachedScopedProfile":
+                "{\"displayName\":\"Dev User\",\"pictureUrl\":\"https://example.com/p\"}",
+        ]
+        let reader = CursorAppAuthReader(dbPath: makeFixtureDB(token: jwt, extras: extras))
+        let cred = reader.read(now: now)
+        XCTAssertEqual(cred?.email, "dev@example.com")
+        XCTAssertEqual(cred?.name, "Dev User")
+    }
+
+    func testReadFallsBackToEmailKeyWhenCachedEmailAbsent() {
+        let jwt = makeJWT(exp: now.timeIntervalSince1970 + 7200)
+        let extras = ["cursorAuth/email": "only@example.com"]
+        let reader = CursorAppAuthReader(dbPath: makeFixtureDB(token: jwt, extras: extras))
+        XCTAssertEqual(reader.read(now: now)?.email, "only@example.com")
     }
 
     func testReadRejectsNearExpiredToken() {

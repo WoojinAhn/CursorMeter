@@ -205,6 +205,71 @@ final class CredentialChainTests: XCTestCase {
         XCTAssertFalse(vm.ideAuthSuppressed, "explicit reconnect intent clears suppression")
     }
 
+    /// GitHub-linked IDE sessions 404 `/api/auth/me` ("User not found: '<numeric>'")
+    /// while usage-summary still returns 200. Identity must not fail the refresh.
+    func testAuthMe404DoesNotFailRefreshWhenSummarySucceeds() async {
+        let vm = makeViewModel()
+        vm.ideCredentialProvider = { Self.ideCredential }
+        MockURLProtocol.requestHandler = Self.authMe404Handler()
+
+        await vm.refresh()
+
+        XCTAssertEqual(vm.authState, .loggedIn)
+        XCTAssertEqual(vm.activeAuthSource, .cursorIDE)
+        XCTAssertNotNil(vm.usageData)
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertEqual(vm.usageData?.email, "Unknown")
+    }
+
+    func testAuthMe404UsesIdentityFallbackForDisplay() async {
+        let vm = makeViewModel()
+        vm.ideCredentialProvider = {
+            IDECredential(
+                cookieHeader: Self.ideCredential.cookieHeader,
+                expiresAt: Self.ideCredential.expiresAt,
+                email: "fallback@t.com",
+                name: "Fallback"
+            )
+        }
+        MockURLProtocol.requestHandler = Self.authMe404Handler()
+
+        await vm.refresh()
+
+        XCTAssertEqual(vm.usageData?.email, "fallback@t.com")
+        XCTAssertEqual(vm.usageData?.name, "Fallback")
+        XCTAssertNil(vm.errorMessage)
+    }
+
+    /// When identity AND both usage endpoints fail, the identity 404 still surfaces.
+    func testAuthMe404SurfacesWhenUsageAlsoFails() async {
+        let vm = makeViewModel()
+        vm.ideCredentialProvider = { Self.ideCredential }
+        MockURLProtocol.requestHandler = { request in
+            let url = request.url!
+            return (
+                HTTPURLResponse(url: url, statusCode: 404, httpVersion: nil, headerFields: nil)!,
+                Data("not found".utf8)
+            )
+        }
+
+        await vm.refresh()
+
+        XCTAssertNil(vm.usageData)
+        XCTAssertEqual(vm.errorMessage, "Server error (404)")
+    }
+
+    private static func authMe404Handler() -> (URLRequest) throws -> (HTTPURLResponse, Data) {
+        let base = successHandler { _ in }
+        return { request in
+            if request.url!.path == "/api/auth/me" {
+                let notFound = HTTPURLResponse(
+                    url: request.url!, statusCode: 404, httpVersion: nil, headerFields: nil)!
+                return (notFound, Data("Failed to handle profile: User not found".utf8))
+            }
+            return try base(request)
+        }
+    }
+
     func testAccountSwitchResetsPerAccountState() async {
         let vm = makeViewModel()
         vm.ideCredentialProvider = { Self.ideCredential }

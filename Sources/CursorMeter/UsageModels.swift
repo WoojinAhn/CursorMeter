@@ -91,6 +91,41 @@ struct PlanUsage: Codable, Sendable {
     let limit: Int?
     let remaining: Int?
     let totalPercentUsed: Double?
+    /// Cursor Models bucket (Grok / Composer). Present on Ultra and some
+    /// personal plans; sourced from usage-summary or get-current-period-usage.
+    let autoPercentUsed: Double?
+    /// Other Models / API bucket.
+    let apiPercentUsed: Double?
+
+    init(
+        enabled: Bool?,
+        used: Int?,
+        limit: Int?,
+        remaining: Int?,
+        totalPercentUsed: Double?,
+        autoPercentUsed: Double? = nil,
+        apiPercentUsed: Double? = nil
+    ) {
+        self.enabled = enabled
+        self.used = used
+        self.limit = limit
+        self.remaining = remaining
+        self.totalPercentUsed = totalPercentUsed
+        self.autoPercentUsed = autoPercentUsed
+        self.apiPercentUsed = apiPercentUsed
+    }
+}
+
+// MARK: - API Response: /api/dashboard/get-current-period-usage
+
+struct CurrentPeriodUsageResponse: Codable, Sendable {
+    let planUsage: CurrentPeriodPlanUsage?
+}
+
+struct CurrentPeriodPlanUsage: Codable, Sendable {
+    let autoPercentUsed: Double?
+    let apiPercentUsed: Double?
+    let totalPercentUsed: Double?
 }
 
 struct OnDemandUsage: Codable, Sendable {
@@ -151,6 +186,52 @@ struct UsageDisplayData: Sendable {
     let cycleStartDate: Date?
     let resetDate: Date?
 
+    /// Dashboard "Cursor Models" bar (`autoPercentUsed`).
+    let cursorModelsPercent: Double?
+    /// Dashboard "Other Models" bar (`apiPercentUsed`).
+    let otherModelsPercent: Double?
+
+    init(
+        email: String,
+        name: String,
+        membershipType: String?,
+        planUsedCents: Int?,
+        planLimitCents: Int?,
+        serverPercentUsed: Double?,
+        requestsUsed: Int,
+        requestsLimit: Int,
+        onDemandUsedCents: Int?,
+        onDemandLimitCents: Int?,
+        onDemandEnabled: Bool?,
+        isOnDemandActive: Bool,
+        cycleStartDate: Date?,
+        resetDate: Date?,
+        cursorModelsPercent: Double? = nil,
+        otherModelsPercent: Double? = nil
+    ) {
+        self.email = email
+        self.name = name
+        self.membershipType = membershipType
+        self.planUsedCents = planUsedCents
+        self.planLimitCents = planLimitCents
+        self.serverPercentUsed = serverPercentUsed
+        self.requestsUsed = requestsUsed
+        self.requestsLimit = requestsLimit
+        self.onDemandUsedCents = onDemandUsedCents
+        self.onDemandLimitCents = onDemandLimitCents
+        self.onDemandEnabled = onDemandEnabled
+        self.isOnDemandActive = isOnDemandActive
+        self.cycleStartDate = cycleStartDate
+        self.resetDate = resetDate
+        self.cursorModelsPercent = cursorModelsPercent
+        self.otherModelsPercent = otherModelsPercent
+    }
+
+    /// Both dashboard buckets present — popover shows the dual-meter layout.
+    var hasBucketMeters: Bool {
+        cursorModelsPercent != nil && otherModelsPercent != nil
+    }
+
     /// Returns a copy with `isOnDemandActive` overridden. Used by UsageViewModel
     /// to inject the sticky-latched mode after computing it.
     func withOnDemandActive(_ active: Bool) -> UsageDisplayData {
@@ -164,7 +245,9 @@ struct UsageDisplayData: Sendable {
             onDemandEnabled: onDemandEnabled,
             isOnDemandActive: active,
             cycleStartDate: cycleStartDate,
-            resetDate: resetDate
+            resetDate: resetDate,
+            cursorModelsPercent: cursorModelsPercent,
+            otherModelsPercent: otherModelsPercent
         )
     }
 
@@ -183,6 +266,10 @@ struct UsageDisplayData: Sendable {
                   let used = onDemandUsedCents else { return 0 }
             return Double(used) / Double(limit) * 100.0
         }
+        // Ultra / split-quota plans: the ring and notifications follow
+        // `totalPercentUsed`, not cents-used / cents-limit (bonus spend can
+        // push that ratio well over 100% while the dashboard still shows ~40%).
+        if hasBucketMeters, let server = serverPercentUsed { return server }
         if isPercentOnly, let server = serverPercentUsed { return server }
         if isCreditBased {
             guard let limit = planLimitCents, limit > 0, let used = planUsedCents else { return 0 }
@@ -201,6 +288,7 @@ struct UsageDisplayData: Sendable {
         if isOnDemandActive {
             return "\(Self.formatUSD(onDemandUsedCents ?? 0)) / \(Self.formatUSD(onDemandLimitCents ?? 0))"
         }
+        if hasBucketMeters { return otherModelsHeaderText }
         if isPercentOnly { return percentText }
         if isCreditBased {
             return "\(Self.formatUSD(planUsedCents ?? 0)) / \(Self.formatUSD(planLimitCents ?? 0))"
@@ -213,6 +301,7 @@ struct UsageDisplayData: Sendable {
         if isOnDemandActive {
             return Self.formatCompactUSD(onDemandUsedCents ?? 0)
         }
+        if hasBucketMeters { return menuBarBucketText }
         if isPercentOnly { return percentText }
         if isCreditBased {
             return Self.formatCompactUSD(planUsedCents ?? 0)
@@ -224,7 +313,7 @@ struct UsageDisplayData: Sendable {
         if isOnDemandActive {
             return Self.formatCompactUSD(onDemandLimitCents ?? 0)
         }
-        if isPercentOnly { return "" }
+        if hasBucketMeters || isPercentOnly { return "" }
         if isCreditBased {
             return Self.formatCompactUSD(planLimitCents ?? 0)
         }
@@ -233,8 +322,36 @@ struct UsageDisplayData: Sendable {
 
     var usageLabel: String {
         if isOnDemandActive { return "On-demand" }
+        if hasBucketMeters { return cursorModelsHeaderText }
         if isPercentOnly { return "Plan Usage" }
         return isCreditBased ? "Plan Usage" : "Requests"
+    }
+
+    var cursorModelsHeaderText: String {
+        "Cursor \(Self.roundedPercentText(cursorModelsPercent))"
+    }
+
+    var otherModelsHeaderText: String {
+        "Other \(Self.roundedPercentText(otherModelsPercent))"
+    }
+
+    /// Compact dual-percent string for the menu-bar status item.
+    var menuBarBucketText: String {
+        "\(Self.roundedPercentText(cursorModelsPercent)) · \(Self.roundedPercentText(otherModelsPercent))"
+    }
+
+    /// Ring fill when both buckets are shown: the hotter of the two, so an
+    /// 86% Other-Models bar is not hidden behind a 40% combined total.
+    var menuBarRingPercent: Double {
+        if isOnDemandActive { return percentUsed }
+        if hasBucketMeters {
+            return max(cursorModelsPercent ?? 0, otherModelsPercent ?? 0)
+        }
+        return percentUsed
+    }
+
+    nonisolated static func roundedPercentText(_ percent: Double?) -> String {
+        "\(Int((percent ?? 0).rounded()))%"
     }
 
     var hasOnDemand: Bool {
@@ -385,7 +502,8 @@ struct UsageDisplayData: Sendable {
         usage: UsageResponse?,
         userInfo: UserInfoResponse,
         perUserMonthlyLimitDollars: Int? = nil,
-        perUserOnDemandLimitDollars: Int? = nil
+        perUserOnDemandLimitDollars: Int? = nil,
+        period: CurrentPeriodUsageResponse? = nil
     ) -> UsageDisplayData {
         let model = usage?.primaryModel
         let isRequestBased = model?.maxRequestUsage != nil
@@ -433,14 +551,21 @@ struct UsageDisplayData: Sendable {
             onDemandEnabled = onDemand?.enabled
         }
 
+        let periodPlan = period?.planUsage
+        let cursorPercent = periodPlan?.autoPercentUsed ?? plan?.autoPercentUsed
+        let otherPercent = periodPlan?.apiPercentUsed ?? plan?.apiPercentUsed
+        let totalPercent = periodPlan?.totalPercentUsed
+            ?? plan?.totalPercentUsed
+            ?? Self.percent(from: summary.autoModelSelectedDisplayMessage)
+        let buckets = cursorPercent != nil && otherPercent != nil
+
         return UsageDisplayData(
             email: userInfo.email ?? "Unknown",
             name: userInfo.name ?? "Unknown",
             membershipType: summary.membershipType,
             planUsedCents: isRequestBased ? nil : planUsedCents,
             planLimitCents: isRequestBased ? nil : planLimitCents,
-            serverPercentUsed: plan?.totalPercentUsed
-                ?? Self.percent(from: summary.autoModelSelectedDisplayMessage),
+            serverPercentUsed: totalPercent,
             requestsUsed: isRequestBased ? requestCount(model) : 0,
             requestsLimit: isRequestBased ? (model?.maxRequestUsage ?? 0) : 0,
             onDemandUsedCents: onDemandUsedCents,
@@ -448,7 +573,9 @@ struct UsageDisplayData: Sendable {
             onDemandEnabled: onDemandEnabled,
             isOnDemandActive: false,
             cycleStartDate: parseDate(summary.billingCycleStart),
-            resetDate: resetDate
+            resetDate: resetDate,
+            cursorModelsPercent: buckets ? cursorPercent : nil,
+            otherModelsPercent: buckets ? otherPercent : nil
         )
     }
 

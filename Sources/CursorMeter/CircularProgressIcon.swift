@@ -116,13 +116,15 @@ enum CircularProgressIcon {
         return image
     }
 
-    /// Pie chart + percent text as a single NSImage
-    static func menuBarImageWithPercent(percent: Double) -> NSImage {
+    /// Pie chart + percent text as a single NSImage.
+    /// `label` overrides the default rounded `percent` string so split-quota
+    /// plans can show both bucket percents (e.g. "32% · 86%").
+    static func menuBarImageWithPercent(percent: Double, label: String? = nil) -> NSImage {
         let pieSize: CGFloat = 20
         let font = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .medium)
         let textColor = NSColor.labelColor
 
-        let percentStr = NSAttributedString(string: "\(Int(percent.rounded()))%", attributes: [
+        let percentStr = NSAttributedString(string: label ?? "\(Int(percent.rounded()))%", attributes: [
             .font: font, .foregroundColor: textColor,
         ])
         let textSize = percentStr.size()

@@ -118,6 +118,7 @@ Two undocumented endpoints used (cookie-based auth, no official schema):
 | `/api/usage-summary` | Primary — billingCycleEnd, plan %, membershipType | USD cents |
 | `/api/usage` | Supplementary — request counts per model | requests |
 | `/api/auth/me` | User info (email, name) | — |
+| `/api/dashboard/get-current-period-usage` | Ultra split quota — Cursor Models / Other Models % | percent |
 
 - `UsageViewModel.refresh()` calls all three in parallel with graceful degradation
 - `/api/usage` uses dynamic key parsing (no hardcoded model names)
