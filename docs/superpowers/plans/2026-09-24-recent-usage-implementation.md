@@ -226,7 +226,7 @@ CLT Swift 6.2.4 build completed successfully.
 **Files:** create `Sources/CursorMeter/RefreshFeedback.swift` and
 `Tests/CursorMeterTests/RefreshFeedbackTests.swift`.
 
-- [ ] Write pure deadline tests with a captured ContinuousClock.Instant. Production
+- [x] Write pure deadline tests with a captured ContinuousClock.Instant. Production
   durations are3s admission,1.3s minimum rotation,0.65s result. Test-only `.immediate`
   has all three zero. Use these exact expected boundaries:
 
@@ -237,7 +237,7 @@ CLT Swift 6.2.4 build completed successfully.
 // Invalidating attemptA then startingB makes A's completion a no-op.
 ```
 
-- [ ] Observe red, then implement `RefreshTiming` and `RefreshTimeline` value types,
+- [x] Observe red, then implement `RefreshTiming` and `RefreshTimeline` value types,
   `RefreshPhase` (idle/updating/result), `RefreshOutcome` (success/failure), and
   the MainActor observable controller `RefreshFeedback`. Keep arithmetic pure:
 
@@ -247,15 +247,19 @@ let readyAt = max(start.advanced(by: timing.admissionInterval),
                   rotationEnd.advanced(by: timing.minimumResult))
 ```
 
-- [ ] Admission returns an attempt identity bound to the session generation.
+- [x] Admission returns an attempt identity bound to the session generation.
   Completion carries independent meter/recent outcomes. One feedback Task sleeps
   to the next deadline, validates identity, publishes phase, and then sleeps to
   readiness if necessary. Invalidate cancels that task and clears the timeline.
   Inject monotonic now/sleep behavior; do not create a general clock framework.
-- [ ] Verify fast/slow failure and asymmetric outcomes, exact deadline edges,
+- [x] Verify fast/slow failure and asymmetric outcomes, exact deadline edges,
   automatic/manual overlap, stale completion, and a view joining mid-phase.
   This component owns no HTTP, retry queue, AppKit view, or persistence.
-- [ ] Review spec then quality, and commit `[#118] feat: coordinate refresh admission and feedback`.
+- [x] Review spec then quality, and commit `[#118] feat: coordinate refresh admission and feedback`.
+
+Task 3 evidence: specification and quality reviews passed; 19 focused timing
+tests and all 568 compatibility-mirror tests passed. The unmodified-source
+CLT Swift 6.2.4 build completed successfully.
 
 ## Task 4: Share Event Collection and Integrate Session Ownership
 
