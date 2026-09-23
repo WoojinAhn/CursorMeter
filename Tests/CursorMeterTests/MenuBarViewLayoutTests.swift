@@ -59,7 +59,10 @@ final class MenuBarViewLayoutTests: XCTestCase {
     func test_staleRowVisible_contentFittingWidth_staysWithinInnerWidth() async {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [MockURLProtocol.self]
-        let vm = UsageViewModel(apiClient: CursorAPIClient(configuration: config))
+        let vm = UsageViewModel(
+            apiClient: CursorAPIClient(configuration: config),
+            refreshFeedback: RefreshFeedback(timing: .immediate)
+        )
         vm.keychainDeleteHandler = {}
         vm.sessionExpiredNotifier = {}  // UNUserNotificationCenter crashes in SPM tests
         vm.testHook_setCookieHeader("WorkosCursorSessionToken=test")

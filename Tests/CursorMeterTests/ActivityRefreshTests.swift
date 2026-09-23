@@ -34,7 +34,10 @@ final class ActivityRefreshTests: XCTestCase {
             let ok = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!
             return (ok, Data("{}".utf8))
         }
-        let vm = UsageViewModel(apiClient: CursorAPIClient(configuration: config))
+        let vm = UsageViewModel(
+            apiClient: CursorAPIClient(configuration: config),
+            refreshFeedback: RefreshFeedback(timing: .immediate)
+        )
         vm.keychainDeleteHandler = {}
         vm.sessionExpiredNotifier = {}   // UNUserNotificationCenter crashes in SPM tests
         vm.updateCheckRunner = { .upToDate }

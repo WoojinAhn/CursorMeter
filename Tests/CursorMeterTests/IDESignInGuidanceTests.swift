@@ -63,7 +63,10 @@ final class IDESignInGuidanceTests: XCTestCase {
     private func makeViewModel(box: CredentialBox) -> UsageViewModel {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [MockURLProtocol.self]
-        let vm = UsageViewModel(apiClient: CursorAPIClient(configuration: config))
+        let vm = UsageViewModel(
+            apiClient: CursorAPIClient(configuration: config),
+            refreshFeedback: RefreshFeedback(timing: .immediate)
+        )
         vm.keychainDeleteHandler = {}
         vm.sessionExpiredNotifier = {}   // UNUserNotificationCenter crashes in SPM tests
         vm.updateCheckRunner = { .upToDate }

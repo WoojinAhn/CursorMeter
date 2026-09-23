@@ -63,6 +63,21 @@ enum NotificationClickAction: Sendable, Equatable {
 @MainActor
 final class NotificationManager {
     private(set) var notifiedThresholds: Set<Int> = []
+    private var notificationRevision: UInt64 = 0
+    private let requestAuthorization: @MainActor () async throws -> Bool
+    private let deliver: @MainActor (UNNotificationRequest) async throws -> Void
+
+    init(
+        requestAuthorization: @escaping @MainActor () async throws -> Bool = {
+            try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
+        },
+        deliver: @escaping @MainActor (UNNotificationRequest) async throws -> Void = {
+            try await UNUserNotificationCenter.current().add($0)
+        }
+    ) {
+        self.requestAuthorization = requestAuthorization
+        self.deliver = deliver
+    }
 
     nonisolated static func evaluateThreshold(
         percentUsed: Double,
@@ -90,7 +105,8 @@ final class NotificationManager {
         enabled: Bool,
         mode: NotificationMode
     ) async {
-        guard enabled else { return }
+        guard enabled, !Task.isCancelled else { return }
+        let revision = notificationRevision
 
         let level = Self.evaluateThreshold(
             percentUsed: percentUsed,
@@ -105,19 +121,24 @@ final class NotificationManager {
         case .warning:
             await sendNotification(
                 title: "Cursor \(mode.titleSuffix) Warning",
-                body: mode.body(forPercent: warningThreshold)
+                body: mode.body(forPercent: warningThreshold),
+                revision: revision
             )
+            guard revision == notificationRevision, !Task.isCancelled else { return }
             notifiedThresholds.insert(warningThreshold)
         case .critical:
             await sendNotification(
                 title: "Cursor \(mode.titleSuffix) Critical",
-                body: mode.body(forPercent: criticalThreshold)
+                body: mode.body(forPercent: criticalThreshold),
+                revision: revision
             )
+            guard revision == notificationRevision, !Task.isCancelled else { return }
             notifiedThresholds.insert(criticalThreshold)
         }
     }
 
     func resetNotifications() {
+        notificationRevision += 1
         notifiedThresholds.removeAll()
     }
 
@@ -194,12 +215,13 @@ final class NotificationManager {
         title: String,
         body: String,
         identifier: String = UUID().uuidString,
-        userInfo: [AnyHashable: Any]? = nil
+        userInfo: [AnyHashable: Any]? = nil,
+        revision: UInt64? = nil
     ) async {
-        let center = UNUserNotificationCenter.current()
         do {
-            let granted = try await center.requestAuthorization(options: [.alert, .sound])
-            guard granted else { return }
+            let granted = try await requestAuthorization()
+            guard granted, !Task.isCancelled,
+                  revision == nil || revision == notificationRevision else { return }
 
             let content = UNMutableNotificationContent()
             content.title = title
@@ -214,7 +236,7 @@ final class NotificationManager {
                 content: content,
                 trigger: nil
             )
-            try await center.add(request)
+            try await deliver(request)
             Log.info("Notification sent: \(title)")
         } catch {
             Log.error("Notification failed: \(error)")
@@ -235,7 +257,8 @@ final class NotificationManager {
         await sendNotification(
             title: Self.sessionExpiredTitle,
             body: Self.sessionExpiredBody,
-            identifier: Self.sessionExpiredIdentifier
+            identifier: Self.sessionExpiredIdentifier,
+            revision: notificationRevision
         )
     }
 

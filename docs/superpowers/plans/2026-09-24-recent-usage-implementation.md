@@ -269,53 +269,60 @@ CLT Swift 6.2.4 build completed successfully.
 existing test factories. Add a focused notification race test for the existing
 threshold-notification path.
 
-- [ ] Add request-recording MockURLProtocol fixtures for page1/page2 outcomes and
+- [x] Add request-recording MockURLProtocol fixtures for page1/page2 outcomes and
   controllable delayed completions. Select these tests before editing the pipeline:
   one existing page1 feeds both consumers; page2 transient failure retains page1;
   positive-total missing array fails recent only; page2 scope/auth rejection
   withholds candidate; first-session unknown scope adds no request; cached-mode
   list-only success; primary401 cancels abandoned optimistic collection before
   cookie fallback; both existing enterprise shape-fallback paths still work.
-- [ ] Introduce `UsageEventCollection` containing `recent: RecentUsageCandidate?`
+- [x] Introduce `UsageEventCollection` containing `recent: RecentUsageCandidate?`
   and `weekly: Result<[UsageEvent], Error>`. Its collector preserves existing
   pageSize100/max5/7-day stop rules and captures page1 wall-clock time exactly once.
   Keep the existing `UsageViewModel.collectWeeklyEvents` compatibility entry used
   by chart tests by returning `try collection.weekly.get()`.
-- [ ] Change optimistic task and sequential consumers to use that outcome. Do not
+- [x] Change optimistic task and sequential consumers to use that outcome. Do not
   publish before primary authentication and current scope validation. Publish a
   valid recent candidate for later transient failures while retaining existing
   chart failure behavior. Scope/auth/shape errors discard it; existing allowed
   enterprise rediscovery may supply a new candidate. Optional user-info `sub`
   decoding uses a default-nil initializer argument so existing fixtures compile.
-- [ ] Put admission at the existing `refresh()` entry so all callers share it.
+- [x] Put admission at the existing `refresh()` entry so all callers share it.
   Store the active network Task; a duplicate awaits its value without another
   request. Complete network work independently of visual feedback. All production
   entry paths retain standard timings. Existing tests explicitly inject `.immediate`
   in their factories; their substantive assertions remain unchanged.
-- [ ] Capture session/attempt identities and check after every suspension before
+- [x] Capture session/attempt identities and check after every suspension before
   mutation, including provider reads, discovery caches, errors, 401 handling,
   Keychain deletion, retry scheduling, notifications, auth-source writes and defer.
   Track/cancel optimistic tasks on every attempt exit. Explicit reconnect retires
   old work and starts once regardless of old feedback cooldown. Account-change
   detection uses authenticated sub plus the existing normalized in-memory email
   signal; discard old-mode optimistic work before adopting the new scope.
-- [ ] Guard threshold-notification state inside NotificationManager as well as
+- [x] Guard threshold-notification state inside NotificationManager as well as
   its caller: reset advances a revision, authorization completion checks that
   revision before delivery, and send completion checks it before dedup mutation.
   Verify a paused old send cannot change the new session's dedup state, using an
   injected send seam without the real notification center. Already submitted OS
   notifications are outside this cancellation boundary.
-- [ ] Wire RecentUsageController, persisted Local/UTC setting, and timezone change
+- [x] Wire RecentUsageController, persisted Local/UTC setting, and timezone change
   revision. Tab entry and formatting cannot call refresh. Preserve existing
   activity defer/throttle, periodic fallback, and network retry scheduling.
-- [ ] Verify delayed success/error/401 after logout and fast relogin: no old data,
+- [x] Verify delayed success/error/401 after logout and fast relogin: no old data,
   auth resurrection, Keychain deletion, counter mutation, or release of new busy.
   Verify actual HTTP counts for rapid alternating controls/automatic requests.
   Run full local suite and unmodified CLT build, then spec/quality review.
-- [ ] Commit `[#118] feat: share usage events and isolate refresh sessions`.
+- [x] Commit `[#118] feat: share usage events and isolate refresh sessions`.
 - [ ] Request independent Cursor Grok4.7/Muse1.3/Opus5.5 integration reviews using
   cursor:rescue. Reconcile code-grounded findings, test fixes, and commit before UI
   wiring. Keep review jobs read-only; no live Cursor credentials or data.
+
+Task 4 evidence: specification and quality reviews passed after reproducing
+and fixing cancellation of awaited optimistic tasks, later-page 408/429 retention,
+enterprise shape rejection without meter data, and meter latching after a changed
+team/user scope. The compatibility mirror passed 619/619 tests; the unmodified
+CLT Swift 6.2.4 build completed successfully. Native app observation, production
+store injection, and the system timezone observer remain in Task 5.
 
 ## Task 5: Add Native Usage and Shared Refresh Controls
 

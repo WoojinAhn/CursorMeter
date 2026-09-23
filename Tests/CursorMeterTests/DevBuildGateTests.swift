@@ -22,7 +22,10 @@ final class DevBuildGateTests: XCTestCase {
     private func makeViewModel() async -> UsageViewModel {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [MockURLProtocol.self]
-        let vm = UsageViewModel(apiClient: CursorAPIClient(configuration: config))
+        let vm = UsageViewModel(
+            apiClient: CursorAPIClient(configuration: config),
+            refreshFeedback: RefreshFeedback(timing: .immediate)
+        )
         vm.updateCheckRunner = { .upToDate }
         vm.keychainDeleteHandler = {}
         vm.sessionExpiredNotifier = {}

@@ -33,6 +33,7 @@ private enum SettingsKey: String {
     case ideAuthSuppressed
     case browserLoginEnabled
     case activityRefreshEnabled
+    case recentUsageTimeZone
     // Legacy keys consulted only by `loadSettings` migration block.
     case legacyShowMenuBarText = "showMenuBarText"
     case legacyShowMenuBarPercent = "showMenuBarPercent"
@@ -124,6 +125,11 @@ enum WeeklyChartStatus: Equatable, Sendable {
 @MainActor
 final class UsageViewModel {
     // MARK: - Auth & Data
+
+    let recentUsage: RecentUsageController
+    let refreshFeedback: RefreshFeedback
+    private(set) var recentUsageTimeZone: RecentUsageTimeZone = .local
+    private(set) var recentUsageTimeZoneRevision: UInt64 = 0
 
     var authState: AuthState = .loggedOut
     /// Which credential source authenticated the most recent successful
@@ -267,6 +273,27 @@ final class UsageViewModel {
     private var refreshTask: Task<Void, Never>?
     private var cachedCookieHeader: String?
     private let notificationManager = NotificationManager()
+
+    private struct RefreshContext: Equatable, Sendable {
+        let networkID: UInt64
+        let generation: UInt64
+        let recent: RecentUsageController.Context?
+    }
+
+    private struct ActiveRefresh {
+        var context: RefreshContext
+        var feedback: RefreshAttempt
+        var meter: RefreshOutcome = .failure
+        var recent: RefreshOutcome = .failure
+        var optimisticWeekly: Task<UsageEventCollection, Never>?
+        var optimisticHardLimit: Task<HardLimitResponse?, Never>?
+    }
+
+    @ObservationIgnored private var sessionGeneration: UInt64 = 0
+    @ObservationIgnored private var nextNetworkID: UInt64 = 0
+    @ObservationIgnored private var activeRefresh: ActiveRefresh?
+    @ObservationIgnored private var activeNetworkTask: Task<Void, Never>?
+    @ObservationIgnored private var lastRequestScope: RecentUsageRequestScope?
 
     /// Keychain deletion, injectable for tests — the default deletes the real
     /// `com.cursormeter.session` item, which tests must never touch.
@@ -429,6 +456,23 @@ final class UsageViewModel {
     enum WeeklyMode: Equatable, Sendable {
         case enterprise(teamId: Int, userId: Int)
         case personal
+
+        var teamID: Int {
+            if case .enterprise(let teamId, _) = self { return teamId }
+            return 0
+        }
+
+        var userID: Int? {
+            if case .enterprise(_, let userId) = self { return userId }
+            return nil
+        }
+
+        var requestScope: RecentUsageRequestScope {
+            switch self {
+            case let .enterprise(teamId, userId): .enterprise(teamID: teamId, userID: userId)
+            case .personal: .personal
+            }
+        }
     }
     @ObservationIgnored internal private(set) var cachedWeeklyMode: WeeklyMode?
 
@@ -449,8 +493,14 @@ final class UsageViewModel {
 
     // MARK: - Init
 
-    init(apiClient: CursorAPIClient = CursorAPIClient()) {
+    init(
+        apiClient: CursorAPIClient = CursorAPIClient(),
+        recentUsage: RecentUsageController? = nil,
+        refreshFeedback: RefreshFeedback? = nil
+    ) {
         self.apiClient = apiClient
+        self.recentUsage = recentUsage ?? RecentUsageController()
+        self.refreshFeedback = refreshFeedback ?? RefreshFeedback()
         loadSettings()
         lastUpdateCheckAt = Date()
         Task {
@@ -507,31 +557,37 @@ final class UsageViewModel {
 
     /// Identity of the account behind the last successful refresh (#54).
     @ObservationIgnored private var lastAccountEmail: String?
+    @ObservationIgnored private var lastAccountSubject: String?
 
     /// Returns true when a switch was detected — callers must then discard
     /// any in-flight work that captured the previous account's cached ids.
     @discardableResult
-    private func resetIfAccountSwitched(newEmail: String?) -> Bool {
-        guard let newEmail else { return false }
-        defer { lastAccountEmail = newEmail }
-        guard let previous = lastAccountEmail, previous != newEmail else { return false }
+    private func resetIfAccountSwitched(newEmail: String?, newSubject: String?) -> Bool {
+        let email = newEmail?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let subjectChanged = newSubject.map { subject in
+            lastAccountSubject.map { $0 != subject } ?? false
+        } ?? false
+        let emailChanged = email.map { value in
+            lastAccountEmail.map { $0 != value } ?? false
+        } ?? false
+        guard subjectChanged || emailChanged else {
+            if let email { lastAccountEmail = email }
+            if let newSubject { lastAccountSubject = newSubject }
+            return false
+        }
+        lastAccountEmail = email
+        lastAccountSubject = newSubject
         Log.error("Account switched — resetting per-account state (#54)")
         resetPerAccountState()
-        notificationManager.resetNotifications()
-        previousPlanUsedCents = nil
-        previousRequestsUsed = nil
-        previousServerPercent = nil
-        previousOnDemandUsedCents = nil
-        previousMode = nil
-        lastJump = nil
+        usageData = nil
+        lastSuccessAt = nil
+        consecutiveFailureCount = 0
+        notificationFailureCount = 0
         return true
     }
 
-    private func resetPerAccountState() {
-        cachedTeamId = nil
-        cachedUserId = nil
-        cachedOnDemandLimitDollars = nil
-        cachedWeeklyMode = nil
+    private func resetPerAccountState(clearDiscovery: Bool = true) {
+        if clearDiscovery { clearWeeklyDiscoveryCaches() }
         resetWeeklyChartState()
         previousCycleStart = nil
         isOnDemandLatched = false
@@ -545,77 +601,215 @@ final class UsageViewModel {
     }
 
     private func startSession() {
+        invalidateRefreshSession(revokePersisted: false)
+        notificationManager.resetNotifications()
         authState = .loggedIn
-        Task { await refresh() }
+        let generation = sessionGeneration
+        Task { [weak self] in
+            guard let self, self.sessionGeneration == generation else { return }
+            await self.refresh()
+        }
         startAutoRefresh()
     }
 
+    private func isCurrent(_ context: RefreshContext) -> Bool {
+        !Task.isCancelled && context.generation == sessionGeneration
+            && activeRefresh?.context == context
+    }
+
+    private func currentContext(networkID: UInt64) -> RefreshContext? {
+        guard let context = activeRefresh?.context, context.networkID == networkID,
+              isCurrent(context) else { return nil }
+        return context
+    }
+
+    private func requireCurrent(_ context: RefreshContext) throws {
+        guard isCurrent(context) else { throw CancellationError() }
+    }
+
+    private func cancelDeferredRefreshes() {
+        networkRetryTask?.cancel()
+        networkRetryTask = nil
+        activityGeneration += 1
+        activityDebounceTask?.cancel()
+        activityDebounceTask = nil
+    }
+
+    private func invalidateRefreshSession(revokePersisted: Bool, cancelCurrent: Bool = true) {
+        sessionGeneration += 1
+        if cancelCurrent { activeNetworkTask?.cancel() }
+        cancelOptimisticTasks()
+        activeNetworkTask = nil
+        activeRefresh = nil
+        refreshFeedback.invalidate()
+        recentUsage.invalidate(generation: sessionGeneration, revokePersisted: revokePersisted)
+        cancelDeferredRefreshes()
+        stopAutoRefresh()
+        lastRefreshAttempt = nil
+        isRefreshing = false
+        isLoading = false
+        errorMessage = nil
+        consecutiveFailureCount = 0
+        notificationFailureCount = 0
+    }
+
+    private func cancelOptimisticTasks() {
+        activeRefresh?.optimisticWeekly?.cancel()
+        activeRefresh?.optimisticHardLimit?.cancel()
+        activeRefresh?.optimisticWeekly = nil
+        activeRefresh?.optimisticHardLimit = nil
+    }
+
+    private func selectCredential(_ cookieHeader: String, context: RefreshContext) throws -> RefreshContext {
+        try requireCurrent(context)
+        let recent = recentUsage.selectCredential(
+            cookieHeader: cookieHeader, generation: context.generation, attemptID: context.networkID
+        )
+        let selected = RefreshContext(networkID: context.networkID, generation: context.generation, recent: recent)
+        activeRefresh?.context = selected
+        return selected
+    }
+
+    /// Authenticated primary responses remain valid; only old-scope work is retired.
+    private func adoptSession(_ context: RefreshContext, cookieHeader: String) throws -> RefreshContext {
+        try requireCurrent(context)
+        let wasPolling = refreshTask != nil
+        cancelOptimisticTasks()
+        sessionGeneration += 1
+        cancelDeferredRefreshes()
+        recentUsage.invalidate(generation: sessionGeneration, revokePersisted: true)
+        refreshFeedback.invalidate()
+        let feedback = refreshFeedback.begin(generation: sessionGeneration)!
+        let adopted = RefreshContext(networkID: context.networkID, generation: sessionGeneration, recent: nil)
+        activeRefresh?.context = adopted
+        activeRefresh?.feedback = feedback
+        activeRefresh?.recent = .failure
+        lastRequestScope = nil
+        if wasPolling { startAutoRefresh() }
+        return try selectCredential(cookieHeader, context: adopted)
+    }
+
+    private func prepareRecent(
+        scope: RecentUsageRequestScope, cookieHeader: String, userInfo: UserInfoResponse,
+        meterData: UsageDisplayData?, context: inout RefreshContext
+    ) throws {
+        try requireCurrent(context)
+        if let previous = lastRequestScope, previous != scope {
+            resetPerAccountState(clearDiscovery: false)
+            if let meterData {
+                previousCycleStart = meterData.cycleStartDate
+                isOnDemandLatched = meterData.wouldActivateOnDemand
+                usageData = meterData.withOnDemandActive(isOnDemandLatched)
+            }
+            context = try adoptSession(context, cookieHeader: cookieHeader)
+        }
+        lastRequestScope = scope
+        if let recent = context.recent {
+            recentUsage.validateIdentity(subject: userInfo.sub, scope: scope, context: recent)
+        }
+    }
+
     func refresh() async {
-        guard !isRefreshing else { return }
+        if let task = activeNetworkTask,
+           activeRefresh?.context.generation == sessionGeneration {
+            await task.value
+            return
+        }
+        guard let feedback = refreshFeedback.begin(generation: sessionGeneration) else { return }
+        nextNetworkID += 1
+        let networkID = nextNetworkID
+        let context = RefreshContext(networkID: networkID, generation: sessionGeneration, recent: nil)
+        activeRefresh = ActiveRefresh(context: context, feedback: feedback)
         lastRefreshAttempt = ContinuousClock.now
         isRefreshing = true
         isLoading = true
         errorMessage = nil
-        defer {
-            isLoading = false
-            isRefreshing = false
+        let task = Task { [weak self] in
+            guard let self else { return }
+            defer { self.finishRefresh(networkID: networkID) }
+            await self.runCredentialChain(networkID: networkID)
         }
+        activeNetworkTask = task
+        await task.value
+    }
 
-        // Chain step 1: IDE credential (#54). Read off-main — the reader's
-        // SQLite busy_timeout can block up to 250ms. The read also publishes
-        // availability (#88) so a failed connect flips the login layout to
-        // the guidance state immediately.
+    private func finishRefresh(networkID: UInt64) {
+        guard let active = activeRefresh, active.context.networkID == networkID,
+              active.context.generation == sessionGeneration else { return }
+        if active.recent == .failure, let context = active.context.recent {
+            recentUsage.recordFailure(context: context)
+        }
+        refreshFeedback.complete(active.feedback, meter: active.meter, recent: active.recent)
+        activeRefresh = nil
+        activeNetworkTask = nil
+        isLoading = false
+        isRefreshing = false
+    }
+
+    private func runCredentialChain(networkID: UInt64) async {
+        guard var context = currentContext(networkID: networkID) else { return }
         if let provider = ideCredentialProvider, !ideAuthSuppressed {
             let ideCredential = await Task.detached(operation: { provider() }).value
+            guard isCurrent(context) else { return }
             setIDEAvailability(ideCredential != nil)
             if let ide = ideCredential {
                 do {
-                    try await runRefreshAttempt(cookieHeader: ide.cookieHeader)
+                    context = try selectCredential(ide.cookieHeader, context: context)
+                    try await runRefreshAttempt(cookieHeader: ide.cookieHeader, context: context)
+                    guard currentContext(networkID: networkID) != nil else { return }
                     authState = .loggedIn
                     activeAuthSource = .cursorIDE
                     return
-                } catch APIError.unauthorized {
-                    // Fall through to the captured cookie. The IDE credential is
-                    // unrelated to it — never clear keychain or notify here.
-                    Log.error("IDE credential rejected (401) — falling back to captured cookie")
                 } catch {
-                    await handleRefreshError(error)
-                    return
+                    guard let current = currentContext(networkID: networkID),
+                          !UsageEventCollection.isCancellation(error) else { return }
+                    context = current
+                    if case APIError.unauthorized = error {
+                        if let recent = context.recent { recentUsage.rejectCredential(context: recent) }
+                        Log.error("IDE credential rejected (401) — falling back to captured cookie")
+                    } else {
+                        await handleRefreshError(error, context: context)
+                        return
+                    }
                 }
             }
         }
 
-        // Chain step 2: captured cookie (pre-#54 behavior).
+        guard isCurrent(context) else { return }
         guard let cookieHeader = cachedCookieHeader else {
-            // Chain exhausted. "Session expired" (.loginRequired) is reserved
-            // for sessions that actually worked before — the optimistic
-            // startSession() makes this guard reachable on a first-ever
-            // launch, which should read "Not connected" (.loggedOut). An
-            // already-expired state must persist, not downgrade.
             if authState != .loginRequired {
                 authState = activeAuthSource == nil ? .loggedOut : .loginRequired
             }
             activeAuthSource = nil
             clearWeeklyDiscoveryCaches()
             resetWeeklyChartState()
+            recentUsage.invalidate(generation: sessionGeneration, revokePersisted: true)
             return
         }
         do {
-            try await runRefreshAttempt(cookieHeader: cookieHeader)
+            context = try selectCredential(cookieHeader, context: context)
+            try await runRefreshAttempt(cookieHeader: cookieHeader, context: context)
+            guard currentContext(networkID: networkID) != nil else { return }
             authState = .loggedIn
             activeAuthSource = .browserLogin
-        } catch APIError.unauthorized {
-            activeAuthSource = nil
-            await handleCapturedCookieExpiry()
         } catch {
-            await handleRefreshError(error)
+            guard let current = currentContext(networkID: networkID),
+                  !UsageEventCollection.isCancellation(error) else { return }
+            if case APIError.unauthorized = error {
+                activeAuthSource = nil
+                await handleCapturedCookieExpiry(context: current)
+            } else {
+                await handleRefreshError(error, context: current)
+            }
         }
     }
 
     /// One credential's full refresh batch (#54): fetch, decode, apply state,
     /// and success-path side effects. Throws instead of handling errors so the
     /// credential chain in refresh() can decide fallback vs terminal handling.
-    private func runRefreshAttempt(cookieHeader: String) async throws {
+    private func runRefreshAttempt(cookieHeader: String, context initialContext: RefreshContext) async throws {
+        var context = initialContext
+        try requireCurrent(context)
         let apiClient = self.apiClient
         // `async let` (not unstructured `Task {}`) keeps the three calls
         // tied to refresh()'s cancellation lifecycle; `capture` turns each
@@ -630,17 +824,30 @@ final class UsageViewModel {
         // (cachedWeeklyMode). Saves one round-trip on every subsequent refresh.
         // First refresh after login/account-switch falls back to the sequential
         // path inside `refreshWeeklyChart`.
-        let optimisticWeekly: Task<[DayUsage], Error>? =
+        let optimisticMode = cachedWeeklyMode
+        let optimisticWeekly: Task<UsageEventCollection, Never>? =
             makeOptimisticWeeklyTask(cookieHeader: cookieHeader)
 
         // Optimistic hard-limit fetch — same prior-refresh teamId gating as
         // the weekly task. Runs in parallel once a teamId is cached.
         let optimisticHardLimit: Task<HardLimitResponse?, Never>? =
             makeOptimisticHardLimitTask(cookieHeader: cookieHeader)
+        activeRefresh?.optimisticWeekly = optimisticWeekly
+        activeRefresh?.optimisticHardLimit = optimisticHardLimit
+
+        defer {
+            optimisticWeekly?.cancel()
+            optimisticHardLimit?.cancel()
+            if activeRefresh?.context.networkID == initialContext.networkID {
+                activeRefresh?.optimisticWeekly = nil
+                activeRefresh?.optimisticHardLimit = nil
+            }
+        }
 
         let userInfoRes = await userInfoCapture
         let summaryRes = await summaryCapture
         let usageRes = await usageCapture
+        try requireCurrent(context)
 
         // Expiry check runs over ALL results before any decode failure can
         // abort the refresh — the 2026-07-03 incident: /api/auth/me decode
@@ -659,9 +866,14 @@ final class UsageViewModel {
         // The optimistic tasks above captured the OLD account's cached
         // team/user ids before this check could run — on a switch their
         // results must be discarded, not merely the caches reset.
-        let accountSwitched = resetIfAccountSwitched(newEmail: userInfo.email)
-        if accountSwitched {
-            optimisticWeekly?.cancel()
+        let accountSwitched = resetIfAccountSwitched(newEmail: userInfo.email, newSubject: userInfo.sub)
+        let modeContradicted = Self.weeklyModeContradicts(optimisticMode, membershipType: summary?.membershipType)
+        if accountSwitched || modeContradicted {
+            if !accountSwitched { resetPerAccountState() }
+            context = try adoptSession(context, cookieHeader: cookieHeader)
+        }
+        if let recent = context.recent {
+            recentUsage.validateIdentity(subject: userInfo.sub, scope: nil, context: recent)
         }
 
         // Resolve per-seat limits for token-based enterprise plans (no `plan`
@@ -671,24 +883,27 @@ final class UsageViewModel {
         // optimistic hard-limit task (parallel); the on-demand limit is cached
         // for the session since team-spend is a heavier roster fetch. First
         // refresh resolves both synchronously so values appear immediately.
-        var perUserMonthlyLimitDollars = accountSwitched
+        var perUserMonthlyLimitDollars = accountSwitched || modeContradicted
             ? nil
             : (await optimisticHardLimit?.value ?? nil)?.perUserMonthlyLimitDollars
+        try requireCurrent(context)
         var perUserOnDemandLimitDollars = cachedOnDemandLimitDollars
         let isTokenBased = summary.map {
             $0.individualUsage?.plan == nil && $0.individualUsage?.overall != nil
         } ?? false
         if isTokenBased,
            perUserMonthlyLimitDollars == nil || perUserOnDemandLimitDollars == nil,
-           let teamId = await resolveTeamId(cookieHeader: cookieHeader) {
+           let teamId = try await resolveTeamId(cookieHeader: cookieHeader, context: context) {
             if perUserMonthlyLimitDollars == nil {
                 perUserMonthlyLimitDollars = (try? await apiClient
                     .fetchHardLimit(cookieHeader: cookieHeader, teamId: teamId))?
                     .perUserMonthlyLimitDollars
+                try requireCurrent(context)
             }
             if perUserOnDemandLimitDollars == nil,
-               let member = await fetchMyTeamMember(
-                   cookieHeader: cookieHeader, teamId: teamId, email: userInfo.email) {
+               let member = try await fetchMyTeamMember(
+                   cookieHeader: cookieHeader, teamId: teamId, email: userInfo.email, context: context) {
+                try requireCurrent(context)
                 if cachedUserId == nil { cachedUserId = member.userId }
                 perUserOnDemandLimitDollars = member.hardLimitOverrideDollars
                 cachedOnDemandLimitDollars = perUserOnDemandLimitDollars
@@ -704,83 +919,80 @@ final class UsageViewModel {
         } else if let usage {
             baseData = UsageDisplayData.from(usage: usage, userInfo: userInfo)
         } else {
-            throw APIError.httpError(statusCode: 0)
+            baseData = nil
         }
 
-        if let base = baseData {
-            // Rollover detection must precede the latch update: otherwise the
-            // first refresh of a new cycle paints stale `isOnDemandActive = true`
-            // from the previous cycle's latch, and only unlatches on the *next*
-            // refresh (1-refresh display lag).
-            if let newStart = base.cycleStartDate, newStart != previousCycleStart {
-                if previousCycleStart != nil {
-                    notificationManager.resetNotifications()
-                    isOnDemandLatched = false
-                    Log.info("Billing cycle rollover — reset notification dedup + on-demand latch")
+        if baseData != nil {
+            if let base = baseData {
+                // Rollover detection must precede the latch update: otherwise the
+                // first refresh of a new cycle paints stale `isOnDemandActive = true`
+                // from the previous cycle's latch, and only unlatches on the *next*
+                // refresh (1-refresh display lag).
+                if let newStart = base.cycleStartDate, newStart != previousCycleStart {
+                    if previousCycleStart != nil {
+                        notificationManager.resetNotifications()
+                        isOnDemandLatched = false
+                        Log.info("Billing cycle rollover — reset notification dedup + on-demand latch")
+                    }
+                    previousCycleStart = newStart
                 }
-                previousCycleStart = newStart
+
+                // Latch update: once activated, stays active until cycle rollover
+                // (handled in the rollover block above) or logout (resetPerAccountState).
+                if !isOnDemandLatched && base.wouldActivateOnDemand {
+                    isOnDemandLatched = true
+                    notificationManager.resetNotifications()
+                    Log.info("On-demand mode latched ON — threshold notifications reset")
+                }
+                usageData = base.withOnDemandActive(isOnDemandLatched)
+            }
+            Log.info("Usage data refreshed")
+            lastSuccessAt = Date()
+            consecutiveFailureCount = 0
+            notificationFailureCount = 0
+            // #112: recovery clears any lingering "connection trouble" banner —
+            // idempotent at the UNUserNotificationCenter layer, so unconditional.
+            refreshFailingWithdrawer?()
+            networkRetryTask?.cancel()
+            networkRetryTask = nil
+
+            // Periodic update re-check rides the refresh cycle (success path
+            // only, so an offline stretch can't hammer GitHub) instead of
+            // owning a timer — at most one API call per updateRecheckInterval.
+            if devBuildCommit == nil,
+               Self.shouldRecheckUpdate(lastCheck: lastUpdateCheckAt, now: Date()) {
+                lastUpdateCheckAt = Date()
+                Task {
+                    let result = await updateCheckRunner()
+                    await recordUpdateCheckResult(result, source: .automatic)
+                }
             }
 
-            // Latch update: once activated, stays active until cycle rollover
-            // (handled in the rollover block above) or logout (resetPerAccountState).
-            if !isOnDemandLatched && base.wouldActivateOnDemand {
-                isOnDemandLatched = true
-                notificationManager.resetNotifications()
-                Log.info("On-demand mode latched ON — threshold notifications reset")
-            }
-            usageData = base.withOnDemandActive(isOnDemandLatched)
-        }
-        Log.info("Usage data refreshed")
-        lastSuccessAt = Date()
-        consecutiveFailureCount = 0
-        notificationFailureCount = 0
-        // #112: recovery clears any lingering "connection trouble" banner —
-        // idempotent at the UNUserNotificationCenter layer, so unconditional.
-        refreshFailingWithdrawer?()
-        networkRetryTask?.cancel()
-        networkRetryTask = nil
-
-        // Periodic update re-check rides the refresh cycle (success path
-        // only, so an offline stretch can't hammer GitHub) instead of
-        // owning a timer — at most one API call per updateRecheckInterval.
-        if devBuildCommit == nil,
-           Self.shouldRecheckUpdate(lastCheck: lastUpdateCheckAt, now: Date()) {
-            lastUpdateCheckAt = Date()
-            Task {
-                let result = await updateCheckRunner()
-                await recordUpdateCheckResult(result, source: .automatic)
-            }
+            activeRefresh?.meter = .success
         }
 
-        // Compute jump delta against previous canonical value (skip on first refresh,
-        // mode change, or non-positive delta).
-        if let data = usageData {
-            updateJumpState(from: data)
-        }
-
-        // Weekly chart: consume the optimistic task if we had one, otherwise
-        // fall through to the sequential path that resolves teamId first.
-        // The optimistic task was built from a cached shape BEFORE this
-        // refresh's membershipType was known — if the plan changed underneath
-        // it, its result is for the wrong shape and must be discarded (#110).
-        let modeContradicted = Self.weeklyModeContradicts(
-            cachedWeeklyMode, membershipType: usageData?.membershipType)
-        if modeContradicted {
-            Log.info("Weekly mode contradicts the reported membership — re-discovering")
-            optimisticWeekly?.cancel()
-            clearWeeklyDiscoveryCaches()
-        }
-        if let task = optimisticWeekly, !accountSwitched, !modeContradicted {
-            let needsRediscovery = await applyOptimisticWeekly(task)
-            if needsRediscovery, let data = usageData {
-                await refreshWeeklyChart(cookieHeader: cookieHeader, data: data, userInfo: userInfo)
+        if let task = optimisticWeekly, let mode = optimisticMode, !accountSwitched, !modeContradicted {
+            let needsRediscovery = try await applyOptimisticWeekly(
+                task, mode: mode, cookieHeader: cookieHeader, userInfo: userInfo,
+                meterData: baseData, context: &context
+            )
+            if needsRediscovery {
+                if let data = baseData {
+                    try await refreshWeeklyChart(cookieHeader: cookieHeader, data: data, userInfo: userInfo, context: &context)
+                } else {
+                    recordWeeklyFailure(discardData: true)
+                }
             }
-        } else if let data = usageData {
-            await refreshWeeklyChart(cookieHeader: cookieHeader, data: data, userInfo: userInfo)
+        } else if let data = baseData {
+            try await refreshWeeklyChart(cookieHeader: cookieHeader, data: data, userInfo: userInfo, context: &context)
         }
+        try requireCurrent(context)
+        guard baseData != nil else { throw APIError.httpError(statusCode: 0) }
 
         // Check notification thresholds
         if let data = usageData {
+            // Scope rediscovery must reset baselines before publishing a jump.
+            updateJumpState(from: data)
             await notificationManager.checkAndNotify(
                 percentUsed: data.percentUsed,
                 warningThreshold: warningThreshold,
@@ -788,15 +1000,18 @@ final class UsageViewModel {
                 enabled: notificationEnabled,
                 mode: Self.notificationMode(for: data)
             )
+            try requireCurrent(context)
         }
     }
 
     /// Terminal expiry handling for the captured-cookie credential (#76/#84).
-    private func handleCapturedCookieExpiry() async {
+    private func handleCapturedCookieExpiry(context: RefreshContext) async {
+        guard isCurrent(context) else { return }
         // Error level (not info): unified logging evicts info entries within
         // hours, and expiry timestamps must survive for interval analysis (#84).
         Log.error("Session expired, clearing keychain")
         let wasLoggedIn = (authState == .loggedIn)
+        invalidateRefreshSession(revokePersisted: true, cancelCurrent: false)
         cachedCookieHeader = nil
         do {
             try keychainDeleteHandler()
@@ -805,15 +1020,19 @@ final class UsageViewModel {
         }
         authState = .loginRequired
         usageData = nil
+        lastSuccessAt = nil
+        lastAccountEmail = nil
+        lastAccountSubject = nil
+        lastRequestScope = nil
         clearWeeklyDiscoveryCaches()
         resetWeeklyChartState()
         // Expired session has its own dedicated UI; stale must not leak
         // into the next login.
         consecutiveFailureCount = 0
         notificationFailureCount = 0
-        // stopAutoRefresh() cancels the auto-refresh task this code may be
-        // running inside — notify FIRST so the notification awaits don't run
-        // in a cancelled task. Re-entrance meanwhile is blocked by isRefreshing.
+        notificationManager.resetNotifications()
+        // Network work has its own Task, so retiring the periodic waiter does
+        // not cancel this intentional expiry notification.
         // Notify only on the loggedIn → loginRequired transition so a
         // manual refresh in the expired state can't re-fire the banner.
         if wasLoggedIn {
@@ -824,18 +1043,20 @@ final class UsageViewModel {
                 await notificationManager.notifySessionExpired()
             }
         }
-        stopAutoRefresh()
     }
 
     /// Non-auth refresh failures: forbidden and network/decoding errors.
-    private func handleRefreshError(_ error: Error) async {
+    private func handleRefreshError(_ error: Error, context: RefreshContext) async {
+        guard isCurrent(context), !UsageEventCollection.isCancellation(error) else { return }
         if case APIError.forbidden = error {
             errorMessage = "Access denied (subscription may be inactive)"
             await registerRefreshFailure()
+            guard isCurrent(context) else { return }
             Log.error("API returned 403 Forbidden")
             return
         }
         await registerRefreshFailure()
+        guard isCurrent(context) else { return }
         if usageData == nil {
             // URLSession failures are wrapped as `APIError.networkError(URLError)`
             // by the API client, so direct cast misses offline cases. Unwrap both
@@ -870,7 +1091,7 @@ final class UsageViewModel {
     /// `refreshWeeklyChart` discovers it first.
     private func makeOptimisticWeeklyTask(
         cookieHeader: String
-    ) -> Task<[DayUsage], Error>? {
+    ) -> Task<UsageEventCollection, Never>? {
         guard let mode = cachedWeeklyMode else { return nil }
         let apiClient = self.apiClient
         let pageSize = Self.weeklyPageSize
@@ -886,26 +1107,30 @@ final class UsageViewModel {
             userId = nil
         }
         return Task {
-            try await Self.collectWeeklyEvents(
+            await UsageEventCollection.collect(
                 apiClient: apiClient,
                 cookieHeader: cookieHeader,
                 teamId: teamId,
                 userId: userId,
                 pageSize: pageSize,
                 maxPages: maxPages
-            ).sevenDayRolling(today: Date(), calendar: .current)
+            )
         }
     }
 
     /// Discovers and caches the active `teamId` (once per session). Returns nil
     /// on personal plans (teams fetch empty / non-200), which callers treat as
     /// non-enterprise. Shared by the hard-limit and weekly-chart paths.
-    private func resolveTeamId(cookieHeader: String) async -> Int? {
+    private func resolveTeamId(cookieHeader: String, context: RefreshContext) async throws -> Int? {
+        try requireCurrent(context)
         if cachedTeamId == nil {
             do {
                 let teams = try await apiClient.fetchTeams(cookieHeader: cookieHeader)
+                try requireCurrent(context)
                 cachedTeamId = teams.teams.first?.id
             } catch {
+                try requireCurrent(context)
+                if UsageEventCollection.isCancellation(error) { throw CancellationError() }
                 Log.info("Teams fetch failed (treating as non-enterprise): \(error.localizedDescription)")
             }
         }
@@ -916,19 +1141,23 @@ final class UsageViewModel {
     /// by email). Source of the numeric userId and the per-seat on-demand limit.
     /// Returns nil on missing email or fetch failure.
     private func fetchMyTeamMember(
-        cookieHeader: String, teamId: Int, email: String?
-    ) async -> TeamMember? {
+        cookieHeader: String, teamId: Int, email: String?, context: RefreshContext
+    ) async throws -> TeamMember? {
+        try requireCurrent(context)
         guard let email, !email.isEmpty else {
             Log.info("Skipping team-spend lookup: userInfo email missing or empty")
             return nil
         }
         do {
             let spend = try await apiClient.fetchTeamSpend(cookieHeader: cookieHeader, teamId: teamId)
+            try requireCurrent(context)
             let normalized = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             return spend.teamMemberSpend.first {
                 ($0.email?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) == normalized
             }
         } catch {
+            try requireCurrent(context)
+            if UsageEventCollection.isCancellation(error) { throw CancellationError() }
             Log.info("Team-spend fetch failed: \(error.localizedDescription)")
             return nil
         }
@@ -960,28 +1189,12 @@ final class UsageViewModel {
         today: Date = Date(),
         calendar: Calendar = .current
     ) async throws -> [UsageEvent] {
-        let cutoff = calendar.date(
-            byAdding: .day,
-            value: -6,
-            to: calendar.startOfDay(for: today)
-        )!
-        var collected: [UsageEvent] = []
-        for page in 1...maxPages {
-            let response = try await apiClient.fetchWeeklyUsage(
-                cookieHeader: cookieHeader,
-                teamId: teamId,
-                userId: userId,
-                page: page,
-                pageSize: pageSize
-            )
-            let events = response.usageEventsDisplay
-            collected.append(contentsOf: events)
-            if events.isEmpty { break }
-            if let total = response.totalUsageEventsCount, collected.count >= total { break }
-            guard let oldest = events.oldestEventDate() else { break }
-            if oldest < cutoff { break }
-        }
-        return collected
+        let collection = await UsageEventCollection.collect(
+            apiClient: apiClient, cookieHeader: cookieHeader, teamId: teamId,
+            userId: userId, pageSize: pageSize, maxPages: maxPages,
+            today: today, calendar: calendar
+        )
+        return try collection.weekly.get()
     }
 
     /// True when a cached fetch shape contradicts the membership the server
@@ -1040,140 +1253,103 @@ final class UsageViewModel {
         weeklyChartAvailable = weeklyData != nil
     }
 
-    /// Returns true when the caller should fall through to the sequential
-    /// discovery path in this same refresh (the cached shape was rejected).
-    private func applyOptimisticWeekly(_ task: Task<[DayUsage], Error>) async -> Bool {
-        do {
-            recordWeeklySuccess(try await task.value)
-            return false
-        } catch APIError.forbidden {
-            Log.info("Optimistic weekly fetch returned 403 — clearing weekly caches")
-            clearWeeklyDiscoveryCaches()
-            recordWeeklyFailure(discardData: true)
-            return false
-        } catch {
-            if Self.weeklyErrorInvalidatesShape(error) {
-                // Enterprise has team/user ids worth re-discovering; personal is
-                // a fixed teamId-0 shape, so repeating it in the same refresh
-                // would just re-send the rejected call (#110).
-                let canRediscover = cachedWeeklyMode.map { mode in
-                    if case .enterprise = mode { return true } else { return false }
-                } ?? false
-                clearWeeklyDiscoveryCaches()
-                if canRediscover {
+    private func applyEventCollection(
+        _ collection: UsageEventCollection, mode: WeeklyMode,
+        context: RefreshContext, optimistic: Bool = false
+    ) throws -> Bool {
+        try requireCurrent(context)
+        if case .failure(let error) = collection.weekly, UsageEventCollection.isCancellation(error) {
+            throw CancellationError()
+        }
+        if let candidate = collection.recent, let recent = context.recent,
+           recentUsage.publish(candidate: candidate, context: recent) {
+            activeRefresh?.recent = .success
+        } else if let recent = context.recent {
+            recentUsage.recordFailure(context: recent)
+        }
+        switch collection.weekly {
+        case .success(let events):
+            recordWeeklySuccess(events.sevenDayRolling(today: Date(), calendar: .current))
+            cachedWeeklyMode = mode
+        case .failure(let error):
+            let enterprise: Bool
+            if case .enterprise = mode { enterprise = true } else { enterprise = false }
+            let forbidden: Bool
+            if case APIError.forbidden = error { forbidden = true } else { forbidden = false }
+            if forbidden || Self.weeklyErrorInvalidatesShape(error) {
+                if optimistic || enterprise { clearWeeklyDiscoveryCaches() }
+                else { cachedWeeklyMode = nil }
+                if !forbidden, optimistic, enterprise {
                     Log.info("Optimistic weekly fetch rejected the cached shape — re-discovering")
                     return true
                 }
-                Log.info("Weekly fetch rejected the request shape — hiding chart")
-                recordWeeklyFailure(discardData: true)
-                return false
-            }
-            Log.info("Weekly fetch failed: \(error.localizedDescription)")
-            recordWeeklyFailure()
-            return false
-        }
-    }
-
-    private func refreshWeeklyChart(
-        cookieHeader: String,
-        data: UsageDisplayData,
-        userInfo: UserInfoResponse
-    ) async {
-        // nil membershipType = usage-summary failed (legacy fallback), which
-        // says nothing about the plan — an enterprise account mid-outage must
-        // not be routed to the personal teamId-0 path (#103 Codex review).
-        guard let membership = data.membershipType?.lowercased() else {
-            weeklyChartAvailable = false
-            weeklyData = nil
-            return
-        }
-        if membership == "enterprise" {
-            await refreshWeeklyChartEnterprise(cookieHeader: cookieHeader, userInfo: userInfo)
-        } else {
-            await refreshWeeklyChartPersonal(cookieHeader: cookieHeader)
-        }
-    }
-
-    private func refreshWeeklyChartEnterprise(
-        cookieHeader: String,
-        userInfo: UserInfoResponse
-    ) async {
-        guard let teamId = await resolveTeamId(cookieHeader: cookieHeader) else {
-            recordWeeklyFailure(discardData: true)
-            return
-        }
-
-        // Discover numeric userId if absent. Matched by email against team-spend
-        // roster (token-based refreshes may already have cached it).
-        if cachedUserId == nil {
-            cachedUserId = await fetchMyTeamMember(
-                cookieHeader: cookieHeader, teamId: teamId, email: userInfo.email)?.userId
-        }
-        guard let userId = cachedUserId else {
-            recordWeeklyFailure(discardData: true)
-            return
-        }
-
-        do {
-            let events = try await Self.collectWeeklyEvents(
-                apiClient: apiClient,
-                cookieHeader: cookieHeader,
-                teamId: teamId,
-                userId: userId,
-                pageSize: Self.weeklyPageSize,
-                maxPages: Self.weeklyMaxPages
-            )
-            recordWeeklySuccess(events.sevenDayRolling(today: Date(), calendar: .current))
-            cachedWeeklyMode = .enterprise(teamId: teamId, userId: userId)
-        } catch APIError.forbidden {
-            Log.info("Weekly fetch returned 403 — clearing enterprise cache")
-            clearWeeklyDiscoveryCaches()
-            recordWeeklyFailure(discardData: true)
-        } catch {
-            // 400/404 = the team/user shape is stale; drop it so the next
-            // refresh re-discovers rather than repeating a doomed call (#110).
-            if Self.weeklyErrorInvalidatesShape(error) {
-                // Freshly discovered ids were rejected too — not a transient
-                // blip, so stop showing a chart that can no longer be refreshed.
-                Log.info("Weekly fetch rejected the enterprise shape — clearing cache and hiding chart")
-                clearWeeklyDiscoveryCaches()
                 recordWeeklyFailure(discardData: true)
             } else {
                 Log.info("Weekly fetch failed: \(error.localizedDescription)")
                 recordWeeklyFailure()
             }
         }
+        return false
     }
 
-    /// Personal accounts: the events endpoint accepts teamId 0 with no userId
-    /// and scopes to the session cookie (verified live 2026-07-24, free plan).
-    /// No team/roster discovery — two fewer round-trips than enterprise.
-    private func refreshWeeklyChartPersonal(cookieHeader: String) async {
-        do {
-            let events = try await Self.collectWeeklyEvents(
-                apiClient: apiClient,
-                cookieHeader: cookieHeader,
-                teamId: 0,
-                userId: nil,
-                pageSize: Self.weeklyPageSize,
-                maxPages: Self.weeklyMaxPages
-            )
-            recordWeeklySuccess(events.sevenDayRolling(today: Date(), calendar: .current))
-            cachedWeeklyMode = .personal
-        } catch APIError.forbidden {
-            Log.info("Personal weekly fetch returned 403 — hiding chart")
-            cachedWeeklyMode = nil
-            recordWeeklyFailure(discardData: true)
-        } catch {
-            if Self.weeklyErrorInvalidatesShape(error) {
-                Log.info("Personal weekly fetch rejected the request shape — hiding chart")
-                cachedWeeklyMode = nil
-                recordWeeklyFailure(discardData: true)
-            } else {
-                Log.info("Personal weekly fetch failed: \(error.localizedDescription)")
-                recordWeeklyFailure()
-            }
+    private func applyOptimisticWeekly(
+        _ task: Task<UsageEventCollection, Never>, mode: WeeklyMode,
+        cookieHeader: String, userInfo: UserInfoResponse,
+        meterData: UsageDisplayData?, context: inout RefreshContext
+    ) async throws -> Bool {
+        try prepareRecent(
+            scope: mode.requestScope, cookieHeader: cookieHeader, userInfo: userInfo,
+            meterData: meterData, context: &context
+        )
+        let collection = await task.value
+        try requireCurrent(context)
+        return try applyEventCollection(collection, mode: mode, context: context, optimistic: true)
+    }
+
+    private func refreshWeeklyChart(
+        cookieHeader: String, data: UsageDisplayData,
+        userInfo: UserInfoResponse, context: inout RefreshContext
+    ) async throws {
+        try requireCurrent(context)
+        // An unavailable summary cannot establish a new personal request scope.
+        guard let membership = data.membershipType?.lowercased() else {
+            weeklyChartAvailable = false
+            weeklyData = nil
+            return
         }
+        let mode: WeeklyMode
+        if membership == "enterprise" {
+            guard let teamId = try await resolveTeamId(cookieHeader: cookieHeader, context: context) else {
+                recordWeeklyFailure(discardData: true)
+                return
+            }
+            try requireCurrent(context)
+            if cachedUserId == nil {
+                let member = try await fetchMyTeamMember(
+                    cookieHeader: cookieHeader, teamId: teamId, email: userInfo.email, context: context
+                )
+                try requireCurrent(context)
+                cachedUserId = member?.userId
+            }
+            guard let userId = cachedUserId else {
+                recordWeeklyFailure(discardData: true)
+                return
+            }
+            mode = .enterprise(teamId: teamId, userId: userId)
+        } else {
+            mode = .personal
+        }
+        try prepareRecent(
+            scope: mode.requestScope, cookieHeader: cookieHeader, userInfo: userInfo,
+            meterData: data, context: &context
+        )
+        let collection = await UsageEventCollection.collect(
+            apiClient: apiClient, cookieHeader: cookieHeader,
+            teamId: mode.teamID, userId: mode.userID,
+            pageSize: Self.weeklyPageSize, maxPages: Self.weeklyMaxPages
+        )
+        try requireCurrent(context)
+        _ = try applyEventCollection(collection, mode: mode, context: context)
     }
 
     /// Trailing-edge debounce + shared min-interval guard (defer semantics).
@@ -1202,6 +1378,7 @@ final class UsageViewModel {
     }
 
     func logout() {
+        invalidateRefreshSession(revokePersisted: true)
         // Stop the sign-in watch and invalidate pending provider reads AND
         // any in-flight launch completion — a late result must not reconnect
         // against the user's intent (#88).
@@ -1215,6 +1392,8 @@ final class UsageViewModel {
         UserDefaults.standard.set(true, for: .ideAuthSuppressed)
         activeAuthSource = nil
         lastAccountEmail = nil
+        lastAccountSubject = nil
+        lastRequestScope = nil
         cachedCookieHeader = nil
         do {
             // Through the seam (#82) — tests calling logout() must not touch
@@ -1225,6 +1404,7 @@ final class UsageViewModel {
         }
         authState = .loggedOut
         usageData = nil
+        lastSuccessAt = nil
         errorMessage = nil
         resetWeeklyChartState()
         cachedTeamId = nil
@@ -1332,6 +1512,15 @@ final class UsageViewModel {
         }
     }
 
+    func setRecentUsageTimeZone(_ mode: RecentUsageTimeZone) {
+        recentUsageTimeZone = mode
+        UserDefaults.standard.set(mode.rawValue, for: .recentUsageTimeZone)
+    }
+
+    func systemTimeZoneDidChange() {
+        recentUsageTimeZoneRevision += 1
+    }
+
     func checkForUpdate() async {
         guard devBuildCommit == nil else { return }
         isCheckingUpdate = true
@@ -1408,6 +1597,7 @@ final class UsageViewModel {
 
     private func loadSettings() {
         let defaults = UserDefaults.standard
+        recentUsageTimeZone = RecentUsageTimeZone(storedValue: defaults.object(for: .recentUsageTimeZone) as? String)
         if let raw = defaults.object(for: .refreshInterval) as? Int,
            let interval = RefreshInterval(rawValue: raw)
         {
@@ -1784,9 +1974,10 @@ final class UsageViewModel {
 
     private func scheduleNetworkRetry() {
         guard networkRetryTask == nil else { return }
+        let generation = sessionGeneration
         networkRetryTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(60))
-            guard let self, !Task.isCancelled else { return }
+            guard let self, !Task.isCancelled, self.sessionGeneration == generation else { return }
             self.networkRetryTask = nil
             await self.refresh()
         }
@@ -1794,11 +1985,13 @@ final class UsageViewModel {
 
     private func startAutoRefresh() {
         stopAutoRefresh()
+        let generation = sessionGeneration
         refreshTask = Task { [weak self] in
-            while let self {
+            while let self, !Task.isCancelled, self.sessionGeneration == generation {
                 do {
                     try await Task.sleep(for: .seconds(self.refreshInterval.rawValue))
                 } catch { return }
+                guard !Task.isCancelled, self.sessionGeneration == generation else { return }
                 await self.refresh()
             }
         }

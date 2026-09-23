@@ -121,6 +121,13 @@ struct HardLimitResponse: Codable, Sendable {
 struct UserInfoResponse: Codable, Sendable {
     let email: String?
     let name: String?
+    let sub: String?
+
+    init(email: String?, name: String?, sub: String? = nil) {
+        self.email = email
+        self.name = name
+        self.sub = sub
+    }
 }
 
 // MARK: - UI Display Model
