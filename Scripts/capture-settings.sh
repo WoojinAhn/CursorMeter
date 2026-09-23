@@ -6,7 +6,7 @@
 # Usage: bash Scripts/capture-settings.sh [output-dir] [tab ...]
 #   output-dir  default: docs/screenshots/tmp (gitignored scratch; inspect for
 #               PII BEFORE copying anything into docs/screenshots/)
-#   tabs        default: General Alerts Display
+#   tabs        default: General Alerts Display Usage
 #
 # AppleScript notes baked in from past sessions:
 #   - integers must be coerced: (x as string) & "," — bare `x & ","` builds a list
@@ -18,7 +18,7 @@ cd "$(dirname "$0")/.."
 OUT="${1:-docs/screenshots/tmp}"
 shift 2>/dev/null || true
 TABS=("$@")
-[ ${#TABS[@]} -eq 0 ] && TABS=(General Alerts Display)
+[ ${#TABS[@]} -eq 0 ] && TABS=(General Alerts Display Usage)
 mkdir -p "$OUT"
 
 # 0. Behind-origin guard (#86): a stale local main silently packages old code,
