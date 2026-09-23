@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CursorMeter — Recent usage display rules</title>
+<style>
+:root{color-scheme:dark;--page:#151719;--ink:#eeeff1;--muted:#989da2;--line:#33373b;--accent:#1689ff;--window:#24292c;--card:#2a2f32;--cardline:#3c4246;--stripe:rgba(255,255,255,.025);--button:#393f43;--shadow:0 22px 60px #0005}
+*{box-sizing:border-box}body{margin:0;background:var(--page);color:var(--ink);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Helvetica Neue",sans-serif}button{font:inherit;cursor:pointer}button:focus-visible,summary:focus-visible,.scroll:focus-visible{outline:2px solid var(--accent);outline-offset:3px}.shell{max-width:1340px;margin:auto;padding:34px 36px 30px}.eyebrow{font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:8px}.intro{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}h1{font-size:27px;letter-spacing:-.7px;font-weight:620;line-height:1.2;margin:0 0 10px}.intro p{color:var(--muted);margin:0}.mode{display:flex;border:1px solid var(--line);border-radius:7px;padding:3px;flex-shrink:0}.mode button{border:0;color:var(--muted);background:transparent;border-radius:4px;padding:6px 10px;font-size:12px}.mode button[aria-pressed=true]{background:var(--button);color:var(--ink)}.choices{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:27px 0 26px}.choice{display:flex;gap:13px;text-align:left;border:1px solid var(--line);border-radius:9px;background:transparent;color:var(--ink);padding:14px 16px}.choice[aria-pressed=true]{border-color:var(--accent);background:#1689ff0b}.letter{width:25px;height:25px;flex-shrink:0;border:1px solid var(--line);border-radius:5px;text-align:center;line-height:24px;font-size:12px;font-weight:600}.choice[aria-pressed=true] .letter{border-color:var(--accent);color:var(--accent)}.choice h2{font-size:14px;margin:0 0 3px;font-weight:600}.choice p{font-size:12px;color:var(--muted);margin:0}.comparison{display:grid;grid-template-columns:440px minmax(0,1fr);gap:36px;align-items:start}.caption{display:flex;gap:10px;align-items:center;margin:0 0 12px;font-size:12px;color:var(--muted)}.caption strong{font-weight:500;color:var(--ink)}.caption .rule{height:1px;background:var(--line);flex:1}.window{background:var(--window);border:1px solid #555b60;border-radius:13px;box-shadow:var(--shadow);overflow:hidden;font-size:13px}.before{width:440px}.after{width:100%;max-width:720px;min-width:0}.after.compact{max-width:480px}.chrome{position:relative;border-bottom:1px solid #0002;padding-top:8px}.traffic{display:flex;position:absolute;top:14px;left:13px;gap:7px}.traffic i{width:12px;height:12px;border-radius:50%;background:#ff5f57;border:1px solid #0001}.traffic i:nth-child(2){background:#febc2e}.traffic i:nth-child(3){background:#50565a}.window-title{text-align:center;font-size:13px;font-weight:600;color:var(--muted);height:21px}.tabs{display:flex;justify-content:center;gap:6px;padding:3px 0 9px}.tab{min-width:56px;height:48px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:3px;border-radius:8px;color:var(--muted);border:1px solid transparent;font-size:11px}.tab.active{border-color:#40515c;background:#27333a;color:var(--accent)}.tab svg{width:23px;height:23px;stroke:currentColor;stroke-width:1.65;fill:none;stroke-linecap:round;stroke-linejoin:round}.settings-body{padding:16px 17px 18px}.section-title{color:var(--muted);font-size:12px;font-weight:500;margin:0 4px 6px}.settings-card{border:1px solid var(--cardline);border-radius:10px;background:var(--card);padding:0 13px;margin-bottom:16px}.settings-card:last-child{margin-bottom:0}.setting-row{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:43px;padding:10px 0}.setting-row+.setting-row{border-top:1px solid var(--cardline)}.setting-name{font-size:13px}.setting-detail{font-size:11px;color:var(--muted);margin-top:3px;line-height:1.35}.setting-copy{max-width:290px}.native-button{border:1px solid #0001;border-radius:6px;background:var(--button);color:var(--ink);padding:3px 10px;font-size:12px;box-shadow:0 1px 1px #0001;white-space:nowrap}.toggle{display:block;width:37px;height:22px;background:#42484c;border-radius:14px;flex-shrink:0;padding:3px}.toggle:after{content:"";display:block;width:16px;height:16px;background:#eee;border-radius:50%}.toggle.on{background:#1689ff}.toggle.on:after{margin-left:15px}.credits{color:var(--muted);font-size:11px;padding:9px 0 10px;border-top:1px solid var(--cardline)}.credits span{color:var(--accent)}.list-body{padding:17px 18px 14px}.list-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}.list-title{font-size:13px;font-weight:600}.updated{font-size:11px;color:var(--muted);margin-top:3px}.refresh{display:flex;align-items:center;gap:5px}.refresh svg{height:12px;width:12px;fill:none;stroke:currentColor;stroke-width:1.6}.refresh:disabled{opacity:.5;cursor:default}.scroll{height:340px;overflow-y:auto;border:1px solid var(--cardline);border-radius:8px;background:var(--card);scrollbar-color:#737a7f transparent;scrollbar-width:thin}table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:12px;font-variant-numeric:tabular-nums}thead{position:sticky;top:0;z-index:1;background:var(--card)}th{height:30px;text-align:left;font-size:10px;font-weight:500;color:var(--muted);border-bottom:1px solid var(--cardline);padding:0 10px}td{height:38px;padding:0 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-bottom:1px solid #ffffff06}tbody tr:nth-child(even){background:var(--stripe)}tbody tr:last-child td{border-bottom:0}.numeric{text-align:right}.date,.type{color:var(--muted);font-size:11px}.model{font-size:11.5px}.cost{font-weight:550}.col-date{width:19%}.col-type{width:13%}.col-model{width:37%}.col-tokens{width:14%}.col-cost{width:17%}.list-footer{display:flex;justify-content:space-between;gap:16px;margin-top:9px;color:var(--muted);font-size:10px}.money-note{font-size:11px;color:var(--muted);margin:12px 0 0;line-height:1.5}.compact-row{height:57px;display:grid;grid-template-columns:minmax(0,1fr) 70px 79px;align-items:center;gap:8px;padding:0 11px;border-bottom:1px solid #ffffff07;font-variant-numeric:tabular-nums}.compact-row:nth-child(even){background:var(--stripe)}.compact-row:last-child{border:0}.compact-name{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.compact-meta{font-size:10px;color:var(--muted);margin-top:3px}.compact-tokens{font-size:11px;color:var(--muted);text-align:right}.compact-cost{text-align:right;font-size:12px;font-weight:550}.below{font-size:12px;color:var(--muted);margin-top:15px;line-height:1.6;max-width:690px}.below strong{color:var(--ink);font-weight:500}.decision-bar{border-top:1px solid var(--line);margin-top:28px;padding-top:19px;display:flex;justify-content:space-between;gap:20px;align-items:center}.decision-bar p{margin:0;color:var(--muted);font-size:12px}.choose{border:1px solid var(--accent);border-radius:7px;background:var(--accent);color:white;padding:8px 15px;font-weight:550;font-size:12px;white-space:nowrap}.disclaimer{font-size:10px;color:var(--muted);margin-top:20px;opacity:.8}.light{color-scheme:light;--page:#f6f5f2;--ink:#25282c;--muted:#757b81;--line:#dedfdf;--window:#ececed;--card:#f5f5f6;--cardline:#d1d2d5;--stripe:rgba(0,0,0,.025);--button:#fff;--shadow:0 20px 45px #29292916}.light .window{border-color:#babdc1}.light .tab.active{background:#e3e9ee;border-color:#c8d4de}.light td,.light .compact-row{border-bottom-color:#00000005}.light .traffic i:nth-child(3){background:#d7d8da}.light .toggle{background:#c6c9ce}.light .toggle.on{background:var(--accent)}[hidden]{display:none!important}@media(max-width:1160px){.comparison{grid-template-columns:1fr}.before-wrap{display:none}.after{max-width:720px}.after-wrap{max-width:720px;margin:auto;width:100%}.caption:before{content:"Proposed · ";color:var(--muted)}.shell{max-width:850px}}@media(max-width:620px){.shell{padding:24px 16px}.intro{display:block}.mode{display:inline-flex;margin-top:15px}.choices{grid-template-columns:1fr;margin:20px 0}.list-body{padding:13px 10px}.after{min-width:540px}.after.compact{min-width:0}.comparison{overflow-x:auto;padding:0 0 14px}.decision-bar{align-items:flex-start;flex-direction:column}.disclaimer{line-height:1.6}}
+
+.account-flow{display:grid;grid-template-columns:1fr 25px 1.5fr 25px 1.25fr;align-items:center;gap:18px;margin-top:24px;padding:18px;border:1px solid var(--line);border-radius:9px}.flow-label{display:block;font-size:9px;letter-spacing:1.1px;color:var(--muted);margin-bottom:5px}.account-flow strong{display:block;font-size:12px;font-weight:550}.account-flow p{font-size:11px;line-height:1.6;color:var(--muted);margin:6px 0 0}.flow-arrow{color:var(--muted);font-size:20px;text-align:center}.choices{margin:20px 0}.popover-demo{margin-top:23px}.popover-slice{max-width:335px;border:1px solid var(--cardline);border-radius:10px;background:var(--window);padding:14px 16px;box-shadow:0 5px 18px #0001}.popover-usage{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:12px}.popover-value{margin-left:auto;font-variant-numeric:tabular-nums}.icon-only{border:0;background:transparent;color:var(--muted);width:26px;height:24px;padding:5px;border-radius:5px;justify-content:center}.icon-only:hover:not(:disabled){background:var(--button);color:var(--ink)}.refresh svg{flex:none;stroke-linecap:round;stroke-linejoin:round;width:13px;height:13px;display:block}.refresh:disabled{opacity:1;cursor:default;color:var(--muted)}.settings-refresh{min-width:90px;justify-content:center;height:26px}.refresh-icon{display:block}.refresh[data-phase="pending"] svg{animation:rotate .85s linear infinite}.refresh[data-phase="success"]{color:#69b789}.refresh[data-phase="failed"]{color:#df9968}.meter-row{display:flex;align-items:center;gap:10px;font-size:10px;color:var(--muted);margin:6px 0 9px}.meter-track{height:5px;flex:1;border-radius:4px;background:var(--cardline);overflow:hidden}.meter-track div{width:36%;height:100%;background:#69b789}.interaction-controls{display:flex;align-items:center;gap:12px;margin-top:15px;font-size:11px;color:var(--muted)}.interaction-controls select{font:inherit;color:var(--ink);border:1px solid var(--line);background:var(--window);border-radius:5px;padding:4px 7px}.simulation-proof{display:block;font-size:11px;color:var(--muted);margin-top:12px;font-variant-numeric:tabular-nums}.dashboard-row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:13px;padding-top:12px;border-top:1px solid var(--cardline);font-size:11px;color:var(--muted)}.dashboard-row a{color:var(--accent);text-decoration:none}.dashboard-row a:hover{text-decoration:underline}.choice:disabled{cursor:default}.choice:disabled p{opacity:.65}.decision-bar{margin-top:22px}.popover-demo .below{font-size:11px}.light .refresh[data-phase="success"]{color:#258452}.light .refresh[data-phase="failed"]{color:#a3622f}@keyframes rotate{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.refresh[data-phase="pending"] svg{animation:none}}@media(max-width:1160px){.comparison{grid-template-columns:330px minmax(0,1fr);gap:22px}.before-wrap{display:block}.before{display:none}.before-wrap>.caption{display:none}.popover-demo{margin-top:0}.shell{max-width:960px}.account-flow{gap:10px;padding:14px}.caption:before{content:none}}@media(max-width:760px){.comparison{grid-template-columns:1fr}.before-wrap{order:2}.popover-demo{margin-top:12px}.account-flow{grid-template-columns:1fr}.flow-arrow{display:none}.choices{gap:7px}.choice{padding:11px 10px}.choice h2{font-size:12px}.choice p{font-size:11px}.popover-demo,.after-wrap{max-width:480px;margin-left:auto;margin-right:auto}.intro h1{font-size:24px}}
+
+.shell{max-width:1080px}.account-flow,.before,.before-wrap>.caption{display:none}.comparison{grid-template-columns:340px minmax(0,1fr);gap:48px}.popover-demo{margin-top:0}.popover-slice{max-width:340px}.intro h1{font-size:27px}.choices{margin:24px 0}.below{font-size:11px}.decision-bar{margin-top:24px}.disclaimer{margin-top:12px}@media(max-width:760px){.comparison{grid-template-columns:1fr;gap:24px}.before-wrap{order:0}.popover-demo{margin-top:0}.shell{max-width:520px}.choices{margin:20px 0}.intro h1{font-size:23px}}
+
+.time-controls{display:flex;align-items:center;gap:9px}.list-footer{align-items:center;margin-top:10px}.time-toggle{display:inline-flex;padding:2px;border:1px solid var(--cardline);border-radius:6px;background:var(--card);gap:2px}.time-toggle button{border:0;border-radius:4px;background:transparent;color:var(--muted);font-size:10px;line-height:16px;min-width:38px;padding:1px 7px}.time-toggle button[aria-pressed="true"]{background:var(--button);color:var(--ink);box-shadow:0 1px 3px #0002}.updated{font-variant-numeric:tabular-nums;font-size:10px}.time-toggle button:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+</style>
+</head>
+<body>
+<main class="shell">
+<div class="eyebrow">CursorMeter / Superpowers Visual Companion / 09</div>
+<header class="intro"><div><h1>Recent usage, at a glance.</h1><p>Local / UTC · Saved timestamp · Two decimal places, four below one cent</p></div><div class="mode" aria-label="Preview appearance"><button type="button" aria-pressed="true" data-theme="dark">Dark</button><button type="button" aria-pressed="false" data-theme="light">Light</button></div></header>
+<div class="account-flow" aria-label="Account-wide data with a separate cache on each device">
+<div><span class="flow-label">USAGE SOURCE</span><strong>Cursor account</strong><p>Usage from your devices.<br>The complete history stays on Cursor.</p></div><span class="flow-arrow" aria-hidden="true">→</span>
+<div><span class="flow-label">THIS MAC</span><strong>Existing refresh → 30 recent requests</strong><p>Settings and the popover share one request.<br>Opening Usage reads the saved snapshot.</p></div><span class="flow-arrow" aria-hidden="true">·</span>
+<div><span class="flow-label">YOUR OTHER MAC</span><strong>Its own refresh and cache</strong><p>Same account, independent schedule.<br>No direct device-to-device synchronization.</p></div>
+</div>
+<div class="choices" style="grid-template-columns:repeat(3,1fr)" aria-label="Preview data state">
+<button class="choice" type="button" data-state="loaded" aria-pressed="true"><span><h2>Cached</h2><p>The latest successful response.</p></span></button>
+<button class="choice" type="button" data-state="empty" aria-pressed="false"><span><h2>Empty</h2><p>No usage returned.</p></span></button>
+<button class="choice" type="button" data-state="failed" aria-pressed="false"><span><h2>Update failed</h2><p>Keep the previous 30 requests.</p></span></button>
+</div>
+<section class="comparison" aria-label="Before and after Settings">
+<div class="before-wrap"><div class="caption"><strong>Before</strong><span>Current Settings structure</span><i class="rule"></i></div><div class="window before"><div class="chrome"><div class="traffic"><i></i><i></i><i></i></div><div class="window-title">General</div><div class="tabs" data-tabs="before"></div></div><div class="settings-body">
+<div class="section-title">Refresh</div><div class="settings-card"><div class="setting-row"><span class="setting-name">Interval</span><span class="native-button">1 min ⌃</span></div><div class="setting-row"><div class="setting-copy"><div class="setting-name">Refresh on Cursor activity</div><div class="setting-detail">Refreshes ~1 min after Cursor use; Interval is the fallback.</div></div><span class="toggle on"></span></div></div>
+<div class="section-title">Startup</div><div class="settings-card"><div class="setting-row"><span class="setting-name">Launch at login</span><span class="toggle on"></span></div><div class="setting-row"><div class="setting-copy"><div class="setting-name">Enable browser login</div><div class="setting-detail">Deprecated — Cursor IDE connection is the supported sign-in path.</div></div><span class="toggle"></span></div></div>
+<div class="section-title">Version</div><div class="settings-card"><div class="setting-row"><span class="setting-name">v0.8.0</span><span class="native-button">Check Now</span></div><div class="credits">Auth: Cursor IDE<br>Made by WoojinAhn · <span>GitHub ↗</span></div></div>
+</div></div>
+<div class="popover-demo">
+<div class="caption"><strong>App popover · existing ↻</strong><i class="rule"></i></div>
+<div class="popover-slice"><div class="popover-usage"><span>Plan usage</span><span class="popover-value">$72.00 / $200.00</span><button type="button" class="refresh icon-only" data-refresh="popover" aria-label="Refresh usage from popover" title="Refresh usage"></button></div><div class="meter-row"><div class="meter-track"><div></div></div><span>36%</span></div><div class="updated" id="popover-updated">Last updated 10:42</div></div>
+<div class="interaction-controls"><label for="response-delay">Preview response</label><select id="response-delay"><option value="1300">Quick · 1.3 seconds</option><option value="4200">Slow · 4.2 seconds</option></select></div>
+<p class="below"><strong>Try either refresh button.</strong> Both react together. A request blocks another request for at least 3 seconds, and until it finishes. Completion briefly shows a check; failed updates keep the last successful snapshot.</p>
+<output class="simulation-proof" id="simulation-proof" aria-live="polite">0 simulated refreshes · Ready</output>
+</div></div>
+<div class="after-wrap"><div class="caption"><strong>Settings · Usage</strong><span id="size-label">Selected compact layout</span><i class="rule"></i></div><div class="window after compact" id="preview"><div class="chrome"><div class="traffic"><i></i><i></i><i></i></div><div class="window-title">Usage</div><div class="tabs" data-tabs="after"></div></div><div class="list-body">
+<div class="list-heading"><div><div class="list-title">Recent usage</div><div class="updated" id="updated">Last updated 10:42</div></div><button type="button" class="native-button refresh settings-refresh" data-refresh="settings" aria-label="Refresh recent usage" title="Refresh usage"><span class="refresh-icon"></span><span class="refresh-label">Refresh</span></button></div>
+<div class="scroll" id="table-scroll" tabindex="0" aria-label="Latest 30 usage requests" hidden><table><colgroup><col class="col-date"><col class="col-type"><col class="col-model"><col class="col-tokens"><col class="col-cost"></colgroup><thead><tr><th>Date (UTC)</th><th>Type</th><th>Model</th><th class="numeric">Tokens</th><th class="numeric">Cost</th></tr></thead><tbody id="table-rows"></tbody></table></div>
+<div class="scroll" id="compact-scroll" tabindex="0" aria-label="Latest 30 usage requests, compact"><div id="compact-rows"></div><div id="state-message" hidden style="height:100%;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:30px"><strong id="state-title" style="font-size:13px;font-weight:500"></strong><p id="state-detail" style="font-size:12px;color:var(--muted);max-width:260px;margin:7px 0 0"></p></div></div>
+<div class="list-footer"><span id="row-count">Latest 30 requests</span><div class="time-controls"><span id="timezone-label"></span><div class="time-toggle" role="group" aria-label="Time zone"><button type="button" data-time-mode="local" aria-pressed="true" title="Use this Mac’s time zone">Local</button><button type="button" data-time-mode="utc" aria-pressed="false" title="Use Coordinated Universal Time">UTC</button></div></div></div>
+<p class="money-note">Included amounts show usage value covered by your plan.</p>
+<div class="dashboard-row"><span>Full history and billing</span><a href="https://www.cursor.com/dashboard?tab=usage" target="_blank" rel="noopener noreferrer">Open Cursor ↗</a></div>
+</div></div><p class="below" id="tradeoff"><strong>A deliberately small view of your account.</strong> The latest 30 requests only. Full history and billing remain in Cursor’s dashboard. Other-device usage appears after the next successful account refresh, subject to Cursor reporting it.</p></div>
+</section>
+<div class="decision-bar"><p id="decision-text">Local follows this Mac’s time zone. Switching to UTC reformats the same saved data: no refresh, no new requests, and no change to the cache timestamp.</p></div>
+<p class="disclaimer">Design mockup with illustrative data. Refresh is simulated locally and does not contact Cursor. Controls outside the windows are for design review; native app code is unchanged.</p>
+</main>
+<script>
+const icons={General:'<circle cx="12" cy="12" r="3.5"/><path d="m9 3-1 3-3 1-2 3 2 2-1 3 3 2 2-1 3 2 3-2 1-3 3-1 1-3-2-2-3-1-1-3z"/>',Alerts:'<path d="M5 17h14l-2-3V9a5 5 0 0 0-10 0v5zM10 20h4"/><circle cx="18" cy="5" r="2.5"/>',Display:'<path d="m14 3 7 7-5 5-7-7zM10 12l-4 4M8 14c-5-1-5 5-5 7 3 0 8-1 7-5"/>',Usage:'<path d="M5 5h14M5 10h14M5 15h14M5 20h14"/>'};
+document.querySelectorAll('[data-tabs]').forEach(el=>{const after=el.dataset.tabs==='after';el.innerHTML=(after?['General','Alerts','Display','Usage']:['General','Alerts','Display']).map(name=>`<div class="tab ${(after?name==='Usage':name==='General')?'active':''}"><svg viewBox="0 0 24 24" aria-hidden="true">${icons[name]}</svg><span>${name}</span></div>`).join('');});
+const models=['cursor-grok-4.6-xhigh','cursor-grok-4.6-xhigh','cursor-grok-4.6-xhigh','cursor-grok-4.6-high-fast','gemini-3.8-flash-medium','claude-opus-5-thinking-high','composer-2.5','cursor-grok-4.6-high'];
+const tokenValues=['1.82M','1.46M','530.5K','135.8K','196.4K','1.04M','18.2K','498.1K'];
+const prices=['1.5569','1.5765','0.7308','0.2846','0.0553','3.1284','0.0072','0.4425'];
+function formatPrice(value){
+  const amount=Number(value);
+  const digits=Math.abs(amount)>0&&Math.abs(amount)<0.01?4:2;
+  return new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',minimumFractionDigits:digits,maximumFractionDigits:digits}).format(amount);
+}
+let timeMode='local';
+function selectedZone(){return timeMode==='utc'?'UTC':Intl.DateTimeFormat().resolvedOptions().timeZone;}
+function zoneLabel(date){return timeMode==='utc'?'UTC':new Intl.DateTimeFormat('en-US',{timeZone:selectedZone(),timeZoneName:'short'}).formatToParts(date).find(part=>part.type==='timeZoneName').value;}
+function formatMoment(date,full=false){
+  const options={month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',hourCycle:'h23',timeZone:selectedZone()};
+  if(full)options.year='numeric';
+  return new Intl.DateTimeFormat('en-US',options).format(date)+(full?' '+zoneLabel(date):'');
+}
+const dates=Array.from({length:30},(_,i)=>new Date(Date.UTC(2026,8,23,10,42)-i*37*60000));
+function renderEventDates(){
+document.getElementById('table-rows').innerHTML=dates.map((instant,i)=>{const n=i%models.length;const date=formatMoment(instant);return `<tr><td class="date">${date}</td><td class="type">Included</td><td class="model" title="${models[n]}">${models[n]}</td><td class="numeric">${tokenValues[n]}</td><td class="numeric cost">${formatPrice(prices[n])}</td></tr>`;}).join('');
+document.getElementById('compact-rows').innerHTML=dates.map((instant,i)=>{const n=i%models.length;const date=formatMoment(instant);return `<div class="compact-row"><div><div class="compact-name" title="${models[n]}">${models[n]}</div><div class="compact-meta">${date} · Included</div></div><div class="compact-tokens">${tokenValues[n]}</div><div class="compact-cost">${formatPrice(prices[n])}</div></div>`;}).join('');
+}
+document.querySelectorAll('[data-theme]').forEach(button=>button.addEventListener('click',()=>{document.body.classList.toggle('light',button.dataset.theme==='light');document.querySelectorAll('[data-theme]').forEach(b=>b.setAttribute('aria-pressed',b===button));}));
+
+const refreshIcons={idle:'<path d="M19 8a7 7 0 1 0 0 8M19 3v5h-5"/>',pending:'<path d="M19 8a7 7 0 1 0 0 8M19 3v5h-5"/>',success:'<path d="m5 12 4 4L19 6"/>',failed:'<circle cx="12" cy="12" r="8"/><path d="M12 7v6M12 16h.01"/>'};
+const refreshButtons=[...document.querySelectorAll('[data-refresh]')];
+const stateButtons=[...document.querySelectorAll('[data-state]')];
+let dataState='loaded', phase='idle', requestCount=0, inFlight=false, blockedUntil=0, lastUpdated=new Date(Date.UTC(2026,8,23,10,43)), phaseTimer;
+const proof=document.getElementById('simulation-proof');
+function renderRefresh(){
+  const blocked=inFlight||performance.now()<blockedUntil;
+  const text=phase==='pending'?'Updating':phase==='success'?'Updated':phase==='failed'?'Retry later':'Refresh';
+  refreshButtons.forEach(button=>{
+    const svg=`<svg viewBox="0 0 24 24" aria-hidden="true">${refreshIcons[phase]}</svg>`;
+    if(button.dataset.refresh==='settings'){
+      button.querySelector('.refresh-icon').innerHTML=svg;
+      button.querySelector('.refresh-label').textContent=text;
+    }else button.innerHTML=svg;
+    button.disabled=blocked;
+    button.dataset.phase=phase;
+    button.title=phase==='pending'?'Refreshing usage':phase==='success'?'Usage updated':phase==='failed'?'Could not update; previous data retained':'Refresh usage';
+  });
+  stateButtons.forEach(button=>button.disabled=blocked);
+  document.getElementById('response-delay').disabled=blocked;
+  const status=(phase==='pending'?'Updating… · ':dataState==='failed'?'Couldn’t update · ':'')+'Cached '+formatMoment(lastUpdated,true);
+  document.getElementById('updated').textContent=status;
+  document.getElementById('popover-updated').textContent=status;
+  document.getElementById('updated').dataset.cachedAt=lastUpdated.toISOString();
+  document.getElementById('updated').title='Saved snapshot · '+selectedZone();
+  document.getElementById('timezone-label').textContent=zoneLabel(lastUpdated);
+  document.querySelector('[data-time-mode="local"]').title='Use this Mac’s time zone ('+Intl.DateTimeFormat().resolvedOptions().timeZone+')';
+  proof.textContent=`${requestCount} simulated refresh${requestCount===1?'':'es'} · ${phase==='idle'?'Ready':phase==='pending'?'Fetching':phase==='success'?'Updated · Both buttons share the cooldown':'Failed · Previous snapshot retained'}`;
+}
+function refreshUsage(){
+  if(inFlight||performance.now()<blockedUntil)return;
+  inFlight=true;phase='pending';requestCount++;
+  const started=performance.now();blockedUntil=started+3000;
+  proof.dataset.lastStarted=started.toFixed(1);
+  const responseDelay=Number(document.getElementById('response-delay').value);
+  renderRefresh();
+  setTimeout(()=>{
+    inFlight=false;phase=dataState==='failed'?'failed':'success';
+    if(phase==='success')lastUpdated=new Date();
+    proof.dataset.responseAfterMs=(performance.now()-started).toFixed(1);
+    blockedUntil=Math.max(blockedUntil,performance.now()+650);
+    renderRefresh();
+    phaseTimer=setTimeout(()=>{
+      phase='idle';proof.dataset.readyAfterMs=(performance.now()-started).toFixed(1);renderRefresh();
+    },Math.max(0,blockedUntil-performance.now())+1);
+  },responseDelay);
+}
+refreshButtons.forEach(button=>button.addEventListener('click',refreshUsage));
+stateButtons.forEach(button=>button.addEventListener('click',()=>{
+  if(inFlight||performance.now()<blockedUntil)return;
+  dataState=button.dataset.state;
+  const empty=dataState==='empty';
+  stateButtons.forEach(b=>b.setAttribute('aria-pressed',b===button));
+  document.getElementById('compact-rows').hidden=empty;
+  document.getElementById('state-message').hidden=!empty;
+  document.getElementById('state-title').textContent='No recent usage';
+  document.getElementById('state-detail').textContent='New requests will appear here after Cursor reports them.';
+  document.getElementById('row-count').textContent=empty?'0 requests':'Latest 30 requests';
+  renderRefresh();
+}));
+document.querySelectorAll('[data-time-mode]').forEach(button=>button.addEventListener('click',()=>{
+  timeMode=button.dataset.timeMode;
+  document.querySelectorAll('[data-time-mode]').forEach(b=>b.setAttribute('aria-pressed',b===button));
+  renderEventDates();renderRefresh();
+}));
+renderEventDates();
+renderRefresh();
+</script>
+</body>
+</html>
