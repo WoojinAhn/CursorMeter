@@ -31,8 +31,9 @@ CursorMeter is a menu bar app that calls undocumented Cursor API endpoints using
 
 - **Cursor session cookies** (Keychain-stored), reusable for the lifetime of the session token
 - **Account email / name**, derived from `/api/auth/me`
+- **Recent usage snapshot**, containing up to 30 bounded display entries and their original retrieval time
 
-The login WebView is the only place CursorMeter loads third-party origins. Everything else (`/api/usage-summary`, `/api/usage`, `/api/auth/me`) talks directly to `cursor.com` over HTTPS using `URLSessionConfiguration.ephemeral`.
+The login WebView is the only place CursorMeter loads third-party origins. Cursor usage API requests, including `/api/usage-summary`, `/api/usage`, `/api/auth/me`, and the dashboard event endpoint, go directly to `cursor.com` over HTTPS using `URLSessionConfiguration.ephemeral`. HTTP responses are not cached to disk; the bounded snapshot below is separate.
 
 ## Cursor IDE Credential Reuse (#54)
 
@@ -43,6 +44,15 @@ When a Cursor IDE installation is signed in on the same Mac, CursorMeter derives
 - **What is never read:** `cursorAuth/refreshToken` or any other key. CursorMeter never performs token refresh itself — it only reuses the access token the IDE already maintains.
 - **Logging:** the synthesized session header is treated like every other credential — never logged (see LogRedactor policy).
 - **Threat model:** this is the user's own credential on the user's own machine, inside the same trust boundary as the Keychain-stored cookie CursorMeter already holds. No new secret class is introduced; the browser-login (WebView) path remains available and is used as fallback.
+
+## Local Recent Usage Snapshot
+
+- **Location and bound:** one versioned JSON file at `~/Library/Application Support/CursorMeter/recent-usage-v1.json`, limited to 30 entries and 256 KiB. It is replaced, not appended to an archive. Each Mac stores its own snapshot.
+- **Contents:** event dates, optional model names, display types, token totals, original server-provided cents, the original cache time, binding digests, and a nonsecret validity token. No conversation content, raw responses, account email/name, or plaintext credentials are stored in this file.
+- **File protection:** the app directory is set to 0700 and each atomic file replacement to 0600. Binding digests support equality checks; they are not encryption or anonymization. Other processes running as the same user remain inside the local trust boundary.
+- **Restoration:** the exact previously successful outbound credential permits cached display. A rotated credential requires the existing authenticated `/api/auth/me.sub` response and the same resolved personal/team request scope before held data is shown. No additional identity request is made.
+- **Invalidation:** logout, session expiry, and established account/scope changes invalidate cached data. Rejected credentials clear ineligible cached rows. A synchronously committed preferences token makes old files ineligible before queued deletion; stale asynchronous writes cannot make them valid again. Deletion is best effort, not a secure-erasure guarantee.
+- **Persistence failure:** if the validity token cannot be committed, disk restoration and saving are disabled for that process and deletion is attempted. Valid in-memory data can still be shown. Durable invalidation cannot be guaranteed if the OS rejects both the metadata write and file removal.
 
 ## WebView Whitelist Policy
 

@@ -25,16 +25,19 @@ Unlike in-editor extensions, CursorMeter runs independently as a native macOS ap
 - **Usage-jump effect** — menu bar icon flashes ⚡ on a moderate jump and 🚀 on a Max-mode-sized jump, so a sudden spike is hard to miss. Three intensity levels (Quiet / Normal / Bold) and a choice of glyph style (⚡/🚀 or 💲/💸); Bold also raises a macOS notification on tier-2 jumps.
 - **Weekly usage chart** (all plans) — rolling 7-day bar graph with a choice of **Amount** (default) or **Usage units** in Settings → Display. Bar height, color, and hover tooltip use the same metric. Amount includes plan-covered and on-demand usage value, not just additional charges; if monetary data is missing, the chart uses weighted usage units (`requestsCosts`) instead. Configurable today-highlight (Outline / Dim others / Both).
 - **Weekly chart freshness** — temporary failures keep the last chart. After two consecutive failures, a dated last-update label appears; if no history has loaded yet, a small retrying message appears instead. The existing refresh schedule retries automatically.
+- **Recent usage** — Settings → Usage shows up to the latest 30 requests, with model, time, type, tokens, and USD value. Included amounts represent usage covered by your plan, not additional charges. Choose **Local** (this Mac’s time zone, the default) or **UTC**; **Open Cursor** leads to the full history and billing dashboard.
+- **Saved on this Mac** — one bounded snapshot survives restarts and shows its original cache date and time. A failed refresh keeps eligible saved data. Each Mac has its own cache and refresh schedule; this is not a local archive or device synchronization service.
+- **Shared refresh** — the popover and Usage tab share one in-flight refresh and a minimum 3-second interval between accepted starts, with at least 1.3 seconds of progress feedback. The list reuses the existing weekly event response. Opening the tab or changing time zones makes no request.
 - Menu bar display mode: icon only, fraction (used/limit), or percentage (%)
-- Settings UI (refresh interval, notification thresholds, menu bar display format, jump-effect intensity, weekly-chart style)
+- Settings UI (refresh interval, notification thresholds, menu bar display format, jump-effect intensity, weekly-chart style, recent usage)
 - Launch at login support
 - In-app update checker
 - **Zero-config login** — if the Cursor IDE is signed in on the same Mac, CursorMeter connects automatically (no separate login). If the IDE isn't signed in yet, the popover guides you: one click opens the IDE, and the app connects itself the moment you finish signing in. Logging out pauses the automatic IDE connection until you reconnect.
 - **Browser (WebView) login is deprecated** — it still works (Google, GitHub, Enterprise SSO), but is hidden behind an opt-in: Settings → General → "Enable browser login". It reappears automatically only when the Cursor IDE app is not installed, so there is always at least one way to connect.
 - Auto-refresh at configurable intervals (1/2/5/15 min)
-- **Activity-driven refresh** — when you use Cursor, the app refreshes within ~1 minute instead of waiting for the next poll, so usage stays current right after a burst of work. Interval polling remains the fallback. Toggle in Settings → Refresh → "Refresh on Cursor activity".
+- **Activity-driven refresh** — local Cursor activity triggers a refresh within ~1 minute instead of waiting for the next poll. Interval polling remains the fallback, including for usage from another device. Visibility depends on Cursor’s reporting delay. Toggle in Settings → Refresh → "Refresh on Cursor activity".
 - Keychain-based credential storage
-- Pure AppKit — light memory footprint (~17 MB idle, ~33 MB once the popover has been opened; macOS retains AppKit / popover state for instant re-opens). If you don't need the weekly chart and want the older ~15 MB footprint instead, [v0.2.1](https://github.com/WoojinAhn/CursorMeter/releases/tag/v0.2.1) is the previous stable release.
+- Pure AppKit, with no external dependencies
 
 ## Security
 
@@ -42,7 +45,7 @@ Unlike in-editor extensions, CursorMeter runs independently as a native macOS ap
 - Two-tier WebView host whitelist (exact + suffix), with `https`-scheme enforcement on both navigation action and response
 - Required-cookie validation before persisting a login session
 - Host-validated `NSWorkspace.open` for any URL derived from the GitHub Releases API
-- `URLSessionConfiguration.ephemeral` (no disk cache)
+- `URLSessionConfiguration.ephemeral` (no HTTP disk cache); the recent-usage snapshot is stored separately
 - Keychain-based credential storage
 
 See [`SECURITY.md`](SECURITY.md) for the full threat model and reporting policy.

@@ -15,7 +15,7 @@ Internal reference for the (undocumented) Cursor API surface used by CursorMeter
 
 ### `GET /api/auth/me`
 
-User identity. Used to render display name / email and gate UI for logged-in state.
+User identity. Used to render display name / email and gate UI for logged-in state. The optional authenticated `sub` also binds recent-usage restoration to the same account when credentials rotate; no additional identity request is made.
 
 Response (excerpt):
 ```json
@@ -122,11 +122,21 @@ Response shape (truncated):
 
 Important shape notes:
 
-- **`timestamp` is a string of UTC epoch milliseconds.** Convert to `Date` via `TimeInterval(timestamp)! / 1000`.
+- **`timestamp` is a string of UTC epoch milliseconds.** Validate it as finite before converting to `Date` using seconds (`milliseconds / 1000`). Recent usage skips invalid decoded timestamps without changing the existing structural decoding contract.
 - **`requestsCosts` is the weighted billing unit** — light auto-complete calls weigh 1–2, Max-mode Opus calls can weigh 100+. Cursor's plan limit (e.g. 2000) is denominated in this same unit.
 - **Events are returned newest-first by timestamp** within a page. Pagination walks backwards in time; stop when the oldest event in the latest page is older than your window or the collected count reaches `totalUsageEventsCount`.
-- **Empty pages can omit `usageEventsDisplay`** (Ultra verified 2026-09-10). A response containing only `totalUsageEventsCount` represents an empty page, even when that total is nonzero. Requiring the array caused recent-only activity histories to disappear after a successful first page (#108).
-- `chargedCents` is the dollar charge for the event. Ratio `chargedCents / requestsCosts` is usually 4 (= $0.04/unit) but some models (gpt-5.5-medium, claude-opus-4-7-high) use 2, and errored / non-chargeable events use 0.
+- **Empty pages can omit `usageEventsDisplay`** (Ultra verified 2026-09-10). Weekly pagination treats this as an empty page even with a nonzero total, preserving #108 behavior after a successful first page. For the recent snapshot, a missing first-page array with a positive or absent total is ambiguous and keeps the previous snapshot. An explicit empty array, or a missing array with total zero, is a successful empty snapshot.
+- `chargedCents` is a value in USD cents; divide by 100 for dollars. Included events represent plan-covered usage value, not additional charges. Ratio `chargedCents / requestsCosts` is usually 4 (= $0.04/unit) but some models (gpt-5.5-medium, claude-opus-4-7-high) use 2, and errored / non-chargeable events use 0.
+
+### Shared weekly and recent consumers
+
+`UsageEventCollection` supplies the weekly chart and Settings → Usage from the same request pipeline, even when the chart is hidden. Weekly pagination keeps its existing 100-event pages, five-page cap, and seven-day cutoff. Recent usage selects at most 30 valid rows from page one only, in descending timestamp order with API order preserved for ties. It has no seven-day cutoff and never fills from another page or maintains a local archive.
+
+The first page’s receipt/decoding time becomes `cachedAt`; later pages, identity validation, restoration, formatting, and failures do not advance it. Later network/transient failures (including HTTP 408, 429, and 5xx) can preserve the validated first-page snapshot while the chart fails. Authentication, scope, and shape rejection—including later-page decoding failure—withhold the candidate. Existing enterprise rediscovery may supply a new validated first-page result.
+
+The decoder accepts optional `model`, `kind`, and token components, including `cacheWriteTokens` when present; this is not a claim that every live payload contains them. Recent dollar values use only `chargedCents`, never token-price estimates, `tokenUsage.totalCents`, or `requestsCosts`. Missing optional values remain unavailable rather than becoming zero.
+
+Opening Usage and switching Local/UTC only render saved state. Manual controls share the existing refresh entry, one in-flight operation, and a minimum three-second admission interval on each Mac. Existing periodic and local-activity scheduling remain active; there is no cross-device request deduplication.
 
 ## Endpoints observed (not yet used)
 
@@ -160,7 +170,7 @@ Many `/api/dashboard/*` POST endpoints exist (e.g. `get-team-spend`, `get-curren
 - **Personal Pro/Pro+ weekly events** — `teamId: 0` verified on free and Ultra; Pro/Pro+ remain unverified. Failure degrades to a hidden chart.
 - **Pagination** — the app stops at the reported total, an empty page, or the 7-day cutoff, with a safety cap of 5 pages of 100 events. Histories exceeding that cap can be incomplete.
 - **Stability** — all paths are undocumented. Any contributor changing the consumer code should re-verify the response shape against a fresh dashboard capture.
-- **Rate limits** — not observed in normal dashboard use; the dashboard issues several dozen requests on load without throttling. The app's `URLSessionConfiguration.ephemeral` already isolates from any shared rate-limit state.
+- **Rate limits** — server-side limits are undocumented. An ephemeral URLSession does not isolate account/server rate limits. The recent list adds no automatic requests to the existing pipeline, and the shared refresh guard applies per Mac only.
 
 ## How to re-verify
 
