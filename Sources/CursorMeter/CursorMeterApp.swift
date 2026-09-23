@@ -9,7 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
 
     // MARK: - Properties
 
-    private var viewModel = UsageViewModel()
+    private let viewModel: UsageViewModel
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
     private(set) var settingsWindow: NSWindow?
@@ -18,13 +18,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     private var popoverDismissMonitor: Any?
     private var jumpCoordinator: JumpEffectCoordinator?
     private var activityWatcher: CursorActivityWatcher?
+    private var timeZoneObserver: NSObjectProtocol?
+    private var accessibilityDisplayObserver: NSObjectProtocol?
     private let notificationManager = NotificationManager()
+
+    init(viewModel: UsageViewModel = UsageViewModel()) {
+        self.viewModel = viewModel
+        super.init()
+    }
 
     // MARK: - NSApplicationDelegate Entry Point
 
     nonisolated static func main() {
         let app = NSApplication.shared
-        let delegate = AppDelegate()
+        // Only the production entry point opens persistent usage storage.
+        let cacheURL = URL.applicationSupportDirectory
+            .appendingPathComponent("CursorMeter", isDirectory: true)
+            .appendingPathComponent("recent-usage-v1.json")
+        let viewModel = UsageViewModel(recentUsage: RecentUsageController(
+            store: RecentUsageStore(fileURL: cacheURL),
+            validityPersistence: .preferences(domain: Bundle.main.bundleIdentifier ?? "com.woojin.CursorMeter")
+        ))
+        let delegate = AppDelegate(viewModel: viewModel)
         app.delegate = delegate
         app.run()
     }
@@ -87,6 +102,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         observeStatusItem()
         observePopover()
         observeSettings()
+        observeSystemPresentationChanges()
 
         activityWatcher = CursorActivityWatcher { [weak self] in
             self?.viewModel.noteActivity()
@@ -103,6 +119,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         removePopoverDismissMonitor()
         jumpCoordinator?.stop()
         jumpCoordinator = nil
+        if let observer = timeZoneObserver {
+            NotificationCenter.default.removeObserver(observer)
+            timeZoneObserver = nil
+        }
+        if let observer = accessibilityDisplayObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+            accessibilityDisplayObserver = nil
+        }
+    }
+
+    private func observeSystemPresentationChanges() {
+        timeZoneObserver = NotificationCenter.default.addObserver(
+            forName: .NSSystemTimeZoneDidChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.viewModel.systemTimeZoneDidChange() }
+        }
+        accessibilityDisplayObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                (self.settingsWindow?.contentViewController as? SettingsTabViewController)?.updateUI()
+                if self.popover?.isShown == true {
+                    (self.popover.contentViewController as? MenuBarPopoverViewController)?.updateUI()
+                }
+            }
+        }
     }
 
     // MARK: - Status Item
@@ -334,6 +377,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             // usageData.isPercentOnly — an open Settings window must rebuild
             // when the plan shape changes (account switch, upgrade).
             _ = viewModel.usageData
+            _ = viewModel.isLoading
+            _ = viewModel.recentUsage.snapshot
+            _ = viewModel.recentUsage.status
+            _ = viewModel.recentUsageTimeZone
+            _ = viewModel.recentUsageTimeZoneRevision
+            _ = viewModel.refreshFeedback.phase
+            _ = viewModel.refreshFeedback.isInFlight
+            _ = viewModel.refreshFeedback.isReady
+            _ = viewModel.refreshFeedback.currentAttempt
+            _ = viewModel.refreshFeedback.timeline
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -449,6 +502,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             _ = viewModel.lastSuccessAt
             _ = viewModel.ideCredentialAvailable
             _ = viewModel.browserLoginEnabled
+            _ = viewModel.recentUsage.snapshot
+            _ = viewModel.recentUsage.status
+            _ = viewModel.recentUsageTimeZone
+            _ = viewModel.recentUsageTimeZoneRevision
+            _ = viewModel.refreshFeedback.phase
+            _ = viewModel.refreshFeedback.isInFlight
+            _ = viewModel.refreshFeedback.isReady
+            _ = viewModel.refreshFeedback.currentAttempt
+            _ = viewModel.refreshFeedback.timeline
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }

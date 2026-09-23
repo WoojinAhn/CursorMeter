@@ -12,11 +12,13 @@ final class SettingsTabViewController: NSTabViewController {
     private let generalVC: SettingsGeneralTabViewController
     private let notificationsVC: SettingsNotificationsTabViewController
     private let appearanceVC: SettingsAppearanceTabViewController
+    private let usageVC: SettingsUsageTabViewController
 
     init(viewModel: UsageViewModel) {
         generalVC = SettingsGeneralTabViewController(viewModel: viewModel)
         notificationsVC = SettingsNotificationsTabViewController(viewModel: viewModel)
         appearanceVC = SettingsAppearanceTabViewController(viewModel: viewModel)
+        usageVC = SettingsUsageTabViewController(viewModel: viewModel)
         super.init(nibName: nil, bundle: nil)
 
         tabStyle = .toolbar
@@ -25,6 +27,7 @@ final class SettingsTabViewController: NSTabViewController {
         addTab(generalVC, symbol: "gearshape")
         addTab(notificationsVC, symbol: "bell.badge")
         addTab(appearanceVC, symbol: "paintbrush")
+        addTab(usageVC, symbol: "list.bullet.rectangle")
 
         // Eager-load all children so updateUI() fan-out and per-tab fitting
         // sizes never hit an unloaded view (spec decision; views are small
@@ -44,6 +47,7 @@ final class SettingsTabViewController: NSTabViewController {
         generalVC.updateUI()
         notificationsVC.updateUI()
         appearanceVC.updateUI()
+        usageVC.updateUI()
     }
 
     // MARK: - Helpers

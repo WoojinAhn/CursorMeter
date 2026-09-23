@@ -178,7 +178,7 @@ enum SettingsCardFactory {
     /// Root view for one tab: fixed content width, sections stacked with
     /// equal top/bottom padding. Bottom pin is `equalTo` so the tab's
     /// fitting size drives the per-tab window height.
-    static func makeTabRoot(sections: [NSView]) -> NSView {
+    static func makeTabRoot(sections: [NSView], width: CGFloat = contentWidth) -> NSView {
         let stack = NSStackView(views: sections)
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -195,7 +195,7 @@ enum SettingsCardFactory {
         let root = NSView()
         root.addSubview(stack)
         NSLayoutConstraint.activate([
-            root.widthAnchor.constraint(equalToConstant: contentWidth),
+            root.widthAnchor.constraint(equalToConstant: width),
             stack.topAnchor.constraint(equalTo: root.topAnchor, constant: 18),
             stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 18),
             stack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -18),

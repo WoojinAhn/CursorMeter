@@ -341,26 +341,26 @@ the unmodified CLT build. Native UI work remains pending below.
 Coordinator modifies `SettingsCardFactory.swift`, `SettingsTabViewController.swift`,
 `CursorMeterApp.swift`, and `MenuBarView.swift`.
 
-- [ ] Select UI verification cases:0/1/6/30rows, long model/exact tokens, light/dark,
+- [x] Select UI verification cases:0/1/6/30rows, long model/exact tokens, light/dark,
   initial/cached/empty/failed/partial success, scroll retention, Local/UTC,
   Reduce Motion, mid-attempt reopen, and both buttons sharing readiness/outcomes.
-- [ ] Implement `RefreshFeedbackButton` as a display-only AppKit component. Keep
+- [x] Implement `RefreshFeedbackButton` as a display-only AppKit component. Keep
   button dimensions and AX names stable; Core Animation rotates only the icon.
   Render state idempotently and preserve the animation when unrelated data changes.
   Reduce Motion uses static progress; no UI-owned network or phase timers.
-- [ ] Implement Usage with init(viewModel:), updateUI(), and viewWillAppear fitting
+- [x] Implement Usage with init(viewModel:), updateUI(), and viewWillAppear fitting
   size. Set root width480, horizontal insets18, row height52 and viewport312.
   Use NSScrollView plus view-based NSTableView; right-align fixed token/money
   columns and allow model truncation. Reload only for snapshot/zone changes.
-- [ ] Add Recent usage/cache timestamp/Refresh header, stable status region,
+- [x] Add Recent usage/cache timestamp/Refresh header, stable status region,
   row count/LocalUTC footer, Included caption, and Open Cursor link. Both button
   actions use the same existing `await viewModel.refresh()` entry. Local/UTC calls
   a setter only. The full source URL is the fixed trusted Cursor dashboard URL.
-- [ ] Register Usage after Display and fan out updateUI. Extend
+- [x] Register Usage after Display and fan out updateUI. Extend
   `makeTabRoot(sections:width:)` with width default440. Add all new observable
-  fields to both app observation blocks. Inject the real store in app launch only;
+  fields to both app observation blocks. Inject the real store from the production entry point only;
   keep test-host default storage nil. Keep popover Loading tied to network work.
-- [ ] Use stable AX names: Usage, Refresh recent usage, Refresh usage,
+- [x] Use stable AX names: Usage, Refresh recent usage, Refresh usage,
   Recent usage events, Time zone, Local, UTC, Open Cursor, and Cached at.
   State feedback belongs in accessible value/help without renaming the button.
 - [ ] Verify through a synthetic native fixture with unique bundle ID and temporary
@@ -371,6 +371,15 @@ Coordinator modifies `SettingsCardFactory.swift`, `SettingsTabViewController.swi
   Use AX element paths and raised window frames for interactions/screenshots.
 - [ ] Review spec then quality, fix actual layout/behavior findings, and commit
   `[#118] feat: add recent usage settings and shared refresh feedback`.
+
+Code checkpoint (2026-09-24): the fourth tab, shared buttons, presentation
+observers, and production-only cache are implemented. Specification and quality
+review corrected missing-model/time-zone help, the glyph rotation anchor, and a
+duplicate ViewModel initialization. An injected immutable model now survives
+settings-window recreation. The compatibility suite passed 636/636 tests; the
+unmodified CLT debug and release builds passed. The console is locked, so native
+AX interaction, visual verification, and screenshot refresh remain open. The
+source checkpoint does not complete Task 5 acceptance or authorize integration.
 
 ## Task 6: Document, Review, and Deliver
 

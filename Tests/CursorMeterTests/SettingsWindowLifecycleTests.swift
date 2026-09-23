@@ -8,6 +8,32 @@ import XCTest
 @MainActor
 final class SettingsWindowLifecycleTests: XCTestCase {
 
+    func test_injectedModelDrivesUsageFeedbackAfterSettingsReopens() throws {
+        let viewModel = UsageViewModel()
+        viewModel.updateCheckRunner = { .upToDate }
+        viewModel.authState = .loggedIn
+        _ = viewModel.refreshFeedback.begin(generation: 1)
+        let delegate = AppDelegate(viewModel: viewModel)
+
+        func refreshButton(in view: NSView) -> NSButton? {
+            if let button = view as? NSButton,
+               button.accessibilityLabel() == "Refresh recent usage" {
+                return button
+            }
+            return view.subviews.lazy.compactMap { refreshButton(in: $0) }.first
+        }
+
+        for _ in 0..<2 {
+            delegate.openSettings()
+            let tabs = try XCTUnwrap(delegate.settingsWindow?.contentViewController as? SettingsTabViewController)
+            let usage = try XCTUnwrap(tabs.tabViewItems.last?.viewController)
+            let button = try XCTUnwrap(refreshButton(in: usage.view))
+            XCTAssertEqual(button.accessibilityValue() as? String, "Updating")
+            XCTAssertFalse(button.isEnabled)
+            delegate.settingsWindow?.close()
+        }
+    }
+
     func test_closeSettingsWindow_clearsStrongReference() {
         let delegate = AppDelegate()
         delegate.openSettings()

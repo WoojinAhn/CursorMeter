@@ -34,7 +34,7 @@ final class MenuBarPopoverViewController: NSViewController {
     // Usage row
     private let usageTitleLabel  = NSTextField(labelWithString: "")
     private let usageValueLabel  = NSTextField(labelWithString: "")
-    private let refreshButton    = NSButton()
+    private let refreshButton    = RefreshFeedbackButton(style: .iconOnly, consumer: .meter)
 
     // Progress row
     private let progressBar      = ColoredProgressBar()
@@ -120,6 +120,13 @@ final class MenuBarPopoverViewController: NSViewController {
 
     /// Called by the owner whenever viewModel state changes.
     func updateUI() {
+        refreshButton.render(
+            phase: viewModel.refreshFeedback.phase,
+            isReady: viewModel.refreshFeedback.isReady,
+            attempt: viewModel.refreshFeedback.currentAttempt,
+            isAuthenticated: viewModel.authState == .loggedIn,
+            reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        )
         if let data = viewModel.usageData {
             applyData(data)
             statusStack.isHidden = true
@@ -271,7 +278,6 @@ final class MenuBarPopoverViewController: NSViewController {
         usageValueLabel.textColor = NSColor.secondaryLabelColor
         usageValueLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
 
-        styleIconButton(refreshButton, symbolName: "arrow.clockwise", size: 10)
         refreshButton.target = self
         refreshButton.action = #selector(refreshTapped)
 
@@ -513,7 +519,6 @@ final class MenuBarPopoverViewController: NSViewController {
         // Usage
         usageTitleLabel.stringValue = data.usageLabel
         usageValueLabel.stringValue = data.usageText
-        refreshButton.isEnabled     = !viewModel.isLoading
         refreshButton.isHidden      = (viewModel.authState != .loggedIn)
 
         // Progress
