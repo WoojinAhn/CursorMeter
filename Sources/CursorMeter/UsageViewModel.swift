@@ -1519,6 +1519,7 @@ final class UsageViewModel {
     }
 
     func systemTimeZoneDidChange() {
+        guard recentUsageTimeZone == .local else { return }
         recentUsageTimeZoneRevision += 1
     }
 

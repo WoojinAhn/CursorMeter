@@ -99,8 +99,10 @@ the year so an old restored snapshot cannot appear to have been saved today.
 Persist `recentUsageTimeZone` as `local` or `utc`, defaulting to `local` for a
 missing/unknown value. Event format is `MMM d, HH:mm` in the current display-zone
 year and `MMM d, yyyy, HH:mm` otherwise; snapshot format is `yyyy-MM-dd HH:mm`.
-Use the zone abbreviation, falling back to its numeric UTC offset. Observe
-`NSSystemTimeZoneDidChange` to redraw Local timestamps without a fetch. The year
+Use the zone abbreviation, falling back to its numeric UTC offset. A timestamp's
+zone label uses that timestamp's instant, including its historical DST offset.
+Observe `NSSystemTimeZoneDidChange` to redraw Local timestamps without a fetch;
+UTC rows do not need invalidation for a system-zone change. The year
 comparison is made at render time in the selected zone.
 
 The approved before/after visual companion is `docs/mockup-118.html`.
@@ -298,8 +300,8 @@ published phase and their own consumer outcome. A newly opened view joins the
 current phase instead of restarting its animation. A callback must still match
 the current session and attempt ID before changing phase. Both app observation
 blocks track the recent snapshot/state, time-zone mode, refresh phase/readiness,
-and meter/recent outcomes. Under Reduce Motion show a static progress symbol and
-an accessible Updating label instead of rotation.
+and meter/recent outcomes. Under Reduce Motion show a static progress symbol
+distinct from the idle arrow and an accessible Updating label instead of rotation.
 
 Use injectable durations for admission, minimum rotation, and result indication,
 and pure deadline arithmetic with a monotonic-now seam. Existing pipeline tests

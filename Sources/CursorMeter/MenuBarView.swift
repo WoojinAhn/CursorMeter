@@ -273,6 +273,12 @@ final class MenuBarPopoverViewController: NSViewController {
         usageTitleLabel.font      = NSFont.systemFont(ofSize: 12, weight: .regular)
         usageTitleLabel.textColor = NSColor.secondaryLabelColor
         usageTitleLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+        usageTitleLabel.lineBreakMode = .byTruncatingTail
+        // Preserve the amount and refresh target within the fixed popover width.
+        usageTitleLabel.setContentCompressionResistancePriority(
+            .init(NSLayoutConstraint.Priority.fittingSizeCompression.rawValue - 1),
+            for: .horizontal
+        )
 
         usageValueLabel.font      = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
         usageValueLabel.textColor = NSColor.secondaryLabelColor

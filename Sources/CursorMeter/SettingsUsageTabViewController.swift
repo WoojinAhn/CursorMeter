@@ -186,7 +186,7 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
         zoneControl.toolTip = zoneIdentifier
         zoneControl.setAccessibilityHelp(zoneIdentifier)
         cachedLabel.stringValue = candidate.map {
-            "Cached \(RecentUsageFormatter.cachedTime($0.cachedAt, mode: mode)) \(RecentUsageFormatter.zoneLabel(mode: mode))"
+            "Cached \(RecentUsageFormatter.cachedTime($0.cachedAt, mode: mode)) \(RecentUsageFormatter.zoneLabel(mode: mode, at: $0.cachedAt))"
         } ?? ""
         countLabel.stringValue = candidate.map {
             $0.entries.count == 1 ? "Latest 1 request" : "\($0.entries.isEmpty ? "0 requests" : "Latest \($0.entries.count) requests")"

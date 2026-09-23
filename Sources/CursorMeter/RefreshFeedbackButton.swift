@@ -38,7 +38,7 @@ final class RefreshFeedbackButton: NSButton {
         caption.translatesAutoresizingMaskIntoConstraints = false
         caption.isHidden = style == .iconOnly
         addSubview(caption)
-        let width: CGFloat = style == .iconOnly ? 26 : 90
+        let width: CGFloat = style == .iconOnly ? 26 : 100
         let height: CGFloat = style == .iconOnly ? 24 : 26
         NSLayoutConstraint.activate([
             widthAnchor.constraint(equalToConstant: width),
@@ -80,6 +80,8 @@ final class RefreshFeedbackButton: NSButton {
         let changed = !hasRendered || phase != displayedPhase || attempt != displayedAttempt
             || reduceMotion != displayedReduceMotion
         isEnabled = isAuthenticated && isReady
+        glyph.textColor = isEnabled ? .secondaryLabelColor : .disabledControlTextColor
+        caption.textColor = isEnabled ? .labelColor : .disabledControlTextColor
         guard changed else { return }
         hasRendered = true
         displayedPhase = phase
@@ -92,7 +94,7 @@ final class RefreshFeedbackButton: NSButton {
             glyph.stringValue = "↻"
             state = "Refresh"
         case .updating:
-            glyph.stringValue = "↻"
+            glyph.stringValue = reduceMotion ? "…" : "↻"
             state = "Updating"
         case let .result(meter, recent):
             let outcome = consumer == .meter ? meter : recent

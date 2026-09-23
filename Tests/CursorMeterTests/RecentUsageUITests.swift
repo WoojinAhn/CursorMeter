@@ -78,6 +78,76 @@ final class RecentUsageUITests: XCTestCase {
         XCTAssertNil(glyph.layer?.animation(forKey: "refreshRotation"))
     }
 
+    func testFeedbackSubviewColorsTrackReadinessWithoutPhaseChange() throws {
+        _ = NSApplication.shared
+        for style in [RefreshFeedbackButton.Style.iconOnly, .labeled] {
+            let button = RefreshFeedbackButton(style: style, consumer: .recent)
+            let glyph = try XCTUnwrap(button.subviews.compactMap { $0 as? NSTextField }.first { $0.stringValue == "↻" })
+            let caption = try XCTUnwrap(button.subviews.compactMap { $0 as? NSTextField }.first { $0.stringValue == "Refresh" })
+            button.render(phase: .idle, isReady: true, attempt: nil, isAuthenticated: true, reduceMotion: true)
+            XCTAssertEqual(glyph.textColor, .secondaryLabelColor)
+            XCTAssertEqual(caption.textColor, .labelColor)
+            button.render(phase: .idle, isReady: false, attempt: nil, isAuthenticated: true, reduceMotion: true)
+            XCTAssertEqual(glyph.textColor, .disabledControlTextColor)
+            XCTAssertEqual(caption.textColor, .disabledControlTextColor)
+            button.render(phase: .idle, isReady: true, attempt: nil, isAuthenticated: false, reduceMotion: true)
+            XCTAssertEqual(glyph.textColor, .disabledControlTextColor)
+            XCTAssertEqual(caption.textColor, .disabledControlTextColor)
+            button.render(phase: .idle, isReady: true, attempt: nil, isAuthenticated: true, reduceMotion: true)
+            XCTAssertEqual(glyph.textColor, .secondaryLabelColor)
+            XCTAssertEqual(caption.textColor, .labelColor)
+        }
+    }
+
+    func testReduceMotionShowsDistinctStaticUpdatingGlyphInBothStyles() throws {
+        _ = NSApplication.shared
+        for style in [RefreshFeedbackButton.Style.iconOnly, .labeled] {
+            let button = RefreshFeedbackButton(style: style, consumer: .recent)
+            let glyph = try XCTUnwrap(button.subviews.compactMap { $0 as? NSTextField }.first { $0.stringValue == "↻" })
+            button.render(phase: .idle, isReady: true, attempt: nil, isAuthenticated: true, reduceMotion: true)
+            let idleGlyph = glyph.stringValue
+            button.render(phase: .updating, isReady: false, attempt: nil, isAuthenticated: true, reduceMotion: true)
+            XCTAssertEqual(glyph.stringValue, "…")
+            XCTAssertNotEqual(glyph.stringValue, idleGlyph)
+            XCTAssertEqual(button.accessibilityValue() as? String, "Updating")
+            XCTAssertNil(glyph.layer?.animation(forKey: "refreshRotation"))
+        }
+    }
+
+    func testLabeledFeedbackCaptionsFitInFixedNativeLayout() throws {
+        _ = NSApplication.shared
+        let button = RefreshFeedbackButton(style: .labeled, consumer: .recent)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView?.addSubview(button)
+        NSLayoutConstraint.activate([
+            button.leadingAnchor.constraint(equalTo: window.contentView!.leadingAnchor, constant: 10),
+            button.topAnchor.constraint(equalTo: window.contentView!.topAnchor, constant: 10),
+        ])
+        defer { window.close() }
+        let caption = try XCTUnwrap(button.subviews.compactMap { $0 as? NSTextField }.first { $0.stringValue == "Refresh" })
+        let cases: [(RefreshPhase, String)] = [
+            (.idle, "Refresh"), (.updating, "Updating"),
+            (.result(meter: .success, recent: .success), "Updated"),
+            (.result(meter: .success, recent: .failure), "Retry later"),
+        ]
+        for reduceMotion in [false, true] {
+            for (phase, expected) in cases {
+                button.render(phase: phase, isReady: true, attempt: nil,
+                              isAuthenticated: true, reduceMotion: reduceMotion)
+                window.contentView?.layoutSubtreeIfNeeded()
+                button.layoutSubtreeIfNeeded()
+                XCTAssertEqual(caption.stringValue, expected)
+                XCTAssertEqual(button.frame.width, 100, accuracy: 0.5)
+                XCTAssertEqual(button.frame.height, 26, accuracy: 0.5)
+                XCTAssertGreaterThanOrEqual(caption.alignmentRect(forFrame: caption.frame).width + 0.01,
+                                           caption.intrinsicContentSize.width,
+                                            "\(expected) must fit its native text field")
+            }
+        }
+    }
+
     func testAnimatedGlyphLayerRotatesAroundItsActualCenterInWindow() throws {
         _ = NSApplication.shared
         let button = RefreshFeedbackButton(style: .labeled, consumer: .recent)

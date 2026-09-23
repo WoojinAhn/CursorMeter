@@ -48,10 +48,10 @@ enum RecentUsageFormatter {
         return formatter.string(from: date)
     }
 
-    static func zoneLabel(mode: RecentUsageTimeZone, localTimeZone: TimeZone = .autoupdatingCurrent) -> String {
+    static func zoneLabel(mode: RecentUsageTimeZone, at date: Date = Date(), localTimeZone: TimeZone = .autoupdatingCurrent) -> String {
         guard mode == .local else { return "UTC" }
-        if let abbreviation = localTimeZone.abbreviation(), !abbreviation.isEmpty { return abbreviation }
-        let offset = localTimeZone.secondsFromGMT()
+        if let abbreviation = localTimeZone.abbreviation(for: date), !abbreviation.isEmpty { return abbreviation }
+        let offset = localTimeZone.secondsFromGMT(for: date)
         guard offset != 0 else { return "UTC" }
         return String(format: "UTC%@%02d:%02d", offset < 0 ? "−" : "+", abs(offset) / 3600, abs(offset) % 3600 / 60)
     }

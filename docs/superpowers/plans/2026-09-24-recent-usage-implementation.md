@@ -138,7 +138,7 @@ let sorted = response.usageEventsDisplay.enumerated().compactMap { index, event 
   Do not apply the weekly date cutoff or deduplicate rows.
 - [x] Implement formatter functions `amount(cents:)`, `tokens(_:)`,
   `eventTime(_:mode:now:localTimeZone:)`, `cachedTime(_:mode:localTimeZone:)`,
-  `zoneLabel(mode:localTimeZone:)`, and `zoneIdentifier(mode:localTimeZone:)`.
+  `zoneLabel(mode:at:localTimeZone:)`, and `zoneIdentifier(mode:localTimeZone:)`.
   Use Foundation Decimal/NumberFormatter with POSIX USD punctuation and .halfUp;
   pick precision from the original value. Date functions take an explicit local
   timezone for tests and default to `.autoupdatingCurrent` in production.
@@ -347,7 +347,9 @@ Coordinator modifies `SettingsCardFactory.swift`, `SettingsTabViewController.swi
 - [x] Implement `RefreshFeedbackButton` as a display-only AppKit component. Keep
   button dimensions and AX names stable; Core Animation rotates only the icon.
   Render state idempotently and preserve the animation when unrelated data changes.
-  Reduce Motion uses static progress; no UI-owned network or phase timers.
+  Reduce Motion uses a distinct static progress symbol; disabled text follows
+  native control colors. The labeled button stays100pt wide for every caption;
+  the popover control retains its26pt hit target. No UI-owned network or phase timers.
 - [x] Implement Usage with init(viewModel:), updateUI(), and viewWillAppear fitting
   size. Set root width480, horizontal insets18, row height52 and viewport312.
   Use NSScrollView plus view-based NSTableView; right-align fixed token/money
@@ -369,7 +371,7 @@ Coordinator modifies `SettingsCardFactory.swift`, `SettingsTabViewController.swi
   All requests use a fail-closed fixture protocol; dev marker and update runner
   prevent GitHub inference/network. Do not replace /Applications/CursorMeter.app.
   Use AX element paths and raised window frames for interactions/screenshots.
-- [ ] Review spec then quality, fix actual layout/behavior findings, and commit
+- [x] Review spec then quality, fix actual layout/behavior findings, and commit
   `[#118] feat: add recent usage settings and shared refresh feedback`.
 
 Code checkpoint (2026-09-24): the fourth tab, shared buttons, presentation
@@ -381,12 +383,21 @@ unmodified CLT debug and release builds passed. The console is locked, so native
 AX interaction, visual verification, and screenshot refresh remain open. The
 source checkpoint does not complete Task 5 acceptance or authorize integration.
 
+Final review corrections: Grok passed; Muse and Opus findings were checked against
+source and native measurements. The timestamp label now uses the snapshot's DST
+offset, UTC ignores system-zone invalidations, and refresh controls retain readable
+captions, disabled colors, and distinct static progress. Five-digit meter amounts
+fit within the existing popover by allowing the title to truncate while preserving
+the amount and26pt refresh target. Independent specification and quality reviews
+passed. The updated compatibility suite passed642/642; unmodified CLT debug and
+release builds passed. Native AX/visual acceptance and screenshots remain pending.
+
 ## Task 6: Document, Review, and Deliver
 
 **Files:** update relevant `README.md`/`README.ko.md`, `SECURITY.md`/`SECURITY.ko.md`,
 `docs/API_REFERENCE.md`, affected `docs/screenshots/`, and this plan's checklist.
 
-- [ ] Document the30-event boundary, original cache time, LocalUTC and amount
+- [x] Document the30-event boundary, original cache time, LocalUTC and amount
   meaning, per-device request guards, undocumented API limitation, and bounded
   local storage/logout behavior. Keep public text factual; no private strategy or
   real-account details. Update each translation pair in the same commit.

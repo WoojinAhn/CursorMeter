@@ -94,6 +94,22 @@ final class RecentUsageIntegrationTests: XCTestCase {
         XCTAssertEqual(requests.all.count, 4)
     }
 
+    func testSystemTimeZoneChangeOnlyInvalidatesLocalPresentation() {
+        let key = "recentUsageTimeZone"
+        let previous = UserDefaults.standard.object(forKey: key)
+        defer { UserDefaults.standard.set(previous, forKey: key) }
+        let vm = makeViewModel()
+        vm.setRecentUsageTimeZone(.utc)
+        let revision = vm.recentUsageTimeZoneRevision
+
+        vm.systemTimeZoneDidChange()
+        XCTAssertEqual(vm.recentUsageTimeZoneRevision, revision)
+
+        vm.setRecentUsageTimeZone(.local)
+        vm.systemTimeZoneDidChange()
+        XCTAssertEqual(vm.recentUsageTimeZoneRevision, revision + 1)
+    }
+
     private nonisolated static func events(_ model: String = "model", count: Int = 1, total: Int? = nil) -> Data {
         let timestamp = Int(Date().timeIntervalSince1970 * 1000)
         return try! JSONSerialization.data(withJSONObject: [

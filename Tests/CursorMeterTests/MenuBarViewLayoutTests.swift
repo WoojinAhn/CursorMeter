@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 @testable import CursorMeter
 
@@ -52,6 +53,58 @@ final class MenuBarViewLayoutTests: XCTestCase {
     private static let serverErrorHandler: (URLRequest) throws -> (HTTPURLResponse, Data) = { request in
         let serverError = HTTPURLResponse(url: request.url!, statusCode: 500, httpVersion: nil, headerFields: nil)!
         return (serverError, Data("oops".utf8))
+    }
+
+    func test_fiveDigitAmountsFitWithoutShrinkingRefreshTarget() throws {
+        func descendants(of view: NSView) -> [NSView] {
+            [view] + view.subviews.flatMap { descendants(of: $0) }
+        }
+        for onDemand in [false, true] {
+            let data = UsageDisplayData(
+                email: "demo@example.com", name: "Demo User", membershipType: nil,
+                planUsedCents: onDemand ? 2_000 : 1_234_567,
+                planLimitCents: onDemand ? 2_000 : 2_000_000,
+                serverPercentUsed: nil, requestsUsed: 0, requestsLimit: 0,
+                onDemandUsedCents: onDemand ? 1_234_567 : nil,
+                onDemandLimitCents: onDemand ? 2_000_000 : nil,
+                onDemandEnabled: onDemand ? true : nil,
+                isOnDemandActive: false, cycleStartDate: nil, resetDate: nil
+            )
+            XCTAssertEqual(data.wouldActivateOnDemand, onDemand)
+            let config = URLSessionConfiguration.ephemeral
+            config.protocolClasses = [MockURLProtocol.self]
+            let vm = UsageViewModel(apiClient: CursorAPIClient(configuration: config))
+            vm.updateCheckRunner = { .upToDate }
+            vm.authState = .loggedIn
+            vm.usageData = data.withOnDemandActive(data.wouldActivateOnDemand)
+            let vc = MenuBarPopoverViewController(viewModel: vm, onLogin: {}, onSettings: {})
+            _ = vc.view
+            vc.updateUI()
+            let window = NSWindow(contentViewController: vc)
+            window.isReleasedWhenClosed = false
+            window.setContentSize(NSSize(width: 260, height: vc.view.fittingSize.height))
+            vc.view.layoutSubtreeIfNeeded()
+            defer { window.contentViewController = nil; window.close() }
+
+            let views = descendants(of: vc.view)
+            let labels = views.compactMap { $0 as? NSTextField }
+            let amount = try XCTUnwrap(labels.first { $0.stringValue == "$12345.67 / $20000.00" })
+            let title = try XCTUnwrap(labels.first { $0.stringValue == (onDemand ? "On-demand" : "Plan Usage") })
+            let button = try XCTUnwrap(views.compactMap { $0 as? RefreshFeedbackButton }.first)
+            XCTAssertLessThanOrEqual(vc.testHook_contentFittingWidth(), Self.innerWidth)
+            XCTAssertGreaterThanOrEqual(amount.alignmentRect(forFrame: amount.frame).width + 0.01,
+                                       amount.intrinsicContentSize.width)
+            XCTAssertLessThan(title.alignmentRect(forFrame: title.frame).width, title.intrinsicContentSize.width)
+            XCTAssertEqual(title.lineBreakMode, .byTruncatingTail)
+            for view in [amount as NSView, button as NSView] {
+                let parent = try XCTUnwrap(view.superview)
+                let frame = parent.convert(view.alignmentRect(forFrame: view.frame), to: vc.view)
+                XCTAssertGreaterThanOrEqual(frame.minX, 10)
+                XCTAssertLessThanOrEqual(frame.maxX, 250)
+            }
+            XCTAssertEqual(button.frame.width, 26, accuracy: 0.01)
+            XCTAssertEqual(button.frame.height, 24, accuracy: 0.01)
+        }
     }
 
     /// Stale row visible with a realistic worst-case message must not push the

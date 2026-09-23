@@ -261,4 +261,19 @@ final class RecentUsageModelsTests: XCTestCase {
         let offset = TimeZone(secondsFromGMT: 20_700)!
         XCTAssertFalse(RecentUsageFormatter.zoneLabel(mode: .local, localTimeZone: offset).isEmpty)
     }
+
+    func testCachedZoneLabelUsesSnapshotDateAcrossDST() {
+        let la = TimeZone(identifier: "America/Los_Angeles")!
+        let summer = date("2026-10-31T23:00:00Z")
+        let winter = date("2026-11-02T23:00:00Z")
+        let summerLabel = RecentUsageFormatter.zoneLabel(mode: .local, at: summer, localTimeZone: la)
+        let winterLabel = RecentUsageFormatter.zoneLabel(mode: .local, at: winter, localTimeZone: la)
+        XCTAssertEqual(summerLabel, la.abbreviation(for: summer))
+        XCTAssertEqual(winterLabel, la.abbreviation(for: winter))
+        XCTAssertNotEqual(summerLabel, winterLabel)
+        XCTAssertEqual(RecentUsageFormatter.cachedTime(summer, mode: .local, localTimeZone: la), "2026-10-31 16:00")
+        XCTAssertEqual(RecentUsageFormatter.cachedTime(winter, mode: .local, localTimeZone: la), "2026-11-02 15:00")
+        XCTAssertEqual(RecentUsageFormatter.zoneLabel(mode: .utc, at: summer, localTimeZone: la), "UTC")
+        XCTAssertEqual(RecentUsageFormatter.zoneLabel(mode: .utc, at: winter, localTimeZone: la), "UTC")
+    }
 }
