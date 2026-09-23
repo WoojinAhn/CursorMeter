@@ -8,16 +8,30 @@ import Foundation
 struct FilteredUsageEventsResponse: Codable, Sendable {
     let totalUsageEventsCount: Int?
     let usageEventsDisplay: [UsageEvent]
+    let hasUsageEventsDisplay: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case totalUsageEventsCount, usageEventsDisplay
+    }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         totalUsageEventsCount = try container.decodeIfPresent(Int.self, forKey: .totalUsageEventsCount)
+        hasUsageEventsDisplay = container.contains(.usageEventsDisplay)
         // Empty pages omit the event array (#108). Require the total in that
         // shape so an unrelated/error JSON object still fails decoding.
         if totalUsageEventsCount != nil, !container.contains(.usageEventsDisplay) {
             usageEventsDisplay = []
         } else {
             usageEventsDisplay = try container.decode([UsageEvent].self, forKey: .usageEventsDisplay)
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(totalUsageEventsCount, forKey: .totalUsageEventsCount)
+        if hasUsageEventsDisplay {
+            try container.encode(usageEventsDisplay, forKey: .usageEventsDisplay)
         }
     }
 }
@@ -37,17 +51,43 @@ struct UsageEvent: Codable, Sendable {
     /// the user's on-demand cap; for other kinds it's a fair-value reference
     /// not billed to the user. Fractional cents (e.g. 95.69) are normal.
     let chargedCents: Double?
+    let model: String?
+    let tokenUsage: UsageTokenUsage?
+    let customSubscriptionName: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case timestamp, requestsCosts, kind, chargedCents
+        case model, tokenUsage, customSubscriptionName
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        timestamp = try container.decode(String.self, forKey: .timestamp)
+        requestsCosts = try container.decodeIfPresent(Double.self, forKey: .requestsCosts)
+        kind = try container.decodeIfPresent(String.self, forKey: .kind)
+        chargedCents = try container.decodeIfPresent(Double.self, forKey: .chargedCents)
+        // List-only metadata must not invalidate an otherwise usable chart page.
+        model = try? container.decodeIfPresent(String.self, forKey: .model)
+        tokenUsage = try? container.decodeIfPresent(UsageTokenUsage.self, forKey: .tokenUsage)
+        customSubscriptionName = try? container.decodeIfPresent(String.self, forKey: .customSubscriptionName)
+    }
 
     init(
         timestamp: String,
         requestsCosts: Double? = nil,
         kind: String? = nil,
-        chargedCents: Double? = nil
+        chargedCents: Double? = nil,
+        model: String? = nil,
+        tokenUsage: UsageTokenUsage? = nil,
+        customSubscriptionName: String? = nil
     ) {
         self.timestamp = timestamp
         self.requestsCosts = requestsCosts
         self.kind = kind
         self.chargedCents = chargedCents
+        self.model = model
+        self.tokenUsage = tokenUsage
+        self.customSubscriptionName = customSubscriptionName
     }
 
     /// `Date` parsed from `timestamp`. Returns nil for malformed input.
@@ -72,6 +112,46 @@ struct UsageEvent: Codable, Sendable {
     /// did not absorb it). Used to aggregate the on-demand-only portion.
     var isOnDemandBilled: Bool {
         kind == "USAGE_EVENT_KIND_USAGE_BASED"
+    }
+}
+
+struct UsageTokenUsage: Codable, Sendable {
+    let inputTokens: Int?
+    let outputTokens: Int?
+    let cacheReadTokens: Int?
+    let cacheWriteTokens: Int?
+
+    private enum CodingKeys: String, CodingKey {
+        case inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        func counter(_ key: CodingKeys) throws -> Int? {
+            guard container.contains(key), try !container.decodeNil(forKey: key) else { return nil }
+            if let value = try? container.decode(Int.self, forKey: key) { return value }
+            let string = try container.decode(String.self, forKey: key)
+            guard let value = Int(string) else {
+                throw DecodingError.dataCorruptedError(forKey: key, in: container, debugDescription: "Expected an integer token count")
+            }
+            return value
+        }
+        inputTokens = try counter(.inputTokens)
+        outputTokens = try counter(.outputTokens)
+        cacheReadTokens = try counter(.cacheReadTokens)
+        cacheWriteTokens = try counter(.cacheWriteTokens)
+    }
+
+    var total: Int? {
+        guard let inputTokens, let outputTokens else { return nil }
+        var sum = 0
+        for count in [inputTokens, outputTokens, cacheReadTokens ?? 0, cacheWriteTokens ?? 0] {
+            guard count >= 0 else { return nil }
+            let result = sum.addingReportingOverflow(count)
+            guard !result.overflow else { return nil }
+            sum = result.partialValue
+        }
+        return sum
     }
 }
 
