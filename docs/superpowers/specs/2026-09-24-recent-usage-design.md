@@ -117,7 +117,7 @@ synthetic and all preview refreshes local.
    list. Do not request a second event page for the purpose of populating the list.
 3. Preserve a bounded first-page candidate (events plus receipt time) alongside
    a separate weekly aggregation result/error. Optimistic and sequential paths
-   return this same collection outcome; later errors do not erase the candidate.
+   return this same collection outcome; later transient errors do not erase the candidate.
    On successful collection, both consumers update. If page one succeeds and a
    later weekly page has a transient/network/5xx failure, the recent snapshot
    updates while the chart keeps
@@ -347,7 +347,7 @@ scroll position or restart an already-running animation.
 | Failure without snapshot | Unable-to-load message; preserve the normal refresh control for a later attempt |
 | Missing optional fields | Keep the row and show unavailable values as an em dash; do not estimate |
 | Only meter or only list succeeds | Publish the successful consumer and preserve the other's snapshot/error state |
-| Later weekly page fails | Publish a validated first-page recent snapshot; preserve weekly stale/error behavior |
+| Later weekly page has a transient failure | Publish a validated first-page recent snapshot; preserve weekly stale/error behavior |
 | Logout/account change | Clear old rows and pending feedback; reject old-generation results and persistence |
 
 Errors do not create an additional retry loop. Existing automatic scheduling and

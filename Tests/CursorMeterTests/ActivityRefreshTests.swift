@@ -122,6 +122,37 @@ final class ActivityRefreshTests: XCTestCase {
         XCTAssertFalse(vm.activityRefreshEnabled)
     }
 
+    func testSessionExpiryPreservesActivityThrottle() async {
+        let suppressionKey = "ideAuthSuppressed"
+        let previous = UserDefaults.standard.object(forKey: suppressionKey)
+        UserDefaults.standard.removeObject(forKey: suppressionKey)
+        defer { UserDefaults.standard.set(previous, forKey: suppressionKey) }
+        let counter = RequestCounter()
+        let vm = makeViewModel(counting: counter)
+        vm.ideCredentialProvider = {
+            IDECredential(cookieHeader: "WorkosCursorSessionToken=expired-ide", expiresAt: .distantFuture)
+        }
+        vm.authState = .loggedIn
+        vm.activityDebounceInterval = .zero
+        vm.activityMinRefreshInterval = .seconds(60)
+        let unexpectedRequest = XCTestExpectation(description: "No activity request inside the throttle window")
+        unexpectedRequest.isInverted = true
+        MockURLProtocol.requestHandler = { request in
+            counter.increment()
+            if counter.count > 6 { unexpectedRequest.fulfill() }
+            return (HTTPURLResponse(url: request.url!, statusCode: 401, httpVersion: nil, headerFields: nil)!, Data())
+        }
+
+        await vm.refresh()
+        XCTAssertEqual(counter.count, 6, "One IDE attempt and one captured-cookie fallback")
+        XCTAssertEqual(vm.authState, .loginRequired)
+
+        vm.noteActivity()
+        await fulfillment(of: [unexpectedRequest], timeout: 0.15)
+        XCTAssertEqual(counter.count, 6)
+        vm.setActivityRefreshEnabled(false)
+    }
+
     func testNoteActivityWhileDisabledIsNoOp() async {
         let counter = RequestCounter()
         let vm = makeViewModel(counting: counter)

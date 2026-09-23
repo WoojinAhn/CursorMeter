@@ -24,6 +24,36 @@ private actor RecentUsageReadGate {
     }
 }
 
+private final class RecentUsageTestCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    var value: Int { lock.withLock { count } }
+
+    func increment() -> Int {
+        lock.withLock {
+            count += 1
+            return count
+        }
+    }
+}
+
+private final class RecentUsageWriteGate: @unchecked Sendable {
+    let arrival: XCTestExpectation
+    private let semaphore = DispatchSemaphore(value: 0)
+
+    init(arrival: XCTestExpectation) { self.arrival = arrival }
+
+    func suspend() throws {
+        arrival.fulfill()
+        guard semaphore.wait(timeout: .now() + 5) == .success else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+    }
+
+    func release() { semaphore.signal() }
+}
+
 @MainActor
 private final class RecentUsageTestValidity {
     var token: String? = UUID().uuidString
@@ -227,6 +257,145 @@ final class RecentUsageControllerTests: XCTestCase {
         XCTAssertTrue(controller.publish(candidate: candidate(), context: fallback))
     }
 
+    func testUnrelatedIDERejectionPreservesKnownBrowserCacheForOfflineFallback() async throws {
+        let url = try location()
+        let validity = RecentUsageTestValidity()
+        let originalToken = validity.token
+        let expected = saved(credential: "browser")
+        try await seed(expected, at: url, validity: validity)
+        let controller = RecentUsageController(store: RecentUsageStore(fileURL: url), validityPersistence: validity.persistence)
+        controller.beginSession(generation: 1)
+        _ = controller.selectCredential(cookieHeader: cookie("browser"), generation: 1, attemptID: 1)
+        await eventually { controller.snapshot == expected }
+
+        let ide = try XCTUnwrap(controller.selectCredential(cookieHeader: cookie("ide"), generation: 1, attemptID: 2))
+        XCTAssertNil(controller.snapshot)
+        controller.rejectCredential(context: ide)
+        XCTAssertNil(controller.snapshot)
+        XCTAssertEqual(validity.token, originalToken)
+        XCTAssertTrue(validity.commits.isEmpty)
+        XCTAssertFalse(controller.validateIdentity(subject: "subject", scope: .personal, context: ide))
+
+        let fallback = try XCTUnwrap(controller.selectCredential(cookieHeader: cookie("browser"), generation: 1, attemptID: 2))
+        controller.recordFailure(context: fallback)
+        XCTAssertEqual(controller.snapshot, expected)
+        XCTAssertEqual(controller.snapshot?.candidate.cachedAt, expected.candidate.cachedAt)
+        XCTAssertEqual(controller.status, .failed)
+        let onDisk = await RecentUsageStore(fileURL: url).load(validityToken: originalToken!)
+        XCTAssertEqual(onDisk, expected)
+    }
+
+    func testRejectedIDESaveCannotSurviveWhenBrowserSaveIsPendingOrSkipped() async throws {
+        for rejectDuringWrite in [true, false] {
+            let url = try location()
+            let validity = RecentUsageTestValidity()
+            let originalToken = validity.token!
+            let gate = RecentUsageWriteGate(arrival: expectation(description: "IDE save started"))
+            defer { gate.release() }
+            let writes = RecentUsageTestCounter()
+            let browserWrite = expectation(description: "Retired browser publication must not be saved")
+            browserWrite.isInverted = true
+            let store = RecentUsageStore(fileURL: url, hooks: .init(beforeWrite: {
+                if writes.increment() == 1 { try gate.suspend() } else { browserWrite.fulfill() }
+            }, beforeRemove: { throw CocoaError(.fileWriteNoPermission) }))
+            let controller = RecentUsageController(store: store, validityPersistence: validity.persistence)
+            controller.beginSession(generation: 1)
+            let initialIDE = try XCTUnwrap(controller.selectCredential(cookieHeader: cookie("ide"), generation: 1, attemptID: 1))
+            _ = controller.validateIdentity(subject: "subject", scope: .personal, context: initialIDE)
+            XCTAssertTrue(controller.publish(candidate: candidate(time: 100), context: initialIDE))
+            await fulfillment(of: [gate.arrival], timeout: 1)
+
+            let browser = try XCTUnwrap(controller.selectCredential(cookieHeader: cookie("browser"), generation: 1, attemptID: 2))
+            _ = controller.validateIdentity(subject: "subject", scope: .personal, context: browser)
+            XCTAssertTrue(controller.publish(candidate: candidate(time: 200), context: browser))
+            let expected = try XCTUnwrap(controller.snapshot)
+            let rejectedIDE = try XCTUnwrap(controller.selectCredential(cookieHeader: cookie("ide"), generation: 1, attemptID: 3))
+            let probe = RecentUsageStore(fileURL: url)
+            if !rejectDuringWrite {
+                gate.release()
+                await controller.testHook_waitForPersistence()
+                await eventually { await probe.load(validityToken: originalToken) == self.saved(credential: "ide") }
+                await fulfillment(of: [browserWrite], timeout: 0.05)
+            }
+
+            controller.rejectCredential(context: rejectedIDE)
+            XCTAssertNotEqual(validity.token, originalToken)
+            XCTAssertEqual(validity.commits.count, 1)
+            let fallback = try XCTUnwrap(controller.selectCredential(cookieHeader: cookie("browser"), generation: 1, attemptID: 3))
+            controller.recordFailure(context: fallback)
+            XCTAssertEqual(controller.snapshot, expected)
+            XCTAssertEqual(controller.snapshot?.candidate.cachedAt, Date(timeIntervalSince1970: 200))
+            XCTAssertEqual(controller.status, .failed)
+            if rejectDuringWrite {
+                gate.release()
+                await controller.testHook_waitForPersistence()
+                await eventually { await probe.load(validityToken: originalToken) == self.saved(credential: "ide") }
+                await fulfillment(of: [browserWrite], timeout: 0.05)
+            }
+
+            let rejectedRestore = expectation(description: "Rejected IDE file must not restore on restart")
+            rejectedRestore.isInverted = true
+            let restarted = RecentUsageController(store: RecentUsageStore(fileURL: url, hooks: .init(afterRead: {
+                rejectedRestore.fulfill()
+            })), validityPersistence: validity.persistence)
+            restarted.beginSession(generation: 1)
+            _ = restarted.selectCredential(cookieHeader: cookie("ide"), generation: 1, attemptID: 1)
+            await fulfillment(of: [rejectedRestore], timeout: 0.05)
+            XCTAssertNil(restarted.snapshot)
+        }
+    }
+
+    func testCompletedBrowserSaveSurvivesUnrelatedIDERejection() async throws {
+        let url = try location()
+        let validity = RecentUsageTestValidity()
+        let originalToken = validity.token!
+        let controller = RecentUsageController(store: RecentUsageStore(fileURL: url), validityPersistence: validity.persistence)
+        controller.beginSession(generation: 1)
+        let browser = try XCTUnwrap(controller.selectCredential(cookieHeader: cookie("browser"), generation: 1, attemptID: 1))
+        _ = controller.validateIdentity(subject: "subject", scope: .personal, context: browser)
+        XCTAssertTrue(controller.publish(candidate: candidate(), context: browser))
+        let expected = try XCTUnwrap(controller.snapshot)
+        let probe = RecentUsageStore(fileURL: url)
+        await controller.testHook_waitForPersistence()
+        let persisted = await probe.load(validityToken: originalToken)
+        XCTAssertEqual(persisted, expected)
+
+        let rejectedIDE = try XCTUnwrap(controller.selectCredential(cookieHeader: cookie("ide"), generation: 1, attemptID: 2))
+        controller.rejectCredential(context: rejectedIDE)
+        XCTAssertEqual(validity.token, originalToken)
+        XCTAssertTrue(validity.commits.isEmpty)
+        let fallback = try XCTUnwrap(controller.selectCredential(cookieHeader: cookie("browser"), generation: 1, attemptID: 2))
+        controller.recordFailure(context: fallback)
+        XCTAssertEqual(controller.snapshot, expected)
+        let onDisk = await probe.load(validityToken: originalToken)
+        XCTAssertEqual(onDisk, expected)
+    }
+
+    func testRejectedExactOrIdentityEligibleCredentialRevokesKnownCache() async throws {
+        for rejectedCredential in ["original", "rotated"] {
+            let url = try location()
+            let validity = RecentUsageTestValidity()
+            let originalToken = validity.token
+            let expected = saved()
+            try await seed(expected, at: url, validity: validity)
+            let controller = RecentUsageController(store: RecentUsageStore(fileURL: url), validityPersistence: validity.persistence)
+            controller.beginSession(generation: 1)
+            _ = controller.selectCredential(cookieHeader: cookie(), generation: 1, attemptID: 1)
+            await eventually { controller.snapshot == expected }
+            let rejected = try XCTUnwrap(controller.selectCredential(cookieHeader: cookie(rejectedCredential), generation: 1, attemptID: 2))
+            _ = controller.validateIdentity(subject: "subject", scope: .personal, context: rejected)
+            XCTAssertEqual(controller.snapshot, expected)
+
+            controller.rejectCredential(context: rejected)
+            XCTAssertNil(controller.snapshot)
+            XCTAssertNotEqual(validity.token, originalToken)
+            XCTAssertEqual(validity.commits.count, 1)
+            XCTAssertFalse(controller.publish(candidate: candidate(), context: rejected))
+            let onDisk = await RecentUsageStore(fileURL: url).load(validityToken: validity.token!)
+            XCTAssertNil(onDisk)
+        }
+    }
+
     func testCredentialSelectionWithoutRejectionAlsoInvalidatesOldLoad() async throws {
         let url = try location()
         let validity = RecentUsageTestValidity()
@@ -281,6 +450,67 @@ final class RecentUsageControllerTests: XCTestCase {
         XCTAssertNil(stale)
         await Task.yield()
         XCTAssertNil(restarted.snapshot)
+    }
+
+    func testRepeatedRevocationWithoutNewSaveDoesNotRepeatDurableOrDiskWrites() async throws {
+        let url = try location()
+        let validity = RecentUsageTestValidity()
+        let originalToken = validity.token
+        try await seed(saved(), at: url, validity: validity)
+        let removals = RecentUsageTestCounter()
+        let repeatedRemoval = expectation(description: "An already revoked cache must not be removed again")
+        repeatedRemoval.isInverted = true
+        let store = RecentUsageStore(fileURL: url, hooks: .init(beforeRemove: {
+            if removals.increment() > 1 { repeatedRemoval.fulfill() }
+        }))
+        let controller = RecentUsageController(store: store, validityPersistence: validity.persistence)
+
+        controller.invalidate(generation: 1, revokePersisted: true)
+        XCTAssertNotEqual(validity.token, originalToken, "Initial disk contents are unknown and require revocation")
+        XCTAssertEqual(validity.commits.count, 1)
+        await eventually { removals.value == 1 && !FileManager.default.fileExists(atPath: url.path) }
+        let revokedToken = validity.token
+
+        controller.invalidate(generation: 2, revokePersisted: true)
+        XCTAssertNil(controller.selectCredential(cookieHeader: "other=value", generation: 2, attemptID: 1))
+        controller.invalidate(generation: 3, revokePersisted: true)
+        XCTAssertEqual(validity.token, revokedToken)
+        XCTAssertEqual(validity.commits.count, 1)
+        await fulfillment(of: [repeatedRemoval], timeout: 0.05)
+        XCTAssertEqual(removals.value, 1)
+    }
+
+    func testEnqueuedOrCompletedSaveAfterRevocationRequiresAnotherDurableRevocation() async throws {
+        for completeSave in [false, true] {
+            let url = try location()
+            let validity = RecentUsageTestValidity()
+            let removals = RecentUsageTestCounter()
+            let repeatedRemoval = expectation(description: "Each possible saved snapshot needs only one removal")
+            repeatedRemoval.isInverted = true
+            let store = RecentUsageStore(fileURL: url, hooks: .init(beforeRemove: {
+                if removals.increment() > 2 { repeatedRemoval.fulfill() }
+            }))
+            let controller = RecentUsageController(store: store, validityPersistence: validity.persistence)
+            controller.invalidate(generation: 1, revokePersisted: true)
+            await eventually { removals.value == 1 }
+            let firstRevokedToken = validity.token
+            let context = try XCTUnwrap(controller.selectCredential(cookieHeader: cookie(), generation: 1, attemptID: 1))
+            _ = controller.validateIdentity(subject: "subject", scope: .personal, context: context)
+            XCTAssertTrue(controller.publish(candidate: candidate(), context: context))
+            let probe = RecentUsageStore(fileURL: url)
+            if completeSave {
+                await eventually { await probe.load(validityToken: validity.token!) == controller.snapshot }
+            }
+
+            controller.invalidate(generation: 2, revokePersisted: true)
+            XCTAssertNotEqual(validity.token, firstRevokedToken)
+            XCTAssertEqual(validity.commits.count, 2, "Even an enqueued save must re-arm durable revocation")
+            await eventually { removals.value == 2 && !FileManager.default.fileExists(atPath: url.path) }
+            controller.invalidate(generation: 3, revokePersisted: true)
+            XCTAssertEqual(validity.commits.count, 2)
+            await fulfillment(of: [repeatedRemoval], timeout: 0.05)
+            XCTAssertEqual(removals.value, 2)
+        }
     }
 
     func testMissingValidityTokenCommitsBeforeRestoringAndDoesNotAdoptOldFile() async throws {
@@ -373,16 +603,27 @@ final class RecentUsageControllerTests: XCTestCase {
         XCTAssertEqual(controller.snapshot?.candidate, candidate(time: 300))
     }
 
-    func testMissingOrAmbiguousCredentialClearsPreviouslyVisibleCache() async throws {
-        let controller = RecentUsageController()
-        controller.beginSession(generation: 1)
-        let valid = try XCTUnwrap(controller.selectCredential(cookieHeader: cookie(), generation: 1, attemptID: 1))
-        _ = controller.validateIdentity(subject: "subject", scope: .personal, context: valid)
-        _ = controller.publish(candidate: candidate(), context: valid)
-        XCTAssertNil(controller.selectCredential(cookieHeader: "other=value", generation: 1, attemptID: 2))
-        XCTAssertNil(controller.snapshot)
-        XCTAssertEqual(controller.status, .idle)
-        XCTAssertFalse(controller.publish(candidate: candidate(), context: valid))
+    func testMissingInvalidOrAmbiguousCredentialFailsAndRevokesVisibleCache() async throws {
+        for invalidHeader in ["other=value", cookie(""), cookie("invalid token"), "\(cookie()); \(cookie("different"))"] {
+            let url = try location()
+            let validity = RecentUsageTestValidity()
+            let originalToken = validity.token
+            let expected = saved()
+            try await seed(expected, at: url, validity: validity)
+            let controller = RecentUsageController(store: RecentUsageStore(fileURL: url), validityPersistence: validity.persistence)
+            controller.beginSession(generation: 1)
+            let valid = try XCTUnwrap(controller.selectCredential(cookieHeader: cookie(), generation: 1, attemptID: 1))
+            await eventually { controller.snapshot == expected }
+
+            XCTAssertNil(controller.selectCredential(cookieHeader: invalidHeader, generation: 1, attemptID: 2))
+            XCTAssertNil(controller.snapshot)
+            XCTAssertEqual(controller.status, .failed)
+            XCTAssertNotEqual(validity.token, originalToken)
+            XCTAssertEqual(validity.commits.count, 1)
+            XCTAssertFalse(controller.publish(candidate: candidate(), context: valid))
+            let onDisk = await RecentUsageStore(fileURL: url).load(validityToken: validity.token!)
+            XCTAssertNil(onDisk)
+        }
     }
 
     func testFreshPublicationRequiresResolvedAuthenticatedScope() throws {

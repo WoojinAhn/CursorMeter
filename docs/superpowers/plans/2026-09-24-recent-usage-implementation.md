@@ -313,7 +313,7 @@ threshold-notification path.
   Verify actual HTTP counts for rapid alternating controls/automatic requests.
   Run full local suite and unmodified CLT build, then spec/quality review.
 - [x] Commit `[#118] feat: share usage events and isolate refresh sessions`.
-- [ ] Request independent Cursor Grok4.7/Muse1.3/Opus5.5 integration reviews using
+- [x] Request independent Cursor Grok4.7/Muse1.3/Opus5.5 integration reviews using
   cursor:rescue. Reconcile code-grounded findings, test fixes, and commit before UI
   wiring. Keep review jobs read-only; no live Cursor credentials or data.
 
@@ -323,6 +323,16 @@ enterprise shape rejection without meter data, and meter latching after a change
 team/user scope. The compatibility mirror passed 619/619 tests; the unmodified
 CLT Swift 6.2.4 build completed successfully. Native app observation, production
 store injection, and the system timezone observer remain in Task 5.
+
+Integration review follow-up: all three requested models completed read-only
+reviews. Preserve a known unrelated held snapshot across IDE rejection, retaining
+its disk binding only when current-file ownership is proven. Invalid credential
+bindings expose failure, and repeated revocation avoids redundant durable writes.
+Session expiry retains the existing activity throttle. Gated tests cover late
+and skipped disk writes, including failed deletion. Independent specification
+and quality re-reviews passed. The compatibility suite passed 626/626 tests;
+the final persistence synchronization change passed 28/28 controller tests and
+the unmodified CLT build. Native UI work remains pending below.
 
 ## Task 5: Add Native Usage and Shared Refresh Controls
 

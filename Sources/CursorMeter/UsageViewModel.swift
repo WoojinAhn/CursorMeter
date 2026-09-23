@@ -602,6 +602,7 @@ final class UsageViewModel {
 
     private func startSession() {
         invalidateRefreshSession(revokePersisted: false)
+        lastRefreshAttempt = nil
         notificationManager.resetNotifications()
         authState = .loggedIn
         let generation = sessionGeneration
@@ -645,7 +646,6 @@ final class UsageViewModel {
         recentUsage.invalidate(generation: sessionGeneration, revokePersisted: revokePersisted)
         cancelDeferredRefreshes()
         stopAutoRefresh()
-        lastRefreshAttempt = nil
         isRefreshing = false
         isLoading = false
         errorMessage = nil
@@ -1379,6 +1379,7 @@ final class UsageViewModel {
 
     func logout() {
         invalidateRefreshSession(revokePersisted: true)
+        lastRefreshAttempt = nil
         // Stop the sign-in watch and invalidate pending provider reads AND
         // any in-flight launch completion — a late result must not reconnect
         // against the user's intent (#88).

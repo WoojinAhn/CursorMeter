@@ -54,6 +54,8 @@ final class RecentUsageController {
         return !Self.disabledCacheFiles.contains(store.cacheIdentity)
     }
     @ObservationIgnored private var validityToken: String?
+    @ObservationIgnored private var mayHavePersistedSnapshot = true
+    @ObservationIgnored private var knownPersistedCredentialDigest: String?
     @ObservationIgnored private var heldSnapshot: RecentUsageSnapshot?
     @ObservationIgnored private var eligibleCredentialDigest: String?
     @ObservationIgnored private var generation: UInt64 = 0
@@ -94,6 +96,7 @@ final class RecentUsageController {
         guard let credential = RecentUsageBinding.credentialDigest(cookieHeader: cookieHeader) else {
             clearCache()
             revokePersistence()
+            status = .failed
             return nil
         }
         let selected = Context(generation: generation, attemptID: attemptID,
@@ -110,12 +113,16 @@ final class RecentUsageController {
         guard snapshot == nil, heldSnapshot == nil, let store, let token = ensureValidityToken() else { return selected }
         let revision = restoreRevision
         let publication = publicationRevision
+        let diskRevision = diskOperationID
         restoreTask = Task { [weak self] in
             guard !Task.isCancelled else { return }
             let restored = await store.load(validityToken: token)
             guard let self, !Task.isCancelled, self.matches(selected),
                   self.restoreRevision == revision, self.publicationRevision == publication,
                   self.diskEnabled, self.validityToken == token, let restored else { return }
+            if self.diskOperationID == diskRevision, self.diskTask == nil {
+                self.knownPersistedCredentialDigest = restored.binding.credentialDigest
+            }
             self.heldSnapshot = restored
             self.authorizeHeldSnapshot()
         }
@@ -168,6 +175,12 @@ final class RecentUsageController {
 
     func rejectCredential(context: Context) {
         guard matches(context) else { return }
+        if let held = heldSnapshot, held.binding.credentialDigest != context.credentialDigest {
+            let preserveDisk = knownPersistedCredentialDigest == held.binding.credentialDigest
+            invalidate(generation: generation, revokePersisted: !preserveDisk)
+            heldSnapshot = held
+            return
+        }
         invalidate(generation: generation, revokePersisted: true)
     }
 
@@ -180,6 +193,10 @@ final class RecentUsageController {
         retireRestore()
         clearCache()
         if revokePersisted { revokePersistence() }
+    }
+
+    func testHook_waitForPersistence() async {
+        await diskTask?.value
     }
 
     private func matches(_ context: Context) -> Bool {
@@ -250,7 +267,8 @@ final class RecentUsageController {
     }
 
     private func revokePersistence() {
-        guard store != nil else { return }
+        knownPersistedCredentialDigest = nil
+        guard store != nil, mayHavePersistedSnapshot else { return }
         if diskEnabled, let validityPersistence {
             let token = UUID().uuidString
             // Confirm durable revocation before returning from the authentication boundary.
@@ -259,6 +277,7 @@ final class RecentUsageController {
                 return
             }
             validityToken = token
+            mayHavePersistedSnapshot = false
         }
         enqueue(.remove)
     }
@@ -266,6 +285,7 @@ final class RecentUsageController {
     private func disablePersistence() {
         if let store { Self.disabledCacheFiles.insert(store.cacheIdentity) }
         validityToken = nil
+        knownPersistedCredentialDigest = nil
         retireRestore()
         Log.error("Recent usage cache validity could not be persisted; disk cache disabled")
         enqueue(.remove)
@@ -273,6 +293,8 @@ final class RecentUsageController {
 
     private func enqueue(_ mutation: DiskOperation.Mutation) {
         guard store != nil else { return }
+        knownPersistedCredentialDigest = nil
+        if case .save = mutation { mayHavePersistedSnapshot = true }
         diskOperationID += 1
         // Keep one active operation and at most one pending replacement.
         pendingDiskOperation = DiskOperation(id: diskOperationID, mutation: mutation)
@@ -285,7 +307,11 @@ final class RecentUsageController {
                 case let .save(snapshot, token, context, publication):
                     guard self.diskEnabled, self.validityToken == token, self.matches(context),
                           self.publicationRevision == publication else { continue }
-                    try? await store.save(snapshot, validityToken: token, operation: operation.id)
+                    self.knownPersistedCredentialDigest = nil
+                    if (try? await store.save(snapshot, validityToken: token, operation: operation.id)) != nil,
+                       self.diskEnabled, self.validityToken == token, self.diskOperationID == operation.id {
+                        self.knownPersistedCredentialDigest = snapshot.binding.credentialDigest
+                    }
                 case .remove:
                     try? await store.remove(operation: operation.id)
                 }
