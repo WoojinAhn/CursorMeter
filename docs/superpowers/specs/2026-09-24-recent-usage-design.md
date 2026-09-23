@@ -184,6 +184,21 @@ has an injectable location; unit tests never read or write the production path.
 The view model's store seam defaults to nil; only the app delegate wires the real
 store. Apply 0600 permissions after every atomic replacement and protect its
 directory with 0700. Equality digests are not encryption or anonymization.
+Bound the encoded file to 256 KiB and inspect its size before loading it.
+
+The nonsecret validity token uses a small preferences value with an explicit
+synchronous persistence result on bootstrap and authentication invalidation
+(`CFPreferencesSetAppValue` followed by `CFPreferencesAppSynchronize`). This is
+the narrow exception to background snapshot I/O: confirm revocation before
+returning from logout, then delete the snapshot asynchronously. Do not rely on
+asynchronous `UserDefaults.set` or add a shutdown-draining framework. If token
+persistence fails, disable disk restore/save for that process and attempt file
+removal; keep valid in-memory data usable. No implementation can promise durable
+revocation if the OS rejects both the metadata write and file removal. Log that
+failure without cached content or credentials. The store/controller tests inject
+this persistence boundary and never access the real app preferences domain.
+Apple documents the explicit persistence operation in
+[CFPreferencesAppSynchronize](https://developer.apple.com/documentation/corefoundation/cfpreferencesappsynchronize(_:)).
 
 `cachedAt` uses an injectable wall clock and records when the first-page response was fully received and
 decoded. Carry that time with the candidate snapshot; publishing after account

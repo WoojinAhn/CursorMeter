@@ -94,7 +94,7 @@ at the persistence boundary. Missing optional values remain nil, never estimates
 `Tests/CursorMeterTests/RecentUsageModelsTests.swift`; modify
 `Sources/CursorMeter/WeeklyUsageModels.swift` only for required decoding metadata.
 
-- [ ] Write failing XCTest cases for count/ordering, malformed optional fields,
+- [x] Write failing XCTest cases for count/ordering, malformed optional fields,
   first-page empty ambiguity, type mapping, tokens, money, and timezone boundaries.
   Start with a fixture that proves the new metadata does not break weekly decoding:
 
@@ -114,14 +114,14 @@ func testOptionalListFieldsDoNotBreakWeeklyDecoding() throws {
 }
 ```
 
-- [ ] Run `python3 .Codex/bin/test-swift.py --filter RecentUsageModelsTests` and
+- [x] Run `python3 .Codex/bin/test-swift.py --filter RecentUsageModelsTests` and
   record the expected missing-type/behavior failure before adding production code.
-- [ ] Implement tolerant list-only decoding. Accept integral numeric strings and
+- [x] Implement tolerant list-only decoding. Accept integral numeric strings and
   integer JSON counters; invalid optional cache counters make the total unknown.
   Require input/output; absent/null cache counters are zero. Sum with
   `addingReportingOverflow`, rejecting negative values. Preserve required String
   timestamp decoding and the existing required chart-field error behavior.
-- [ ] Implement candidate selection with indexed stable sorting and `prefix(30)`:
+- [x] Implement candidate selection with indexed stable sorting and `prefix(30)`:
 
 ```swift
 let sorted = response.usageEventsDisplay.enumerated().compactMap { index, event in
@@ -136,20 +136,24 @@ let sorted = response.usageEventsDisplay.enumerated().compactMap { index, event 
   all-invalid page and a missing first-page array with positive count. An empty
   supplied array or omitted array with zero count is a valid empty candidate.
   Do not apply the weekly date cutoff or deduplicate rows.
-- [ ] Implement formatter functions `amount(cents:)`, `tokens(_:)`,
+- [x] Implement formatter functions `amount(cents:)`, `tokens(_:)`,
   `eventTime(_:mode:now:localTimeZone:)`, `cachedTime(_:mode:localTimeZone:)`,
   `zoneLabel(mode:localTimeZone:)`, and `zoneIdentifier(mode:localTimeZone:)`.
   Use Foundation Decimal/NumberFormatter with POSIX USD punctuation and .halfUp;
   pick precision from the original value. Date functions take an explicit local
   timezone for tests and default to `.autoupdatingCurrent` in production.
-- [ ] Verify fixtures: 35 rows become 30; ties survive; old rows survive;
+- [x] Verify fixtures: 35 rows become 30; ties survive; old rows survive;
   `[1, 999, 1000, 999950, 1000000]` token totals; 1.56/0.0072/zero/tiny/missing USD;
   invalid counter/overflow; included/business/ultra/on-demand/free/custom/other;
   UTC versus Seoul date boundary and Los Angeles DST. Run existing `WeeklyUsageTests`
   and `WeeklyChartMetricTests` once to rule out decoder/aggregation regressions.
-- [ ] Run spec and code-quality reviews, fix relevant findings, then commit only
+- [x] Run spec and code-quality reviews, fix relevant findings, then commit only
   these files as `[#118] feat: decode and format bounded recent usage` with the
   Codex co-author trailer.
+
+Task 1 evidence: commit `e7fc866`; specification and quality reviews passed;
+517/517 tests passed in the local compatibility mirror and unmodified-source
+CLT Swift 6.2.4 build completed successfully.
 
 ## Task 2: Persist One Snapshot and Revoke It Safely
 
@@ -158,7 +162,7 @@ let sorted = response.usageEventsDisplay.enumerated().compactMap { index, event 
 `Tests/CursorMeterTests/RecentUsageStoreTests.swift`, and
 `Tests/CursorMeterTests/RecentUsageControllerTests.swift`.
 
-- [ ] Write failing tests using a temporary directory and a unique UserDefaults
+- [x] Write failing tests using a temporary directory and a unique UserDefaults
   suite. The critical ordering test submits removal before an older save:
 
 ```swift
@@ -175,29 +179,47 @@ XCTAssertFalse(FileManager.default.fileExists(atPath: cacheURL.path))
   authenticated-subject, and request-scope equality digests. Its initializer
   extracts only WorkosCursorSessionToken from a header and hashes it with
   CryptoKit SHA256; missing/ambiguous auth cookies do not authorize restoration.
-- [ ] Observe red before implementation. Add a version-1 Codable envelope with
+- [x] Observe red before implementation. Add a version-1 Codable envelope with
   snapshot and validity token, limit/size/date validation, and owner-only atomic
   replacement. File operations run off the MainActor. The store owns a greatest
   operation ID and rejects older operations before file mutation; actor scheduling
   order is not assumed. Apply 0700 directory and 0600 file permissions each write.
-- [ ] Implement a MainActor observable `RecentUsageController` with `snapshot`,
+  Maximum encoded size is 256 KiB, checked before read and after encode. Update the
+  operation floor before attempting removal even if removal fails.
+- [x] Implement a MainActor observable `RecentUsageController` with `snapshot`,
   `status`, and a private held snapshot. Its store is nil by default. Configure
   production or test store/preferences explicitly; nil means zero file I/O.
   Capture generation/revision before loads and reject late results. Begin restore
   only after the credential selected for the imminent request is known.
-- [ ] Match an exact successful credential for early cached display. Rotated
+- [x] Match an exact successful credential for early cached display. Rotated
   credentials keep the candidate private until authenticated subject and resolved
   request scope both match. New scope, rejected credential, logout, or expiry clears
   displayed/held data and revokes the old persisted validity token before queued
   deletion. A failed removal cannot make the old file eligible at the next launch.
   A validated network candidate replaces rows and cachedAt together; write failure
   keeps memory usable and emits only a content-free persistence error.
-- [ ] Verify exact restart timestamp; credential cookie-order independence; rotated
+  Use an injected validity-token read/commit boundary. Production commits the
+  nonsecret UUID with CFPreferencesSetAppValue + CFPreferencesAppSynchronize and
+  checks its Boolean result before queued deletion. This small synchronous
+  authentication-boundary operation avoids relying on asynchronous UserDefaults
+  writes or a shutdown-draining subsystem. Failure disables disk restore/save for
+  the process and attempts cleanup, while valid in-memory data remains usable.
+  Keep session generation/attempt ID, restore revision, and monotonically
+  increasing disk-operation ID distinct. Every selected credential/fallback
+  invalidates the restore revision, even within one outer attempt. Rotated-token
+  reuse requires nonnil authenticated subject AND exact scope; preserve cachedAt
+  and the original stored binding until a fresh candidate is received.
+- [x] Verify exact restart timestamp; credential cookie-order independence; rotated
   offline withholding; matching-subject reuse; different account/team rejection;
   late load after network publication; old save after invalidation; deletion and
   write failures; corrupt/oversized/unsupported files; no credentials/email/raw
   event payload; second replacement still mode0600; one file and at most30 entries.
-- [ ] Review spec then quality, and commit `[#118] feat: persist account-bound recent usage snapshots`.
+- [x] Review spec then quality, and commit `[#118] feat: persist account-bound recent usage snapshots`.
+
+Task 2 evidence: specification and quality reviews passed; exact auth-value,
+stale-attempt, and process-recreation regressions were reproduced and fixed.
+The compatibility mirror passed 549/549 tests; the unmodified-source
+CLT Swift 6.2.4 build completed successfully.
 
 ## Task 3: Own Shared Admission and Feedback Deadlines
 
@@ -239,7 +261,9 @@ let readyAt = max(start.advanced(by: timing.admissionInterval),
 
 **Files:** create `Sources/CursorMeter/UsageEventCollection.swift` and
 `Tests/CursorMeterTests/RecentUsageIntegrationTests.swift`; coordinator modifies
-`UsageViewModel.swift`, `UsageModels.swift`, and existing test factories only.
+`UsageViewModel.swift`, `UsageModels.swift`, `NotificationManager.swift`, and
+existing test factories. Add a focused notification race test for the existing
+threshold-notification path.
 
 - [ ] Add request-recording MockURLProtocol fixtures for page1/page2 outcomes and
   controllable delayed completions. Select these tests before editing the pipeline:
@@ -271,6 +295,12 @@ let readyAt = max(start.advanced(by: timing.admissionInterval),
   old work and starts once regardless of old feedback cooldown. Account-change
   detection uses authenticated sub plus the existing normalized in-memory email
   signal; discard old-mode optimistic work before adopting the new scope.
+- [ ] Guard threshold-notification state inside NotificationManager as well as
+  its caller: reset advances a revision, authorization completion checks that
+  revision before delivery, and send completion checks it before dedup mutation.
+  Verify a paused old send cannot change the new session's dedup state, using an
+  injected send seam without the real notification center. Already submitted OS
+  notifications are outside this cancellation boundary.
 - [ ] Wire RecentUsageController, persisted Local/UTC setting, and timezone change
   revision. Tab entry and formatting cannot call refresh. Preserve existing
   activity defer/throttle, periodic fallback, and network retry scheduling.
