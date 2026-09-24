@@ -422,23 +422,25 @@ no installed app or real credentials were used.
   integration and preserve user changes. Follow the solo direct-merge preference
   unless external changes make a PR useful. Push a CI-triggering main/PR update;
   feature-only pushes do not trigger this repository's Test workflow.
-- [ ] Inspect CI for both macOS architectures and installer tests. If failures
+- [x] Inspect CI for both macOS architectures and installer tests. If failures
   involve the feature, fix and rerun. Close #118 only after acceptance evidence
   and CI pass, then list remaining open issues. Do not publish a release.
 
-Main integration: `076e697` was fast-forwarded and pushed after native acceptance,
-with existing local files preserved byte-for-byte. The first CI run compiled the
-production target but rejected dynamic `Self` captures in two cancellation-test
-Tasks. Those fixtures now name the test class explicitly, preserving the child
-Tasks and cancellation assertions. The CI acceptance item remains open until
-both architectures pass the corrected test source.
+Main integration completed through `e497734`, with existing local files preserved
+byte-for-byte. Original-source [CI run 35948365910](https://github.com/WoojinAhn/CursorMeter/actions/runs/35948365910)
+passed on macOS 15 ARM and Intel: each executed 642 Swift tests with zero failures
+and all 12 installer tests. CI follow-ups named the final test class explicitly
+inside cancellation Tasks to avoid dynamic `Self` capture, and checked the
+refresh button's constrained alignment rectangle instead of its OS-dependent
+bezel frame. These test-only corrections retained cancellation, geometry, and
+all eight caption-fit assertions; independent specification/quality reviews and
+local focused/full suites passed. Production sources remain unchanged from the
+accepted review fixes at `58be1f8` and subsequent native acceptance.
 
-The next CI run compiled and executed all 642 tests on both architectures.
-Only the refresh button geometry case failed: native bezel frames were 114 by
-38 while their alignment rectangles were constrained to 100 by 26. The test now
-measures the alignment rectangle, retaining the exact dimensions, tolerance,
-and all eight caption-fit cases. The local compatibility suite passed 642/642;
-original-source CI for this correction remains pending.
+[Issue #118](https://github.com/WoojinAhn/CursorMeter/issues/118) was closed as
+completed on 2026-09-24 after CI passed. The required post-close open-issue list
+was checked: #117, #97, #70, #69, #65, #53, #47, #42, #31, and #30 remain open.
+No release was published and no installed application was replaced.
 
 ## Coverage Self-Check
 
