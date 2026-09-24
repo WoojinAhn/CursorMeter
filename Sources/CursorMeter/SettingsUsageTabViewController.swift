@@ -5,7 +5,11 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
     private let viewModel: UsageViewModel
     private let refreshButton = RefreshFeedbackButton(style: .labeled, consumer: .recent)
     private let cachedLabel = NSTextField(labelWithString: "")
-    private let statusLabel = NSTextField(labelWithString: "")
+    private let failureColor = NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            ? .systemOrange
+            : NSColor(srgbRed: 0x95 / 255.0, green: 0x61 / 255.0, blue: 0x24 / 255.0, alpha: 1)
+    }
     private let placeholderLabel = NSTextField(labelWithString: "")
     private let placeholderDetail = NSTextField(labelWithString: "")
     private let countLabel = NSTextField(labelWithString: "")
@@ -34,11 +38,6 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
         cachedLabel.font = .systemFont(ofSize: 10)
         cachedLabel.textColor = .tertiaryLabelColor
         cachedLabel.setAccessibilityLabel("Cached at")
-        statusLabel.font = .systemFont(ofSize: 11)
-        statusLabel.textColor = .secondaryLabelColor
-        statusLabel.lineBreakMode = .byWordWrapping
-        statusLabel.maximumNumberOfLines = 2
-        statusLabel.setAccessibilityLabel("Recent usage status")
         countLabel.font = .systemFont(ofSize: 11)
         countLabel.textColor = .secondaryLabelColor
         zoneLabel.font = .systemFont(ofSize: 10)
@@ -51,7 +50,7 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
         refreshButton.action = #selector(refreshTapped)
 
         tableView.headerView = nil
-        tableView.rowHeight = 52
+        tableView.rowHeight = 44
         tableView.intercellSpacing = .zero
         tableView.columnAutoresizingStyle = .firstColumnOnlyAutoresizingStyle
         tableView.allowsColumnResizing = false
@@ -60,7 +59,7 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
         tableView.dataSource = self
         tableView.delegate = self
         tableView.setAccessibilityLabel("Recent usage events")
-        for (id, width) in [("model", 273.0), ("tokens", 70.0), ("amount", 79.0)] {
+        for (id, width) in [("model", 233.0), ("tokens", 70.0), ("amount", 79.0)] {
             let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(id))
             column.width = width
             column.minWidth = id == "model" ? 150 : width
@@ -90,7 +89,7 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
             tableHost.addSubview($0)
         }
         NSLayoutConstraint.activate([
-            tableHost.heightAnchor.constraint(equalToConstant: 312),
+            tableHost.heightAnchor.constraint(equalToConstant: 264),
             scrollView.leadingAnchor.constraint(equalTo: tableHost.leadingAnchor, constant: 11),
             scrollView.trailingAnchor.constraint(equalTo: tableHost.trailingAnchor, constant: -11),
             scrollView.topAnchor.constraint(equalTo: tableHost.topAnchor),
@@ -108,7 +107,7 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
         let header = NSStackView(views: [titleStack, SettingsCardFactory.makeSpacer(), refreshButton])
         header.orientation = .horizontal
         header.alignment = .centerY
-        header.spacing = 8
+        header.spacing = 6
         header.edgeInsets = NSEdgeInsets(top: 12, left: 14, bottom: 6, right: 14)
 
         let countRow = NSStackView(views: [countLabel, SettingsCardFactory.makeSpacer(), zoneLabel, zoneControl])
@@ -132,22 +131,12 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
         footer.alignment = .centerY
         footer.edgeInsets = NSEdgeInsets(top: 9, left: 14, bottom: 9, right: 14)
 
-        let statusHost = NSView()
-        statusHost.addSubview(statusLabel)
-        statusLabel.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            statusHost.heightAnchor.constraint(equalToConstant: 32),
-            statusLabel.leadingAnchor.constraint(equalTo: statusHost.leadingAnchor, constant: 14),
-            statusLabel.trailingAnchor.constraint(equalTo: statusHost.trailingAnchor, constant: -14),
-            statusLabel.centerYAnchor.constraint(equalTo: statusHost.centerYAnchor),
-        ])
-
         let card = SettingsCardFactory.makeCard(units: [
-            header, statusHost, SettingsCardFactory.makeDividedUnit(tableHost),
+            header, SettingsCardFactory.makeDividedUnit(tableHost),
             SettingsCardFactory.makeDividedUnit(countRow), captionHost,
             SettingsCardFactory.makeDividedUnit(footer),
         ])
-        view = SettingsCardFactory.makeTabRoot(sections: [card], width: 480)
+        view = SettingsCardFactory.makeTabRoot(sections: [card], width: 440)
         view.setAccessibilityLabel("Usage")
     }
 
@@ -185,9 +174,18 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
         zoneLabel.setAccessibilityHelp(zoneIdentifier)
         zoneControl.toolTip = zoneIdentifier
         zoneControl.setAccessibilityHelp(zoneIdentifier)
-        cachedLabel.stringValue = candidate.map {
+        let cachedText = candidate.map {
             "Cached \(RecentUsageFormatter.cachedTime($0.cachedAt, mode: mode)) \(RecentUsageFormatter.zoneLabel(mode: mode, at: $0.cachedAt))"
         } ?? ""
+        let cacheStatus = NSMutableAttributedString(string: cachedText, attributes: [
+            .font: NSFont.systemFont(ofSize: 10), .foregroundColor: NSColor.tertiaryLabelColor,
+        ])
+        if candidate != nil, viewModel.recentUsage.status == .failed, feedback.phase != .updating {
+            cacheStatus.append(NSAttributedString(string: " · Update failed", attributes: [
+                .font: NSFont.systemFont(ofSize: 10), .foregroundColor: failureColor,
+            ]))
+        }
+        cachedLabel.attributedStringValue = cacheStatus
         countLabel.stringValue = candidate.map {
             $0.entries.count == 1 ? "Latest 1 request" : "\($0.entries.isEmpty ? "0 requests" : "Latest \($0.entries.count) requests")"
         } ?? ""
@@ -197,29 +195,15 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
         if !authenticated {
             placeholderLabel.stringValue = "Connect Cursor to view recent usage."
             placeholderDetail.stringValue = ""
-        } else if candidate == nil, viewModel.recentUsage.status == .failed {
+        } else if candidate == nil, viewModel.recentUsage.status == .failed, feedback.phase != .updating {
             placeholderLabel.stringValue = "Unable to load recent usage."
-            placeholderDetail.stringValue = ""
+            placeholderDetail.stringValue = "Try again later."
         } else if candidate == nil {
             placeholderLabel.stringValue = "Loading recent usage…"
             placeholderDetail.stringValue = ""
         } else {
             placeholderLabel.stringValue = "No recent usage"
             placeholderDetail.stringValue = "New requests will appear here after Cursor reports them."
-        }
-        if feedback.phase == .updating {
-            statusLabel.stringValue = "Updating…"
-        } else {
-            switch viewModel.recentUsage.status {
-            case .failed:
-                statusLabel.stringValue = candidate == nil
-                    ? "Couldn’t update. Try again later."
-                    : "Couldn’t update. Showing saved data."
-            case .cached:
-                statusLabel.stringValue = "Showing saved data."
-            case .current, .idle:
-                statusLabel.stringValue = ""
-            }
         }
     }
 
@@ -262,10 +246,10 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
             host.addSubview(detail)
             detail.translatesAutoresizingMaskIntoConstraints = false
             NSLayoutConstraint.activate([
-                primary.topAnchor.constraint(equalTo: host.topAnchor, constant: 9),
+                primary.topAnchor.constraint(equalTo: host.topAnchor, constant: 7),
                 detail.leadingAnchor.constraint(equalTo: host.leadingAnchor),
                 detail.trailingAnchor.constraint(equalTo: host.trailingAnchor, constant: -8),
-                detail.topAnchor.constraint(equalTo: primary.bottomAnchor, constant: 3),
+                detail.topAnchor.constraint(equalTo: primary.bottomAnchor, constant: 2),
             ])
         } else {
             primary.centerYAnchor.constraint(equalTo: host.centerYAnchor).isActive = true

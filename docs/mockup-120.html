@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>CursorMeter — Usage spacing comparison</title>
+  <style>
+    :root { color-scheme:dark; --page:#171717; --window:#202020; --card:#252525; --list:#202020; --line:#3e3e3e; --text:#dedede; --secondary:#999; --muted:#707070; --button:#363636; --blue:#0a84ff; --warning:#e3a65e; }
+    body.light { color-scheme:light; --page:#f1f2f4; --window:#fff; --card:#f7f7f7; --list:#fff; --line:#dedede; --text:#282828; --secondary:#808080; --muted:#999; --button:#e5e5e5; --blue:#007aff; --warning:#956124; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--page); color:var(--text); font:14px/1.5 -apple-system,BlinkMacSystemFont,"Helvetica Neue",sans-serif; }
+    .shell { max-width:1060px; padding:26px 26px 30px; margin:auto; }
+    h1 { margin:0 0 5px; font-size:23px; font-weight:620; letter-spacing:-.5px; }
+    .intro { margin:0; color:var(--secondary); }
+    .tools { display:flex; gap:18px; flex-wrap:wrap; align-items:center; margin:18px 0 22px; }
+    .tools label { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--secondary); }
+    .tools select,.theme { color:var(--text); background:var(--button); border:1px solid var(--line); border-radius:6px; font:inherit; padding:5px 10px; }
+    button { cursor:pointer; font:inherit; }
+    button:focus-visible,select:focus-visible,.list:focus-visible { outline:2px solid var(--blue); outline-offset:3px; }
+    .comparison { display:grid; grid-template-columns:480px 440px; gap:40px; align-items:start; }
+    .panel-heading { display:flex; align-items:baseline; justify-content:space-between; margin:0 0 10px; }
+    .panel-heading h2 { font-size:14px; margin:0; font-weight:600; }
+    .panel-heading span { font-size:12px; color:var(--secondary); }
+    .window { width:480px; height:628px; background:var(--window); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+    .after .window { width:440px; height:548px; }
+    .chrome { height:87px; position:relative; border-bottom:1px solid var(--line); }
+    .traffic { position:absolute; left:13px; top:11px; display:flex; gap:7px; }
+    .traffic i { width:12px; height:12px; border-radius:50%; background:#ff5f57; }
+    .traffic i:nth-child(2) { background:#696969; }.traffic i:nth-child(3) { background:#696969; }
+    .title { text-align:center; height:25px; line-height:25px; color:var(--secondary); font-size:13px; font-weight:600; }
+    .tabs { display:flex; justify-content:center; gap:7px; }
+    .tab { height:54px; min-width:57px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px; font-size:11px; font-weight:500; color:var(--secondary); border:1px solid transparent; border-radius:8px; }
+    .tab svg { width:25px; height:25px; fill:none; stroke:currentColor; stroke-width:1.65; stroke-linecap:round; stroke-linejoin:round; }
+    .tab.active { color:var(--blue); background:#0003; border-color:var(--line); }
+    .light .tab.active { background:#f2f2f2; }
+    .body { padding:18px 17px; }
+    .card { border:1px solid var(--line); border-radius:10px; background:var(--card); overflow:hidden; }
+    .card-header { height:47px; padding:10px 13px 5px; display:flex; align-items:center; justify-content:space-between; gap:16px; }
+    .header-copy { min-width:0; }
+    .heading { font-size:12px; line-height:15px; font-weight:600; color:var(--secondary); }
+    .cached { font-size:10px; line-height:12px; color:var(--muted); margin-top:2px; white-space:nowrap; }
+    .cached .failure { color:var(--warning); }
+    .refresh { display:flex; align-items:center; justify-content:center; gap:7px; border:0; border-radius:6px; width:100px; height:26px; flex-shrink:0; color:var(--text); background:var(--button); font-size:11px; font-weight:600; }
+    .refresh svg { width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+    .refresh:disabled { color:var(--secondary); cursor:default; }
+    .refresh.updating svg { animation:spin 1.1s linear infinite; }
+    .status { height:32px; padding:7px 13px; color:var(--secondary); font-size:11px; line-height:16px; }
+    .after .status { display:none; }
+    .list { height:312px; margin:0 10px; box-shadow:0 -1px 0 var(--line); overflow-y:auto; background:var(--list); scrollbar-width:thin; scrollbar-color:#6665 transparent; }
+    .after .list { height:264px; }
+    .row { height:52px; padding:0 10px; display:grid; grid-template-columns:minmax(0,1fr) 70px 79px; align-items:center; }
+    .after .row { height:44px; }
+    .model { min-width:0; padding-right:8px; }
+    .model-name { font-size:12px; line-height:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .detail { margin-top:3px; font-size:10px; line-height:12px; color:var(--secondary); white-space:nowrap; }
+    .after .detail { margin-top:2px; }
+    .tokens { color:var(--secondary); text-align:right; font-size:11px; padding-right:8px; }
+    .amount { text-align:right; font-size:12px; font-weight:500; padding-right:8px; }
+    .meta { height:38px; padding:0 13px; display:flex; align-items:center; justify-content:space-between; border-top:1px solid var(--line); color:var(--secondary); font-size:11px; }
+    .zone { display:flex; align-items:center; gap:8px; }
+    .zone small { font-size:10px; color:var(--muted); }
+    .segments { display:flex; background:var(--button); border-radius:5px; overflow:hidden; font-size:11px; }
+    .segments span { padding:1px 9px; color:var(--text); }.segments .active { background:var(--blue); color:white; }
+    .included { height:37px; padding:8px 13px; color:var(--secondary); font-size:11px; }
+    .footer { height:35px; border-top:1px solid var(--line); padding:0 13px; display:flex; align-items:center; justify-content:space-between; color:var(--secondary); font-size:11px; }
+    .footer .link { color:var(--blue); }
+    .placeholder { height:100%; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:4px; font-size:12px; }
+    .placeholder small { color:var(--secondary); font-size:11px; }
+    .notes { padding:12px 0 0; color:var(--secondary); font-size:12px; margin:0; }
+    .notes strong { color:var(--text); font-weight:500; }
+    .footer-note { margin:24px 0 0; color:var(--muted); font-size:12px; max-width:80ch; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    @media(prefers-reduced-motion:reduce) { .refresh.updating svg { animation:none; } }
+    @media(max-width:1010px) { .comparison { display:flex; flex-direction:column; gap:28px; }.shell { max-width:550px; } }
+    @media(max-width:520px) { .shell { padding:20px 12px; }.panel { max-width:100%; overflow-x:auto; }.panel-heading { max-width:440px; }.intro { font-size:12px; } }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <h1>Usage, with less empty space</h1>
+    <p class="intro">Same six visible requests. Same controls. Sized to match the other Settings tabs.</p>
+    <div class="tools">
+      <label>State <select id="state"><option value="current">Current data</option><option value="updating">Updating</option><option value="failed">Update failed, saved data</option><option value="empty">No recent requests</option><option value="initial">Initial load failed</option></select></label>
+      <button class="theme" id="theme" type="button">Switch to light</button>
+    </div>
+    <div class="comparison">
+      <section class="panel before">
+        <div class="panel-heading"><h2>Before</h2><span>480 × 628 pt</span></div>
+        <div class="window" id="before"></div>
+        <p class="notes">52pt rows. A <strong>32pt status slot remains even when empty.</strong></p>
+      </section>
+      <section class="panel after">
+        <div class="panel-heading"><h2>Proposed</h2><span>440 × 548 pt</span></div>
+        <div class="window" id="after"></div>
+        <p class="notes"><strong>40pt narrower, 80pt shorter.</strong><br>44pt rows. Progress stays in the button; failure stays beside the cache time.</p>
+      </section>
+    </div>
+    <p class="footer-note">Layout mockup with synthetic example data. No Cursor requests are made. Native geometry and text fit will be verified during implementation. The proposed width matches General, Alerts, and Display.</p>
+  </main>
+  <script>
+    const icons = {
+      General:'<path d="m9 3 1-2h4l1 2 2 1 2-1 2 3-1 2v3l1 2-2 3-2-1-2 1-1 3h-4l-1-3-2-1-2 1-2-3 1-2V8L3 6l2-3 2 1z" transform="translate(0 1)"/><circle cx="12" cy="11" r="3"/>',
+      Alerts:'<path d="M5 17h14l-2-3V9a5 5 0 0 0-10 0v5zM10 21h4M12 2v2"/>',
+      Display:'<path d="m15 2 7 7-8 8-7-7zM7 10l-3 4 6 6 4-3M6 18l-4 4M4 14l-2 3 5 5 3-2"/>',
+      Usage:'<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 8h8M9 12h8M9 16h5M6 8h.1M6 12h.1M6 16h.1"/>'
+    };
+    const arrow='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 5a8 8 0 1 0 3 7M17 1v5h-5"/></svg>';
+    const models=['claude-opus-5-5-max','grok-4.7-xhigh','muse-spark-1.3-max','a-long-model-name-for-truncation-check','claude-opus-5-5-max','grok-4.7-xhigh'];
+    const tokens=['1.82M','2.3M','839.8K','104.2K','256.4K','72.1K'];
+    const costs=['$1.56','$0.0072','$0.00','$2.38','<$0.0001','$0.14'];
+    let timers=[];
+    function clearTimers() { timers.forEach(clearTimeout); timers=[]; }
+    function render(state) {
+      const scrollPositions=Object.fromEntries(['before','after'].map(id=>[id,document.querySelector('#'+id+' .list')?.scrollTop||0]));
+      for (const id of ['before','after']) {
+        const compact=id==='after';
+        const hasCache=state!=='initial';
+        const hasRows=hasCache && state!=='empty';
+        const updating=state==='updating';
+        const failed=state==='failed'||state==='initial';
+        const label=updating?'Updating':state==='updated'?'Updated':failed?'Retry later':'Refresh';
+        const chrome='<div class="chrome"><div class="traffic"><i></i><i></i><i></i></div><div class="title">Usage</div><div class="tabs">'+Object.entries(icons).map(([name,svg])=>'<div class="tab '+(name==='Usage'?'active':'')+'"><svg viewBox="0 0 24 24">'+svg+'</svg>'+name+'</div>').join('')+'</div>';
+        const cache=hasCache?'Cached 2026-09-24 11:09 GMT+9'+(compact&&failed?' <span class="failure">· Update failed</span>':''):'';
+        const status=updating?'Updating…':state==='failed'?'Couldn’t update. Showing saved data.':state==='initial'?'Couldn’t update. Try again later.':'';
+        const rows=Array.from({length:30},(_,i)=>{
+          const j=i%6;
+          return '<div class="row"><div class="model"><div class="model-name" title="'+models[j]+'">'+models[j]+'</div><div class="detail">Sep 24, '+String(11-Math.floor(i/2)).padStart(2,'0')+':'+(i%2?'09':'39')+' · '+(j===2?'Free':j===1?'On-demand':'Included')+'</div></div><div class="tokens">'+tokens[j]+'</div><div class="amount">'+costs[j]+'</div></div>';
+        }).join('');
+        const empty='<div class="placeholder">'+(state==='initial'?'Unable to load recent usage.':'No recent usage')+'<small>'+(state==='initial'?(compact?'Try again later.':''):'New requests appear after Cursor reports them.')+'</small></div>';
+        document.getElementById(id).innerHTML=chrome+'<div class="body"><div class="card"><div class="card-header"><div class="header-copy"><div class="heading">Recent usage</div><div class="cached">'+cache+'</div></div><button class="refresh '+(updating?'updating':'')+'" '+(updating||state==='updated'?'disabled':'')+' type="button">'+arrow+'<span>'+label+'</span></button></div><div class="status">'+status+'</div><div class="list" tabindex="0" aria-label="'+(compact?'Proposed':'Existing')+' recent requests">'+(hasRows?rows:empty)+'</div><div class="meta"><span>'+(hasCache?(hasRows?'Latest 30 requests':'0 requests'):'')+'</span><div class="zone"><small>GMT+9</small><div class="segments"><span class="active">Local</span><span>UTC</span></div></div></div><div class="included">Included amounts show usage value covered by your plan.</div><div class="footer"><span>Full history and billing</span><span class="link">Open Cursor ↗</span></div></div></div>';
+        document.querySelector('#'+id+' .list').scrollTop=scrollPositions[id];
+      }
+      document.querySelectorAll('.refresh:not(:disabled)').forEach(button=>button.addEventListener('click',()=>{
+        clearTimers(); document.getElementById('state').value='updating'; render('updating');
+        timers.push(setTimeout(()=>render('updated'),1300));
+        timers.push(setTimeout(()=>{document.getElementById('state').value='current';render('current');},3000));
+      }));
+    }
+    document.getElementById('state').addEventListener('change',event=>{clearTimers();render(event.target.value);});
+    document.getElementById('theme').addEventListener('click',event=>{document.body.classList.toggle('light');event.target.textContent=document.body.classList.contains('light')?'Switch to dark':'Switch to light';});
+    render('current');
+  </script>
+</body>
+</html>

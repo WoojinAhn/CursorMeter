@@ -4,10 +4,10 @@ import XCTest
 
 @MainActor
 final class RecentUsageUITests: XCTestCase {
-    private func makeViewModel() -> UsageViewModel {
+    private func makeViewModel(refreshFeedback: RefreshFeedback? = nil) -> UsageViewModel {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [MockURLProtocol.self]
-        let vm = UsageViewModel(apiClient: CursorAPIClient(configuration: config))
+        let vm = UsageViewModel(apiClient: CursorAPIClient(configuration: config), refreshFeedback: refreshFeedback)
         vm.updateCheckRunner = { .upToDate }
         vm.keychainDeleteHandler = {}
         vm.sessionExpiredNotifier = {}
@@ -194,7 +194,7 @@ final class RecentUsageUITests: XCTestCase {
 
     func testFailureRetainsRowsAndOriginalCacheTime() throws {
         _ = NSApplication.shared
-        let vm = makeViewModel()
+        let vm = makeViewModel(refreshFeedback: RefreshFeedback(timing: .immediate))
         let entry = RecentUsageEntry(date: Date(timeIntervalSince1970: 1_700_000_000),
                                      model: "A long model name that must remain available in accessibility",
                                      kind: .included, tokens: 1_234_567, chargedCents: 12.34)
@@ -210,11 +210,28 @@ final class RecentUsageUITests: XCTestCase {
         vm.recentUsage.recordFailure(context: retry)
         vc.updateUI()
         XCTAssertEqual(table(in: vc.view)?.numberOfRows, 1)
-        XCTAssertTrue(labels(in: vc.view).contains("Couldn’t update. Showing saved data."))
-        XCTAssertTrue(labels(in: vc.view).contains(originalCacheLabel))
-        _ = vm.refreshFeedback.begin(generation: 1)
+        XCTAssertEqual(vm.recentUsage.snapshot?.candidate.cachedAt, cachedAt)
+        XCTAssertTrue(labels(in: vc.view).contains(originalCacheLabel + " · Update failed"))
+        XCTAssertFalse(labels(in: vc.view).contains("Couldn’t update. Showing saved data."))
+        XCTAssertFalse(allViews(in: vc.view).contains { $0.accessibilityLabel() == "Recent usage status" })
+        let attempt = try XCTUnwrap(vm.refreshFeedback.begin(generation: 1))
         vc.updateUI()
-        XCTAssertTrue(labels(in: vc.view).contains("Updating…"))
+        XCTAssertTrue(labels(in: vc.view).contains(originalCacheLabel), "Retry clears the previous failure suffix")
+        XCTAssertFalse(labels(in: vc.view).contains { $0.contains("Update failed") || $0 == "Updating…" })
+        let button = try XCTUnwrap(allViews(in: vc.view).compactMap { $0 as? RefreshFeedbackButton }.first)
+        XCTAssertEqual(button.accessibilityValue() as? String, "Updating")
+        XCTAssertFalse(button.isEnabled)
+        XCTAssertEqual(labels(in: vc.view).filter { $0 == "Updating" }.count, 1)
+        XCTAssertEqual(table(in: vc.view)?.numberOfRows, 1)
+        let nextRetry = try XCTUnwrap(vm.recentUsage.selectCredential(
+            cookieHeader: "WorkosCursorSessionToken=synthetic-ui", generation: 1, attemptID: 3))
+        vm.recentUsage.recordFailure(context: nextRetry)
+        vm.refreshFeedback.complete(attempt, meter: .success, recent: .failure)
+        XCTAssertEqual(vm.refreshFeedback.phase, .idle)
+        vc.updateUI()
+        XCTAssertTrue(labels(in: vc.view).contains(originalCacheLabel + " · Update failed"))
+        XCTAssertEqual(vm.recentUsage.snapshot?.candidate.cachedAt, cachedAt)
+        XCTAssertEqual(table(in: vc.view)?.numberOfRows, 1)
     }
 
     func testRowsKeepFixedViewportAndExposeFullModelAndTokens() throws {
@@ -239,22 +256,59 @@ final class RecentUsageUITests: XCTestCase {
         let table = try XCTUnwrap(table(in: vc.view))
         let scroll = try XCTUnwrap(table.enclosingScrollView)
         XCTAssertEqual(table.numberOfRows, 30)
-        XCTAssertEqual(table.rowHeight, 52)
-        XCTAssertEqual(scroll.frame.height, 312, accuracy: 1)
-        XCTAssertEqual(vc.view.fittingSize.width, 480, accuracy: 1)
+        XCTAssertEqual(table.rowHeight, 44)
+        XCTAssertEqual(scroll.frame.height, 264, accuracy: 1)
+        XCTAssertEqual(vc.view.fittingSize.width, 440, accuracy: 1)
         let modelCell = try XCTUnwrap(vc.tableView(table, viewFor: table.tableColumns[0], row: 0))
         let tokenCell = try XCTUnwrap(vc.tableView(table, viewFor: table.tableColumns[1], row: 0))
         let modelLabel = try XCTUnwrap(modelCell.subviews.first as? NSTextField)
         let tokenLabel = try XCTUnwrap(tokenCell.subviews.first as? NSTextField)
         XCTAssertEqual(modelLabel.accessibilityLabel(), model)
         XCTAssertEqual(modelLabel.toolTip, model)
+        XCTAssertEqual(modelLabel.lineBreakMode, .byTruncatingTail)
         XCTAssertEqual(tokenLabel.accessibilityHelp(), "1234567 tokens")
-        scroll.contentView.scroll(to: NSPoint(x: 0, y: 208))
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: 176))
         scroll.reflectScrolledClipView(scroll.contentView)
         let offset = scroll.contentView.bounds.origin.y
         XCTAssertGreaterThan(offset, 0)
+        let originalSize = vc.view.fittingSize
+        let originalViewport = scroll.frame
+        let retry = try XCTUnwrap(vm.recentUsage.selectCredential(
+            cookieHeader: "WorkosCursorSessionToken=synthetic-ui", generation: 1, attemptID: 2))
+        vm.recentUsage.recordFailure(context: retry)
+        vc.updateUI()
+        vc.view.layoutSubtreeIfNeeded()
+        let cacheLabel = try XCTUnwrap(allViews(in: vc.view).compactMap { $0 as? NSTextField }
+            .first { $0.stringValue.hasPrefix("Cached ") })
+        let button = try XCTUnwrap(allViews(in: vc.view).compactMap { $0 as? RefreshFeedbackButton }.first)
+        let cacheParent = try XCTUnwrap(cacheLabel.superview)
+        let buttonParent = try XCTUnwrap(button.superview)
+        let assertHeaderDoesNotOverlap = {
+            let text = cacheParent.convert(cacheLabel.alignmentRect(forFrame: cacheLabel.frame), to: vc.view)
+            let control = buttonParent.convert(button.alignmentRect(forFrame: button.frame), to: vc.view)
+            XCTAssertLessThanOrEqual(text.minX + cacheLabel.intrinsicContentSize.width + 6, control.minX + 0.5,
+                                     "Failure suffix must end before the Refresh button")
+        }
+        XCTAssertGreaterThanOrEqual(cacheLabel.alignmentRect(forFrame: cacheLabel.frame).width + 0.01,
+                                   cacheLabel.intrinsicContentSize.width, "Failure and cache time must fit the compact header")
+        assertHeaderDoesNotOverlap()
+        XCTAssertTrue(cacheLabel.stringValue.hasSuffix(" · Update failed"))
+        for zone in ["GMT+12:45", "GMT-09:30"] {
+            cacheLabel.stringValue = "Cached 2026-12-31 23:59 \(zone) · Update failed"
+            vc.view.layoutSubtreeIfNeeded()
+            XCTAssertGreaterThanOrEqual(cacheLabel.alignmentRect(forFrame: cacheLabel.frame).width + 0.01,
+                                       cacheLabel.intrinsicContentSize.width,
+                                       "Numeric time zones must fit beside the failure suffix")
+            assertHeaderDoesNotOverlap()
+        }
+        XCTAssertEqual(vc.view.fittingSize, originalSize)
+        XCTAssertEqual(scroll.frame, originalViewport)
+        XCTAssertEqual(scroll.contentView.bounds.origin.y, offset, "Cached failure must not reload the table")
         _ = vm.refreshFeedback.begin(generation: 1)
         vc.updateUI()
+        vc.view.layoutSubtreeIfNeeded()
+        XCTAssertEqual(vc.view.fittingSize, originalSize)
+        XCTAssertEqual(scroll.frame, originalViewport)
         XCTAssertEqual(scroll.contentView.bounds.origin.y, offset,
                        "Feedback phase changes must not reload the table")
     }
@@ -271,9 +325,19 @@ final class RecentUsageUITests: XCTestCase {
         vc.updateUI()
         let text = labels(in: vc.view)
         XCTAssertTrue(text.contains("Unable to load recent usage."))
-        XCTAssertTrue(text.contains("Couldn’t update. Try again later."))
+        XCTAssertTrue(text.contains("Try again later."))
+        XCTAssertFalse(text.contains("Couldn’t update. Try again later."))
         XCTAssertFalse(text.contains("0 requests"))
         XCTAssertFalse(text.contains { $0.hasPrefix("Cached ") })
+        _ = vm.refreshFeedback.begin(generation: 1)
+        vc.updateUI()
+        let retryText = labels(in: vc.view)
+        XCTAssertTrue(retryText.contains("Loading recent usage…"))
+        XCTAssertFalse(retryText.contains("Try again later."))
+        XCTAssertFalse(retryText.contains("Unable to load recent usage."))
+        let button = try XCTUnwrap(allViews(in: vc.view).compactMap { $0 as? RefreshFeedbackButton }.first)
+        XCTAssertEqual(button.accessibilityValue() as? String, "Updating")
+        XCTAssertFalse(button.isEnabled)
     }
 
     func testMissingModelUsesUnavailableMarker() throws {
