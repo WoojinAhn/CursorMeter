@@ -126,9 +126,9 @@ Found a bug or have an idea? [Open an issue](https://github.com/WoojinAhn/Cursor
     <td align="center" valign="top"><a href="docs/screenshots/settings.png"><img src="docs/screenshots/settings.png" alt="General settings" width="240"></a></td>
   </tr>
   <tr>
-    <td align="center">Plan usage and the last seven days.</td>
-    <td align="center">Latest 30 requests, with the saved time.</td>
-    <td align="center">Refresh, startup, and app updates.</td>
+    <td align="center">Plan usage and<br>the last seven days.</td>
+    <td align="center">Latest 30 requests,<br>with the saved time.</td>
+    <td align="center">Refresh, startup,<br>and app updates.</td>
   </tr>
 </table>
 

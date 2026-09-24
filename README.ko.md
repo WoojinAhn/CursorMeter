@@ -126,9 +126,9 @@ swift test    # 전체 테스트 실행 (Xcode 필요)
     <td align="center" valign="top"><a href="docs/screenshots/settings.png"><img src="docs/screenshots/settings.png" alt="일반 설정" width="240"></a></td>
   </tr>
   <tr>
-    <td align="center">현재 사용량과 최근 7일의 흐름.</td>
-    <td align="center">저장 시각과 함께 보는 최근 30건.</td>
-    <td align="center">새로고침, 시작 동작, 앱 업데이트.</td>
+    <td align="center">현재 사용량과<br>최근 7일의 흐름.</td>
+    <td align="center">저장 시각과 함께 보는<br>최근 30건.</td>
+    <td align="center">새로고침, 시작 동작,<br>앱 업데이트.</td>
   </tr>
 </table>
 
