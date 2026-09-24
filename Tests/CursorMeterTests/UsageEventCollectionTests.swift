@@ -305,7 +305,8 @@ final class UsageEventCollectionTests: XCTestCase {
             withUnsafeCurrentTask { $0?.cancel() }
             return await UsageEventCollection.collect(
                 apiClient: client, cookieHeader: "session=synthetic", teamId: 0, userId: nil,
-                pageSize: 100, maxPages: 5, today: Self.today, calendar: Self.calendar,
+                pageSize: 100, maxPages: 5,
+                today: UsageEventCollectionTests.today, calendar: UsageEventCollectionTests.calendar,
                 now: { recorder.now() }
             )
         }
@@ -324,7 +325,8 @@ final class UsageEventCollectionTests: XCTestCase {
             let task = Task {
                 await UsageEventCollection.collect(
                     apiClient: client, cookieHeader: "session=synthetic", teamId: 0, userId: nil,
-                    pageSize: 100, maxPages: 5, today: Self.today, calendar: Self.calendar,
+                    pageSize: 100, maxPages: 5,
+                    today: UsageEventCollectionTests.today, calendar: UsageEventCollectionTests.calendar,
                     now: {
                         withUnsafeCurrentTask { $0?.cancel() }
                         return recorder.now()

@@ -418,13 +418,20 @@ no installed app or real credentials were used.
   and final independent Cursor reviews with the same three requested models.
   Review final diff against origin/main, reconcile valid findings, and rerun only
   checks affected by fixes. Record exact outputs and remaining limitations.
-- [ ] Commit atomic changes with `[#118]` and Codex co-author. Fetch origin before
+- [x] Commit atomic changes with `[#118]` and Codex co-author. Fetch origin before
   integration and preserve user changes. Follow the solo direct-merge preference
   unless external changes make a PR useful. Push a CI-triggering main/PR update;
   feature-only pushes do not trigger this repository's Test workflow.
 - [ ] Inspect CI for both macOS architectures and installer tests. If failures
   involve the feature, fix and rerun. Close #118 only after acceptance evidence
   and CI pass, then list remaining open issues. Do not publish a release.
+
+Main integration: `076e697` was fast-forwarded and pushed after native acceptance,
+with existing local files preserved byte-for-byte. The first CI run compiled the
+production target but rejected dynamic `Self` captures in two cancellation-test
+Tasks. Those fixtures now name the test class explicitly, preserving the child
+Tasks and cancellation assertions. The CI acceptance item remains open until
+both architectures pass the corrected test source.
 
 ## Coverage Self-Check
 
