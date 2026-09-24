@@ -124,6 +124,11 @@ Found a bug or have an idea? [Open an issue](https://github.com/WoojinAhn/Cursor
   </tr>
 </table>
 
+<p align="center">
+  <img src="docs/screenshots/settings-usage.png" alt="Recent usage with cached time, model, tokens, and amount" width="480"><br>
+  <em>Recent usage · example data</em>
+</p>
+
 ## License
 
 MIT

@@ -365,7 +365,7 @@ Coordinator modifies `SettingsCardFactory.swift`, `SettingsTabViewController.swi
 - [x] Use stable AX names: Usage, Refresh recent usage, Refresh usage,
   Recent usage events, Time zone, Local, UTC, Open Cursor, and Cached at.
   State feedback belongs in accessible value/help without renaming the button.
-- [ ] Verify through a synthetic native fixture with unique bundle ID and temporary
+- [x] Verify through a synthetic native fixture with unique bundle ID and temporary
   storage. Compile real production view/controller files with fixture-only main;
   do not launch production AppDelegate or read real Keychain/IDE credentials.
   All requests use a fail-closed fixture protocol; dev marker and update runner
@@ -374,23 +374,33 @@ Coordinator modifies `SettingsCardFactory.swift`, `SettingsTabViewController.swi
 - [x] Review spec then quality, fix actual layout/behavior findings, and commit
   `[#118] feat: add recent usage settings and shared refresh feedback`.
 
-Code checkpoint (2026-09-24): the fourth tab, shared buttons, presentation
-observers, and production-only cache are implemented. Specification and quality
-review corrected missing-model/time-zone help, the glyph rotation anchor, and a
-duplicate ViewModel initialization. An injected immutable model now survives
-settings-window recreation. The compatibility suite passed 636/636 tests; the
-unmodified CLT debug and release builds passed. The console is locked, so native
-AX interaction, visual verification, and screenshot refresh remain open. The
-source checkpoint does not complete Task 5 acceptance or authorize integration.
+Implementation and review checkpoint (2026-09-24): the fourth tab, shared
+buttons, presentation observers, and production-only cache are implemented.
+Specification and quality reviews corrected missing-model/time-zone help, the
+glyph rotation anchor, and duplicate ViewModel initialization. An injected
+immutable model survives settings-window recreation.
 
-Final review corrections: Grok passed; Muse and Opus findings were checked against
-source and native measurements. The timestamp label now uses the snapshot's DST
-offset, UTC ignores system-zone invalidations, and refresh controls retain readable
-captions, disabled colors, and distinct static progress. Five-digit meter amounts
-fit within the existing popover by allowing the title to truncate while preserving
-the amount and26pt refresh target. Independent specification and quality reviews
-passed. The updated compatibility suite passed642/642; unmodified CLT debug and
-release builds passed. Native AX/visual acceptance and screenshots remain pending.
+Final Cursor reviews used Grok 4.7 xhigh, Muse Spark 1.3 Max, and Opus 5.5 Max.
+Accepted findings corrected historical DST offsets, UTC invalidation, caption
+width, disabled colors, static reduced-motion progress, and five-digit meter
+amount containment. Independent specification/quality reviews and the focused
+Opus follow-up passed. The compatibility suite passed 642/642; unmodified CLT
+debug/release builds and 12 installer tests passed. Original-source CI remains
+an integration gate below.
+
+Native acceptance passed after desktop unlock on 2026-09-24. The synthetic app
+compiled 30 production Swift files byte-for-byte with a separate application
+entry, isolated preferences/storage, and intercepted HTTP. AX inspection and
+window captures covered light/dark 0/1/6/30 rows, initial loading, restored cache,
+retained cache after failure, and reduced-motion progress. The Usage window is
+480 by 628 points with a 422 by 312 viewport. Exact tokens and full model names
+are accessible. Local/UTC changes and tab reopening produced zero requests.
+Fast refresh kept both controls synchronized and admitted one request per
+endpoint despite eight extra clicks. A 4.1-second response kept both controls
+busy beyond the 3-second admission interval. Meter/recent partial failures
+reported their own outcomes. Cache restoration/failure retained the original
+timestamp and rows. All seven published captures use synthetic Demo User data;
+no installed app or real credentials were used.
 
 ## Task 6: Document, Review, and Deliver
 
@@ -401,10 +411,10 @@ release builds passed. Native AX/visual acceptance and screenshots remain pendin
   meaning, per-device request guards, undocumented API limitation, and bounded
   local storage/logout behavior. Keep public text factual; no private strategy or
   real-account details. Update each translation pair in the same commit.
-- [ ] Inspect native screenshots for PII and use only synthetic Demo User data.
+- [x] Inspect native screenshots for PII and use only synthetic Demo User data.
   Preserve/refresh affected existing screenshots and add the Usage example.
   Check stale references to three tabs and old refresh/caching descriptions.
-- [ ] Run complete tests, unmodified debug/release CLT builds, native AX scenarios,
+- [x] Run complete tests, unmodified debug/release CLT builds, native AX scenarios,
   and final independent Cursor reviews with the same three requested models.
   Review final diff against origin/main, reconcile valid findings, and rerun only
   checks affected by fixes. Record exact outputs and remaining limitations.

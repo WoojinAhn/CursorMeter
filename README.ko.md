@@ -124,6 +124,11 @@ swift test    # 전체 테스트 실행 (Xcode 필요)
   </tr>
 </table>
 
+<p align="center">
+  <img src="docs/screenshots/settings-usage.png" alt="캐시 시각, 모델, 토큰, 금액을 표시하는 최근 사용 내역" width="480"><br>
+  <em>최근 사용 내역 · 예시 데이터</em>
+</p>
+
 ## 라이선스
 
 MIT
