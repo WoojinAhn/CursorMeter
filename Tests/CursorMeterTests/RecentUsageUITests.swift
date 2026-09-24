@@ -139,8 +139,10 @@ final class RecentUsageUITests: XCTestCase {
                 window.contentView?.layoutSubtreeIfNeeded()
                 button.layoutSubtreeIfNeeded()
                 XCTAssertEqual(caption.stringValue, expected)
-                XCTAssertEqual(button.frame.width, 100, accuracy: 0.5)
-                XCTAssertEqual(button.frame.height, 26, accuracy: 0.5)
+                // Auto Layout constrains alignment rects; native bezel padding varies by macOS.
+                let buttonAlignmentRect = button.alignmentRect(forFrame: button.frame)
+                XCTAssertEqual(buttonAlignmentRect.width, 100, accuracy: 0.5)
+                XCTAssertEqual(buttonAlignmentRect.height, 26, accuracy: 0.5)
                 XCTAssertGreaterThanOrEqual(caption.alignmentRect(forFrame: caption.frame).width + 0.01,
                                            caption.intrinsicContentSize.width,
                                             "\(expected) must fit its native text field")

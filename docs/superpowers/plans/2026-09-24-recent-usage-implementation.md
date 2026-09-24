@@ -433,6 +433,13 @@ Tasks. Those fixtures now name the test class explicitly, preserving the child
 Tasks and cancellation assertions. The CI acceptance item remains open until
 both architectures pass the corrected test source.
 
+The next CI run compiled and executed all 642 tests on both architectures.
+Only the refresh button geometry case failed: native bezel frames were 114 by
+38 while their alignment rectangles were constrained to 100 by 26. The test now
+measures the alignment rectangle, retaining the exact dimensions, tolerance,
+and all eight caption-fit cases. The local compatibility suite passed 642/642;
+original-source CI for this correction remains pending.
+
 ## Coverage Self-Check
 
 Tasks1/4 prove request reuse and all first-page outcomes. Tasks2/4 prove account
