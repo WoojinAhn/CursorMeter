@@ -109,25 +109,37 @@ swift test    # 전체 테스트 실행 (Xcode 필요)
 
 ## 스크린샷
 
+<p align="center">
+  <a href="docs/screenshots/menubar.png"><img src="docs/screenshots/menubar.png" alt="메뉴바의 CursorMeter" height="28"></a><br>
+  메뉴바에서 사용량을 한눈에 확인하세요.
+</p>
+
 <table>
   <tr>
-    <th align="center">메뉴바</th>
-    <th align="center">팝오버</th>
-    <th align="center">주간 차트</th>
+    <th align="center">사용량 한눈에</th>
+    <th align="center">최근 사용 내역</th>
     <th align="center">설정</th>
   </tr>
   <tr>
-    <td align="center" valign="top"><img src="docs/screenshots/menubar.png" alt="메뉴바" height="40"></td>
-    <td align="center" valign="top"><img src="docs/screenshots/popover.png" alt="팝오버" width="240"></td>
-    <td align="center" valign="top"><img src="docs/screenshots/popover-weekly.png" alt="주간 차트" width="240"></td>
-    <td align="center" valign="top"><img src="docs/screenshots/settings.png" alt="설정" width="240"></td>
+    <td align="center" valign="top"><a href="docs/screenshots/popover-weekly.png"><img src="docs/screenshots/popover-weekly.png" alt="현재 사용량과 주간 차트" width="240"></a></td>
+    <td align="center" valign="top"><a href="docs/screenshots/settings-usage.png"><img src="docs/screenshots/settings-usage.png" alt="캐시 시각, 모델, 토큰, 금액을 표시하는 최근 사용 내역" width="240"></a></td>
+    <td align="center" valign="top"><a href="docs/screenshots/settings.png"><img src="docs/screenshots/settings.png" alt="일반 설정" width="240"></a></td>
+  </tr>
+  <tr>
+    <td align="center">현재 사용량과 최근 7일의 흐름.</td>
+    <td align="center">저장 시각과 함께 보는 최근 30건.</td>
+    <td align="center">새로고침, 시작 동작, 앱 업데이트.</td>
   </tr>
 </table>
 
-<p align="center">
-  <img src="docs/screenshots/settings-usage.png" alt="캐시 시각, 모델, 토큰, 금액을 표시하는 최근 사용 내역" width="480"><br>
-  <em>최근 사용 내역 · 예시 데이터</em>
-</p>
+<p align="center"><em>예시 데이터입니다. 이미지를 클릭하면 원본 크기로 볼 수 있습니다.</em></p>
+
+<details>
+  <summary>주간 차트를 끈 팝오버 보기</summary>
+  <p align="center">
+    <a href="docs/screenshots/popover.png"><img src="docs/screenshots/popover.png" alt="주간 차트를 끈 팝오버 보기" width="240"></a>
+  </p>
+</details>
 
 ## 라이선스
 

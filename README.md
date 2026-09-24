@@ -109,25 +109,37 @@ Found a bug or have an idea? [Open an issue](https://github.com/WoojinAhn/Cursor
 
 ## Screenshots
 
+<p align="center">
+  <a href="docs/screenshots/menubar.png"><img src="docs/screenshots/menubar.png" alt="CursorMeter in the menu bar" height="28"></a><br>
+  Usage at a glance, right in your menu bar.
+</p>
+
 <table>
   <tr>
-    <th align="center">Menu bar</th>
-    <th align="center">Popover</th>
-    <th align="center">Weekly chart</th>
-    <th align="center">Settings</th>
+    <th align="center">At a glance</th>
+    <th align="center">Recent requests</th>
+    <th align="center">Preferences</th>
   </tr>
   <tr>
-    <td align="center" valign="top"><img src="docs/screenshots/menubar.png" alt="Menu bar" height="40"></td>
-    <td align="center" valign="top"><img src="docs/screenshots/popover.png" alt="Popover" width="240"></td>
-    <td align="center" valign="top"><img src="docs/screenshots/popover-weekly.png" alt="Weekly chart" width="240"></td>
-    <td align="center" valign="top"><img src="docs/screenshots/settings.png" alt="Settings" width="240"></td>
+    <td align="center" valign="top"><a href="docs/screenshots/popover-weekly.png"><img src="docs/screenshots/popover-weekly.png" alt="Current usage and weekly chart" width="240"></a></td>
+    <td align="center" valign="top"><a href="docs/screenshots/settings-usage.png"><img src="docs/screenshots/settings-usage.png" alt="Recent usage with cached time, model, tokens, and amount" width="240"></a></td>
+    <td align="center" valign="top"><a href="docs/screenshots/settings.png"><img src="docs/screenshots/settings.png" alt="General settings" width="240"></a></td>
+  </tr>
+  <tr>
+    <td align="center">Plan usage and the last seven days.</td>
+    <td align="center">Latest 30 requests, with the saved time.</td>
+    <td align="center">Refresh, startup, and app updates.</td>
   </tr>
 </table>
 
-<p align="center">
-  <img src="docs/screenshots/settings-usage.png" alt="Recent usage with cached time, model, tokens, and amount" width="480"><br>
-  <em>Recent usage · example data</em>
-</p>
+<p align="center"><em>Example data. Click any screenshot to view it at full size.</em></p>
+
+<details>
+  <summary>Popover with the weekly chart turned off</summary>
+  <p align="center">
+    <a href="docs/screenshots/popover.png"><img src="docs/screenshots/popover.png" alt="Popover with the weekly chart turned off" width="240"></a>
+  </p>
+</details>
 
 ## License
 
