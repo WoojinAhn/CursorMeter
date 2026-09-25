@@ -254,9 +254,12 @@ struct CycleUsageCollector: Sendable {
         return fields.joined(separator: "|")
     }
     static func periodFingerprint(_ period: CurrentPeriodUsageResponse) -> String {
-        [period.cycle.map { "\($0.start.timeIntervalSince1970):\($0.end.timeIntervalSince1970)" } ?? "nil",
-         period.planUsage?.includedSpend.map { NSDecimalNumber(decimal: $0).stringValue } ?? "nil",
-         period.planUsage?.autoPercentUsed.map { String($0) } ?? "nil", period.planUsage?.apiPercentUsed.map { String($0) } ?? "nil",
-         period.autoBucketModels.map { $0.map(CycleModelClassifier.normalize).sorted().joined(separator: ",") } ?? "nil"].joined(separator: "|")
+        var fields: [String] = []
+        fields.append(period.cycle.map { "\($0.start.timeIntervalSince1970):\($0.end.timeIntervalSince1970)" } ?? "nil")
+        fields.append(period.planUsage?.includedSpend.map { NSDecimalNumber(decimal: $0).stringValue } ?? "nil")
+        fields.append(period.planUsage?.autoPercentUsed.map { String($0) } ?? "nil")
+        fields.append(period.planUsage?.apiPercentUsed.map { String($0) } ?? "nil")
+        fields.append(period.autoBucketModels.map { $0.map(CycleModelClassifier.normalize).sorted().joined(separator: ",") } ?? "nil")
+        return fields.joined(separator: "|")
     }
 }

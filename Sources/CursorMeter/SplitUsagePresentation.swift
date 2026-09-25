@@ -57,7 +57,7 @@ struct SplitUsagePresentation: Sendable {
     ) -> Self {
         let coherentAmounts = amounts.flatMap { $0.identity.sameScope(as: snapshot.identity) ? $0 : nil }
         let state: SplitAmountPresentationState = coherentAmounts == nil && amountState == .ready ? .unavailable : amountState
-        let amountStatus = coherentAmounts.map { amountStatus($0) } ?? state.text
+        let statusLabel = coherentAmounts.map { Self.amountStatus($0) } ?? state.text
         let currentPoolsSupportEstimates = UsagePoolID.allCases.allSatisfy { pool in
             guard let value = SplitUsageSnapshot.validPercent(snapshot[pool]) else { return false }
             return value < 100
@@ -72,7 +72,7 @@ struct SplitUsagePresentation: Sendable {
             let estimateIsCurrent = currentPoolsSupportEstimates && sourcePercent != nil
                 && sourcePercent == SplitUsageSnapshot.validPercent(snapshot[pool])
             let limit = estimateIsCurrent ? candidateLimit : nil
-            let status = amountStatus + (candidateLimit != nil && !estimateIsCurrent ? " · Estimate stale — refresh amounts" : "")
+            let status = statusLabel + (candidateLimit != nil && !estimateIsCurrent ? " · Estimate stale — refresh amounts" : "")
             let source = pool == .cursor ? snapshot.cursorSource : snapshot.otherSource
             let sourceText = source == .period
                 ? "Percent source: Current period · \(snapshot.periodCapturedAt.map { timestamp($0, timeZone: timeZone) } ?? "Time unavailable")"
@@ -92,7 +92,7 @@ struct SplitUsagePresentation: Sendable {
         } else {
             lines.append("Cycle: Unavailable")
         }
-        lines.append("Amounts: \(state.text)\(coherentAmounts == nil ? "" : " · " + amountStatus)")
+        lines.append("Amounts: \(state.text)\(coherentAmounts == nil ? "" : " · " + statusLabel)")
         if let amounts = coherentAmounts {
             lines.append("Amount snapshot: \(timestamp(amounts.capturedAt, timeZone: timeZone))")
             if amounts.capturedAt < snapshot.capturedAt {
