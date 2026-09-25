@@ -239,6 +239,48 @@ final class CycleUsageCollectorTests: XCTestCase, @unchecked Sendable {
         XCTAssertEqual(result.pageCount, 4)
     }
 
+    func testReconciliationRetryBudgetExhaustionRemainsUnstableWithoutReplacementSnapshot() async throws {
+        let budgets: [(CycleUsageCollector.Budget, Int, Int)] = [
+            (.init(maxPages: 2), 2, 200),
+            (.init(maxPages: 3), 3, 300),
+            (.init(maxEvents: 2), 3, 300),
+            (.init(maxBytes: 250), 3, 300)
+        ]
+        for (budget, expectedPages, expectedBytes) in budgets {
+            let collector = CycleUsageCollector(budget: budget, fetchPage: { _, _ in
+                self.page([self.event("2000", "3")], total: 1)
+            }, fetchSummary: { self.summary(used: 10) }, fetchPeriod: { try self.period() })
+            let result = await collector.collect(snapshot: snapshot(used: 10), summary: summary(used: 10))
+            XCTAssertEqual(result.status, .unstable, "A rejected first scan must retain instability when its retry exhausts the shared budget")
+            XCTAssertNil(result.snapshot, "Neither rejected nor unverified retry subtotals may replace a prior complete snapshot")
+            XCTAssertEqual(result.pageCount, expectedPages)
+            XCTAssertEqual(result.byteCount, expectedBytes)
+        }
+    }
+    func testOversizedReconciliationRetryRemainsUnstableAndAccountsBytes() async throws {
+        let pages = CollectionSequence()
+        let collector = CycleUsageCollector(fetchPage: { _, _ in
+            if await pages.next() == 3 { throw CycleEnrichmentError.oversizedPayload(byteCount: 1000) }
+            return self.page([self.event("2000", "3")], total: 1)
+        }, fetchSummary: { self.summary(used: 10) }, fetchPeriod: { try self.period() })
+        let result = await collector.collect(snapshot: snapshot(used: 10), summary: summary(used: 10))
+        XCTAssertEqual(result.status, .unstable)
+        XCTAssertNil(result.snapshot)
+        XCTAssertEqual(result.pageCount, 3)
+        XCTAssertEqual(result.byteCount, 1200)
+    }
+    func testInitialBudgetExhaustionStillReturnsGenuinePartial() async throws {
+        let collector = CycleUsageCollector(budget: .init(maxPages: 1), fetchPage: { _, _ in
+            self.page([self.event("2000", "3")], total: 1)
+        }, fetchSummary: { self.summary(used: 10) }, fetchPeriod: { try self.period() })
+        let result = await collector.collect(snapshot: snapshot(used: 10), summary: summary(used: 10))
+        XCTAssertEqual(result.status, .partial)
+        XCTAssertEqual(result.snapshot?.cursorCents, 3)
+        XCTAssertEqual(result.snapshot?.coverage.complete, false)
+        XCTAssertEqual(result.pageCount, 1)
+        XCTAssertEqual(result.byteCount, 100)
+    }
+
     func collector(_ feed: PageFeed, maxPages: Int = 100) -> CycleUsageCollector {
         CycleUsageCollector(budget: .init(maxPages: maxPages), fetchPage: { page, _ in await feed.get(page) }, fetchSummary: { self.summary(used: await feed.expectedUsed()) }, fetchPeriod: {
             try JSONDecoder().decode(CurrentPeriodUsageResponse.self, from: Data(#"{"billingCycleStart":"1970-01-01T00:00:01Z","billingCycleEnd":"1970-01-01T00:00:10Z","planUsage":{"includedSpend":\#(await feed.expectedUsed())},"autoBucketModels":["composer-2.5"]}"#.utf8))

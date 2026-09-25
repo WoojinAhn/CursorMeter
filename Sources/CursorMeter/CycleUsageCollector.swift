@@ -26,6 +26,7 @@ struct CycleUsageCollector: Sendable {
         let began = now()
         var pages = 0, bytes = 0, receivedEvents = 0
         var partial: CycleAmountSnapshot?
+        var retryingUnreconciledSource = false
         var supplementary: SplitUsageSnapshot?
         func result(_ status: CycleCollectionStatus, _ amount: CycleAmountSnapshot? = nil) -> CycleCollectionResult {
             .init(status: status, snapshot: amount, pageCount: pages, byteCount: bytes, supplementarySnapshot: status == .complete ? supplementary : nil)
@@ -210,7 +211,10 @@ struct CycleUsageCollector: Sendable {
                 let reconciled = aggregate.residualCents.map { abs($0) <= 1 } == true
                 if !reachedCycleStart && !reconciled {
                     partial = nil
-                    if attempt == 0 { continue }
+                    if attempt == 0 {
+                        retryingUnreconciledSource = true
+                        continue
+                    }
                     return result(.unstable)
                 }
                 aggregate.status = reconciled && !unresolved ? .estimatedAttribution : .unavailable
@@ -227,8 +231,9 @@ struct CycleUsageCollector: Sendable {
             switch error {
             case let .oversizedPayload(byteCount):
                 bytes += max(0, byteCount)
-                return result(.partial)
+                return result(retryingUnreconciledSource ? .unstable : .partial)
             case .payloadBudget:
+                if retryingUnreconciledSource { return result(.unstable) }
                 if var amount = partial { amount.coverage.complete = false; amount.coverage.reason = "Collection budget exhausted"; amount.coverage.pageCount = pages; amount.coverage.byteCount = bytes; return result(.partial, amount) }
                 return result(.partial)
             case .transport: return result(.transportFailure)

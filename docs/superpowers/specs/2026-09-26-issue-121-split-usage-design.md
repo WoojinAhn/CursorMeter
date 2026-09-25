@@ -220,7 +220,7 @@ of the last request. Collection scheduling is result-aware and separate from pri
 | Last result | Automatic next attempt | Explicit Refresh amounts |
 | --- | --- | --- |
 | Complete/stable (including attribution unavailable) | At least 10 minutes later, and only when primary fingerprint changed | 60-second cooldown |
-| Partial because a hard page/event/byte/time budget was exhausted | No automatic retry in the same cycle | 60-second cooldown; explain the same limit may remain |
+| Partial because a hard page/event/byte/time budget was exhausted | Paused for this cycle until an explicit manual scan completes successfully or the cycle/scope resets; cancellation or failed manual work cannot clear this pause | 60-second cooldown; explain the same limit may remain |
 | Unstable snapshot after bounded retry | Backoff 5, 10, 20, then 60 minutes; two consecutive identical full primary fingerprints can permit retry after at least 60 seconds | 60-second cooldown |
 | Transport/5xx | Exponential 60-second backoff capped at 30 minutes | 60-second cooldown |
 | 429 | Respect Retry-After, minimum 60 seconds; missing/invalid header means 30 minutes | Same server backoff; manual action cannot bypass it |
@@ -534,6 +534,8 @@ review outcomes, test/build evidence, known API uncertainty and manual check ste
 - End-of-source without crossing the cycle start requires included reconciliation before
   full-cycle labels. A mismatch rejects the aggregate, retries once within the shared
   budget, then follows instability backoff without replacing prior complete evidence.
+  If that retry runs out of shared budget, preserve the known instability outcome and
+  discard its partial; it must not create a new cycle hard-budget pause.
   Other subtotals remain observed activity with coverage caveats;
   never claim a separately verified Bot weekly or paid-month total from truncation.
 - Keep all legacy assertions except deliberately changed Max-mode wording and usage

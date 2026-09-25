@@ -30,6 +30,7 @@ struct CycleCollectionSchedule: Sendable {
     private var lastFingerprint: String?
     private var lastFinishedAt: Date?
     private var lastOutcome: Outcome?
+    private var reachedCycleBudget = false
     private var nextAutomaticAt: Date?
     private var serverRetryAt: Date?
     private var unstableFailures = 0
@@ -56,7 +57,7 @@ struct CycleCollectionSchedule: Sendable {
             }
             return .ready
         }
-        if case .budgetPartial = lastOutcome { return .cycleLimit }
+        if reachedCycleBudget { return .cycleLimit }
         if automaticPagesRemaining(at: now) < 100 {
             var available = automaticPagesRemaining(at: now)
             for charge in pageCharges where now.timeIntervalSince(charge.date) < 3600 {
@@ -103,9 +104,11 @@ struct CycleCollectionSchedule: Sendable {
         stableObservations = 0
         switch outcome {
         case .complete:
+            reachedCycleBudget = false
             unstableFailures = 0; transportFailures = 0
             nextAutomaticAt = now.addingTimeInterval(600)
         case .budgetPartial:
+            reachedCycleBudget = true
             unstableFailures = 0; transportFailures = 0
             nextAutomaticAt = nil
         case .unstable:
@@ -170,6 +173,7 @@ struct CycleCollectionSchedule: Sendable {
         active = nil
         fingerprint = nil; lastFingerprint = nil
         lastFinishedAt = nil; lastOutcome = nil; nextAutomaticAt = nil
+        reachedCycleBudget = false
         stableObservations = 0; unstableFailures = 0; transportFailures = 0
     }
 }

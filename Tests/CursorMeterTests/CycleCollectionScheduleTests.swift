@@ -28,6 +28,74 @@ final class CycleCollectionScheduleTests: XCTestCase {
         XCTAssertNotNil(schedule.begin(at: start.addingTimeInterval(3601), manual: false))
     }
 
+    func testHardBudgetLatchSurvivesUnsuccessfulManualRetry() {
+        for outcome in [CycleCollectionSchedule.Outcome.cancelled, .transportFailure, .unstable, .endpointFailure] {
+            var schedule = CycleCollectionSchedule()
+            schedule.observe(fingerprint: "a")
+            _ = schedule.begin(at: start, manual: false)
+            schedule.finish(.budgetPartial, pages: 100, at: start)
+            XCTAssertNotNil(schedule.begin(at: start.addingTimeInterval(60), manual: true))
+            schedule.finish(outcome, pages: 2, at: start.addingTimeInterval(60))
+            schedule.observe(fingerprint: "b")
+            schedule.observe(fingerprint: "b")
+            XCTAssertEqual(schedule.availability(at: start.addingTimeInterval(7200), manual: false), .cycleLimit)
+            XCTAssertEqual(schedule.availability(at: start.addingTimeInterval(120), manual: true), .ready)
+        }
+    }
+
+    func testHardBudgetLatchSurvivesManualRetryRetirementAndLateCompletion() throws {
+        var schedule = CycleCollectionSchedule()
+        _ = schedule.begin(at: start, manual: false)
+        schedule.finish(.budgetPartial, pages: 100, at: start)
+        _ = schedule.begin(at: start.addingTimeInterval(60), manual: true)
+        let retryID = try XCTUnwrap(schedule.currentAttemptID)
+        schedule.retireCurrent(at: start.addingTimeInterval(60))
+        XCTAssertEqual(schedule.availability(at: start.addingTimeInterval(120), manual: false), .cycleLimit)
+        schedule.finish(.complete, pages: 2, at: start.addingTimeInterval(120), attemptID: retryID)
+        XCTAssertEqual(schedule.availability(at: start.addingTimeInterval(120), manual: false), .cycleLimit)
+        XCTAssertEqual(schedule.automaticPagesRemaining(at: start.addingTimeInterval(120)), 200)
+        XCTAssertEqual(schedule.availability(at: start.addingTimeInterval(120), manual: true), .ready)
+    }
+
+    func testSuccessfulCurrentManualScanClearsHardBudgetLatch() {
+        var schedule = CycleCollectionSchedule()
+        schedule.observe(fingerprint: "a")
+        _ = schedule.begin(at: start, manual: false)
+        schedule.finish(.budgetPartial, pages: 100, at: start)
+        _ = schedule.begin(at: start.addingTimeInterval(60), manual: true)
+        schedule.finish(.complete, pages: 4, at: start.addingTimeInterval(60))
+        schedule.observe(fingerprint: "b")
+        XCTAssertEqual(schedule.availability(at: start.addingTimeInterval(659), manual: false),
+                       .waiting(until: start.addingTimeInterval(660)))
+        XCTAssertEqual(schedule.availability(at: start.addingTimeInterval(660), manual: false), .ready)
+    }
+
+    func testHardBudgetLatchDoesNotBypassServerDeadlineForManualRetry() {
+        var schedule = CycleCollectionSchedule()
+        _ = schedule.begin(at: start, manual: false)
+        schedule.finish(.budgetPartial, pages: 100, at: start)
+        _ = schedule.begin(at: start.addingTimeInterval(60), manual: true)
+        schedule.finish(.rateLimited(retryAfter: 300), pages: 1, at: start.addingTimeInterval(60))
+        let deadline = start.addingTimeInterval(360)
+        XCTAssertEqual(schedule.availability(at: start.addingTimeInterval(120), manual: true), .waiting(until: deadline))
+        XCTAssertEqual(schedule.availability(at: start.addingTimeInterval(120), manual: false), .waiting(until: deadline))
+        XCTAssertEqual(schedule.availability(at: deadline, manual: false), .cycleLimit)
+        XCTAssertEqual(schedule.availability(at: deadline, manual: true), .ready)
+    }
+
+    func testRetiredAutomaticCostChargesOnceWithoutClearingNewHardBudgetLatch() throws {
+        var schedule = CycleCollectionSchedule()
+        _ = schedule.begin(at: start, manual: false)
+        let retiredID = try XCTUnwrap(schedule.currentAttemptID)
+        schedule.retireCurrent(at: start)
+        _ = schedule.begin(at: start.addingTimeInterval(60), manual: true)
+        schedule.finish(.budgetPartial, pages: 100, at: start.addingTimeInterval(60))
+        schedule.finish(.complete, pages: 2, at: start.addingTimeInterval(60), attemptID: retiredID)
+        schedule.finish(.complete, pages: 2, at: start.addingTimeInterval(60), attemptID: retiredID)
+        XCTAssertEqual(schedule.automaticPagesRemaining(at: start.addingTimeInterval(60)), 298)
+        XCTAssertEqual(schedule.availability(at: start.addingTimeInterval(120), manual: false), .cycleLimit)
+    }
+
     func testUnstableEarlyRetryNeedsTwoEqualPrimaryObservationsAndOneMinute() {
         var schedule = CycleCollectionSchedule()
         schedule.observe(fingerprint: "a")

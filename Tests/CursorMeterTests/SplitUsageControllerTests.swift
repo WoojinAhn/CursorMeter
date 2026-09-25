@@ -390,6 +390,35 @@ final class SplitUsageControllerTests: XCTestCase {
         func release() { continuation?.resume(); continuation = nil }
     }
 
+    func testPrimaryCompletionWhileSleepingCannotStartAmountOrPeriodRequests() async throws {
+        actor Calls {
+            var count = 0
+            func record() { count += 1 }
+        }
+        for standalone in [false, true] {
+            let calls = Calls()
+            let period = try period()
+            let collect: SplitUsageController.Collect = { _, _, _, _, _ in
+                await calls.record()
+                return .init(status: .complete, snapshot: nil, pageCount: 0, byteCount: 0)
+            }
+            let controller = SplitUsageController(collect: standalone ? nil : collect, fetchPeriod: { _ in
+                await calls.record()
+                return period
+            })
+            let missing = summary(cursor: nil)
+            controller.prepareForSleep()
+            controller.accept(summary: missing, usage: try usage(), userInfo: user, generation: 1, enterpriseScope: false)
+            controller.requestAmounts(summary: missing, cookieHeader: "fixture")
+            for _ in 0..<20 { await Task.yield() }
+            let sleepingCalls = await calls.count
+            XCTAssertEqual(sleepingCalls, 0)
+            controller.resumeAfterWake()
+            controller.requestAmounts(summary: missing, cookieHeader: "fixture")
+            await eventually { await calls.count == 1 }
+        }
+    }
+
     func testDelayedSupplementFillsEqualPrimaryRevisionAcrossAllDeliveryPaths() async throws {
         for path in ["callback", "result", "standalone"] {
             let gate = SupplementGate()
