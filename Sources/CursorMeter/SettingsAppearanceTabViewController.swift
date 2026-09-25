@@ -7,6 +7,10 @@ import AppKit
 final class SettingsAppearanceTabViewController: NSViewController {
 
     private let viewModel: UsageViewModel
+    private let screenHeight: (() -> CGFloat)?
+    private let scrollView = NSScrollView()
+    private var content = NSView()
+    private var viewportHeight: NSLayoutConstraint?
 
     // MARK: - Controls (retained as instance vars for updateUI)
 
@@ -31,8 +35,9 @@ final class SettingsAppearanceTabViewController: NSViewController {
 
     // MARK: - Init
 
-    init(viewModel: UsageViewModel) {
+    init(viewModel: UsageViewModel, screenHeight: (() -> CGFloat)? = nil) {
         self.viewModel = viewModel
+        self.screenHeight = screenHeight
         super.init(nibName: nil, bundle: nil)
         title = "Display"
     }
@@ -45,11 +50,34 @@ final class SettingsAppearanceTabViewController: NSViewController {
     override func loadView() {
         weeklyChartSection = SettingsCardFactory.makeSection(
             header: "Weekly Chart", content: makeWeeklyChartCard())
-        view = SettingsCardFactory.makeTabRoot(sections: [
+        content = SettingsCardFactory.makeTabRoot(sections: [
             SettingsCardFactory.makeSection(header: "Menu Bar", content: makeMenuBarCard()),
             SettingsCardFactory.makeSection(header: "Usage Jump", content: makeJumpCard()),
             weeklyChartSection,
         ])
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.scrollerStyle = .overlay
+        scrollView.drawsBackground = false
+        scrollView.borderType = .noBorder
+        scrollView.setAccessibilityLabel("Display settings")
+        let document = AppearanceDocumentView()
+        scrollView.documentView = document
+        document.translatesAutoresizingMaskIntoConstraints = false
+        content.translatesAutoresizingMaskIntoConstraints = false
+        document.addSubview(content)
+        NSLayoutConstraint.activate([
+            document.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
+            content.leadingAnchor.constraint(equalTo: document.leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: document.trailingAnchor),
+            content.topAnchor.constraint(equalTo: document.topAnchor),
+            content.bottomAnchor.constraint(equalTo: document.bottomAnchor),
+            scrollView.widthAnchor.constraint(equalToConstant: SettingsCardFactory.contentWidth),
+        ])
+        viewportHeight = scrollView.heightAnchor.constraint(equalToConstant: 1)
+        viewportHeight?.isActive = true
+        view = scrollView
     }
 
     override func viewDidLoad() {
@@ -62,7 +90,12 @@ final class SettingsAppearanceTabViewController: NSViewController {
     // by itself. Report ours each time this tab is about to show.
     override func viewWillAppear() {
         super.viewWillAppear()
-        preferredContentSize = view.fittingSize
+        updateViewport()
+    }
+
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        updateViewport()
     }
 
     // MARK: - Public API
@@ -108,6 +141,20 @@ final class SettingsAppearanceTabViewController: NSViewController {
         weeklyChartStyleSegmented.selectedSegment = viewModel.weeklyChartStyle.rawValue
         weeklyChartStyleSegmented.isEnabled = viewModel.weeklyChartEnabled
         updateWeeklyChartMetric()
+        updateViewport()
+    }
+
+    private func updateViewport() {
+        content.layoutSubtreeIfNeeded()
+        let screen = screenHeight?() ?? view.window?.screen?.visibleFrame.height
+            ?? NSScreen.main?.visibleFrame.height ?? 800
+        // Once attached, reserve the actual title bar and toolbar as well as
+        // a screen-edge margin. Recalculate after layout and visibility changes.
+        let chrome = view.window.map { max(0, $0.frame.height - $0.contentLayoutRect.height) } ?? 0
+        let height = min(ceil(content.fittingSize.height), max(1, floor(screen - chrome - 20)))
+        viewportHeight?.constant = height
+        let size = NSSize(width: SettingsCardFactory.contentWidth, height: height)
+        if preferredContentSize != size { preferredContentSize = size }
     }
 
     private func updateWeeklyChartMetric() {
@@ -287,6 +334,7 @@ final class SettingsAppearanceTabViewController: NSViewController {
         // siblings appear to jump first and the view "blinks" away. Setting
         // isHidden directly avoids the mid-animation discontinuity.
         jumpSubRowsContainer.isHidden = !enabled
+        updateViewport()
     }
 
     @objc private func jumpIntensityChanged() {
@@ -306,6 +354,7 @@ final class SettingsAppearanceTabViewController: NSViewController {
         viewModel.setWeeklyChartEnabled(enabled)
         weeklyChartStyleSegmented.isEnabled = enabled
         updateWeeklyChartMetric()
+        updateViewport()
     }
 
     @objc private func weeklyChartStyleChanged() {
@@ -318,5 +367,10 @@ final class SettingsAppearanceTabViewController: NSViewController {
         let metric: WeeklyChartMetric = weeklyChartMetricPopUp.indexOfSelectedItem == 0 ? .amount : .usageUnits
         viewModel.setWeeklyChartMetric(metric)
         updateWeeklyChartMetric()
+        updateViewport()
     }
+}
+
+private final class AppearanceDocumentView: NSView {
+    override var isFlipped: Bool { true }
 }

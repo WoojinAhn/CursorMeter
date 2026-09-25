@@ -174,6 +174,7 @@ final class SplitUsageUITests: XCTestCase {
             ("popover", popover),
             ("popover-period", MenuBarPopoverViewController(viewModel: periodVM, onLogin: {}, onSettings: {})),
             ("display", SettingsAppearanceTabViewController(viewModel: vm)),
+            ("display-short", SettingsAppearanceTabViewController(viewModel: vm, screenHeight: { 681 })),
             ("alerts", SettingsNotificationsTabViewController(viewModel: vm)),
             ("summary", SettingsUsageTabViewController(viewModel: vm)),
         ]
@@ -218,6 +219,49 @@ final class SplitUsageUITests: XCTestCase {
                 try data.write(to: url.appendingPathComponent("\(name).png"))
             }
         }
+    }
+
+    func testDisplayFitsShortScreenAndScrollsToLastControlAfterVisibilityChanges() throws {
+        _ = NSApplication.shared
+        let vm = makeViewModel()
+        try publishSplit(to: vm)
+        vm.jumpEffectEnabled = true
+        let vc = SettingsAppearanceTabViewController(viewModel: vm, screenHeight: { 681 })
+        _ = vc.view
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 440, height: 400),
+                              styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.toolbar = NSToolbar(identifier: "Synthetic Display")
+        window.contentViewController = vc
+        defer { window.contentViewController = nil; window.close() }
+        vc.viewWillAppear()
+        vc.view.layoutSubtreeIfNeeded()
+        let chrome = window.frame.height - window.contentLayoutRect.height
+        XCTAssertEqual(vc.preferredContentSize.width, 440)
+        XCTAssertLessThanOrEqual(vc.preferredContentSize.height + chrome, 661)
+        let scroll = try XCTUnwrap(allViews(vc.view).compactMap { $0 as? NSScrollView }.first)
+        let document = try XCTUnwrap(scroll.documentView)
+        window.setContentSize(vc.preferredContentSize)
+        vc.view.layoutSubtreeIfNeeded()
+        XCTAssertGreaterThan(document.frame.height, scroll.contentSize.height)
+        XCTAssertEqual(scroll.contentView.bounds.minY, 0, accuracy: 1)
+        let today = try XCTUnwrap(allViews(document).compactMap { $0 as? NSTextField }
+            .first { $0.stringValue == "Today" })
+        today.scrollToVisible(today.bounds)
+        XCTAssertGreaterThan(scroll.contentView.bounds.minY, 0)
+        XCTAssertTrue(scroll.documentVisibleRect.contains(today.convert(today.bounds, to: document)))
+
+        vm.jumpEffectEnabled = false
+        vm.authState = .loggedOut
+        vc.updateUI()
+        vc.view.layoutSubtreeIfNeeded()
+        XCTAssertLessThan(vc.preferredContentSize.height + chrome, 661)
+        vm.jumpEffectEnabled = true
+        vm.authState = .loggedIn
+        vc.updateUI()
+        vc.view.layoutSubtreeIfNeeded()
+        XCTAssertLessThanOrEqual(vc.preferredContentSize.height + chrome, 661)
+        XCTAssertFalse(today.isHiddenOrHasHiddenAncestor)
     }
 
     func testVisibleSummaryReenablesAmountRefreshWhenCooldownExpires() async throws {

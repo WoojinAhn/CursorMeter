@@ -24,7 +24,7 @@ Display, Alerts and Usage settings now expose placement, individual targets and 
 | Checkpoint | Muse | Grok | Opus | Disposition |
 | --- | --- | --- | --- | --- |
 | A: specification | Complete | Complete | Complete | Material findings resolved before parallel development |
-| B: core implementation | Complete | Complete | Complete | Material findings resolved; 819 tests passed |
+| B: core implementation | Complete | Complete | Complete | Material findings resolved; 820 tests passed |
 | C: integrated branch | Pending | Pending | Pending | Pending |
 
 Exact requested configurations: `muse-spark-1.3-max` (Muse Spark 1.3 300K Max), `grok-4.7-xhigh` (Grok 4.7 256K Extra High), and `claude-opus-5-5-max` (Claude Opus 5.5 300K Max). Review dispositions and job references are retained in [the review record](../reviews/2026-09-26-issue-121.md).
@@ -33,7 +33,8 @@ Exact requested configurations: `muse-spark-1.3-max` (Muse Spark 1.3 300K Max), 
 
 - Baseline after the separate Swift 6.4 entry-point compatibility fix: 642 existing tests passed; initial draft-PR ARM and Intel CI passed.
 - Combined core checkpoint: 753 tests passed; debug build passed.
-- After Gate B corrections: `swift test` — **819 tests, 0 failures** (10.984 seconds). The subsequent Sendable test-fixture cleanup passed all 23 dispatcher tests without compiler warnings.
+- After Gate B and CI corrections: `swift test` — **820 tests, 0 failures** (11.396 seconds), with no compiler warnings.
+- CI exposed a formatter compatibility issue and Display overflow on a small screen. The corrected Display scrolls within available space; a 681 pt screen fixture verifies top/bottom access and dynamic visibility. The replacement ARM/Intel run is pending.
 - `swift build` passed (0.23 seconds); `swift build -c release` passed (12.53 seconds).
 - Installer checks: **12 tests, OK** (9.787 seconds). Compiler: Apple Swift 6.4.
 - Synthetic offscreen AppKit fixtures covered Display, Alerts, Summary and the split popover, including missing values, placement, partial cached details, bounded scrolling and reset dates.
