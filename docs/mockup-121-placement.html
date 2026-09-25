@@ -14,7 +14,7 @@
 <section class="section"><h2>특히 한도 임박 상태를 비교</h2><table class="comparison-table"><thead><tr><th>Cursor / Other</th><th>기존 · Other 중앙</th><th>반전 · Other 외곽</th></tr></thead><tbody id="matrix"></tbody></table><p class="small muted">각 셀은 밝은 배경과 어두운 배경입니다. 반전안에서 Other의 빨간 경고가 원의 외곽 전체를 둘러싸는지 확인하세요.</p></section>
 <section class="section grid"><div><h3>판단 기준은 호출 횟수보다 한도 소진</h3><p>자주 쓰더라도 제공량이 크면 당장 주의를 덜 요구할 수 있습니다. 소진율과 남은 여유를 함께 보고 더 먼저 막힐 모델군을 더 잘 보이는 자리에 둡니다.</p></div><div><h3>위치는 사용량에 따라 자동으로 바꾸지 않기</h3><p>높은 사용률이 된 쪽을 매번 바깥으로 보내면 아이콘의 의미가 흔들립니다. 기본값은 Other 외곽입니다. 설정에서 Cursor 외곽을 선택할 수 있으며, 사용자가 바꾼 선택은 재시작 후에도 유지하도록 설계합니다. 두 위치만 바꾸며 수치·색 임계값·알림 대상은 바꾸지 않습니다.</p></div></section>
 <div class="result"><b>기본값은 Other 외곽 / Cursor 중앙, 반대 배치는 설정으로 제공합니다.</b><p>공식 정책은 Cursor Models에 더 많은 포함량을 제공합니다. 다른 조건이 비슷하다면 Other를 먼저 살피게 하는 배치가 맞습니다. 계정마다 주 사용 모델군이 다를 수 있으므로, 모든 사용자의 행동이 같다고 가정하지는 않습니다.</p><p><a href="https://cursor.com/docs/models-and-pricing">공식 모델군·포함량 설명</a></p></div>
-<div class="footer">C안 설정 시안 · 기본값과 배치 옵션을 이슈 #121 명세에 반영합니다. 앱 구현은 아직 시작하지 않았습니다. 네이티브 18px 최종 선명도는 구현 시 검증합니다.</div>
+<div class="footer">Historical synthetic design reference; Swift implementation is complete. The final specification supersedes exploratory options on this page. Live native validation remains owner-pending. <a href="superpowers/reports/2026-09-26-issue-121-implementation.md">Implementation report</a> · <a href="superpowers/specs/2026-09-26-issue-121-split-usage-design.md">Final specification</a>. This page does not change app preferences.</div>
 </main><script>
 (()=>{
 const $=id=>document.getElementById(id);const presets={low:[1,17],balanced:[40,40],other:[5,95],cursor:[95,5],full:[100,100]};let c=1,o=17;

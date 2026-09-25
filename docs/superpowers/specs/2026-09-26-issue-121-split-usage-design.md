@@ -73,7 +73,17 @@ latter and never on hover. It participates in enrichment backoff, not every norm
 substitute for either pool. The period endpoint is optional enrichment, not a new credential authority. Only the
 existing three primary endpoints participate in `hasUnauthorized`. Period/monthly
 401, empty 2xx, 403 or network errors fail that enrichment only; they cannot erase a
-good summary, delete credentials or log out the user.
+good summary, delete credentials or log out the user. A coherent period measurement
+can be displayed before history completes, including when history later fails. Retain
+it across identical canonical primary fingerprints for at most ten minutes, under the
+same account/scope/credential generation, with its original period source timestamp.
+A changed fingerprint or expired measurement requires fresh validation. Primary and
+period precision histories remain separate. Period-only fallback is display enrichment:
+threshold and jump evaluation uses primary summary measurements, so late enrichment
+never creates or replays a consumption event. When period metadata is unavailable at
+both collection boundaries, retain provisional exact family sums using the bounded
+classifier, but do not infer limits. A 429 still stops enrichment and establishes shared
+server backoff.
 
 For a verified personal token-based paid scope, presence of a valid pool field
 establishes split capability for the accepted account/cycle/product scope; a companion
@@ -131,7 +141,9 @@ revision and is never a second consumption event. Before every asynchronous publ
 delivery, revalidate generation, account, scope, cycle and policy ownership. A matching identity alone does not excuse a changed membership or collection generation.
 Plan identity is normalized membership plus reported included plan limit. A verified
 plan change invalidates amount evidence and resets split signal continuity/high-water;
-transiently absent identity fields do not establish a new plan.
+transiently absent identity fields do not establish a new plan. The initial plan key
+remains stable when previously missing membership is merely discovered; a known-to-known
+plan change still establishes a new ownership scope.
 
 Cancel amount work and clear visible private state on logout/expiry/account transition.
 Credential renewal preserves same-account delivered alert identities only after fresh
@@ -184,10 +196,15 @@ exist. Flag ambiguous overlap instead. Content fingerprints hash canonical order
 row fields (timestamp/model/kind/exact cost/chargeability), not the requested page number;
 otherwise a repeated page under a new number would evade detection. Equal timestamps
 are allowed; reversed chronological order is not. Changed total, head fingerprint,
-cycle, included total, pool percentages or model membership triggers the bounded retry.
+cycle, included total, pool percentages or model membership invalidates that attempt.
+Discard rejected aggregates immediately, including before any retry budget check.
 
 Compare summary/period and first-page fingerprints before and after collection; allow
-one bounded retry for change, under the same total budget. The source has no atomic
+one bounded retry for page/head/period changes, under the same total budget. A changed
+primary summary returns unstable immediately: another walk cannot validate the original
+accepted revision. Canonical fingerprints compare parsed cycle dates and normalized
+membership, not equivalent ISO string spellings. Timestamp fingerprints preserve exact
+numeric values without a Double round trip. The source has no atomic
 snapshot guarantee. Expose uncertainty even after checks; do not call a delta the cost
 of the last request. Collection scheduling is result-aware and separate from primary refresh:
 
@@ -204,6 +221,11 @@ Primary fingerprint includes cycle, included used, both percentages, membership 
 limit. Coalesce all callers onto at most one collector. All automatic collection pages,
 including verification/retry pages, share a rolling 300-page/hour session budget. A new
 cycle resets same-cycle terminal partial state but does not bypass server retry time.
+Automatic work waits until a full 100-page attempt allowance is available; a depleted
+hourly allowance is a temporary wait, never a terminal cycle partial. Cancelled work
+reserves its allowance until completion reports actual attempted pages, then charges
+only that cost. A later partial result does not replace an existing complete dated
+snapshot; the previous source date remains visible.
 Provide a Refresh amounts button in Usage Summary with pending/cooldown/backoff status.
 General Refresh remains a primary refresh with 3-second admission and requests amount
 work subject to its own limits; it never waits for amount completion. A single page's
@@ -256,6 +278,10 @@ Let resolution q = 10^(-observedPlaces). In addition to the percentage floor, re
 10% and 50% qualify; observed three-place evidence permits smaller percentages. Carry
 resolution/provenance with the amount snapshot; never infer precision from the dashboard
 rounded label. This is an uncertainty policy, not proof of a server rounding algorithm.
+If an amount snapshot's source percentage differs from the current pool percentage,
+withhold that pool's old inferred limit while retaining the dated amount. Missing or
+at/above-100 current values in either pool block both inferred limits. Empty or blank
+server model lists do not count as usable membership evidence.
 At zero/tiny/insufficiently precise percentage, show amount if otherwise eligible, no
 inferred denominator.
 An absent server model list still permits provisional family subtotals from the bounded
@@ -289,11 +315,15 @@ and Bold policy revisions. A threshold master/target/value edit invalidates only
 threshold component; a jump enabled/intensity edit invalidates only its Bold component.
 Changing glyph style alone changes presentation and does not cancel eligible Bold.
 Account/cycle/plan/scope transition invalidates both. After authorization, before submit,
-and after submit before recording success, revalidate ownership and filter invalid
-components. Deliver any still-valid component; one setting must not cancel the other's
+revalidate ownership and filter invalid components. After successful submission,
+record the exact submitted threshold identities if ownership and the store lease remain
+valid, even if a later policy edit or correction arrives during delivery. The banner
+has already been delivered; omitting its identity would permit a duplicate. Deliver any still-valid component; one setting must not cancel the other's
 eligible event. Release reservations for dropped/failed components. Do not replay stale
 queued jumps: drop jump components older than the continuity ceiling; a later fresh
-threshold can still be evaluated. Revalidate ownership before asynchronous store writes
+threshold can still be evaluated. An equal newer primary revision preserves an already
+pending valid Bold event with its original occurrence time; a newer qualifying Bold
+replaces it. Revalidate ownership before asynchronous store writes
 so old completions cannot resurrect a logged-out ledger.
 
 Permission state for Settings is read through an injected async provider, wired only in
@@ -379,11 +409,15 @@ and immediately restores current geometry; logout/expiry similarly restores curr
 auth-state icon. Form
 one event batch per revision: combine threshold and Bold messages when both qualify,
 without making either's settings a prerequisite for the other. Successfully delivered
-threshold identities are recorded even in a combined banner. Dollar attribution only
-appears when two coherent per-pool snapshots bound the same accepted interval;
-otherwise title **Included Usage Jump**, show aggregate delta and both current
-percentages, explicitly state per-pool attribution unavailable. Never guess a pool from
-outer position or bigger percentage. Later history enrichment cannot replay the event.
+threshold identities are recorded even in a combined banner. This implementation titles
+included-dollar activity **Included Usage Jump**, shows the aggregate delta and both
+current primary percentages, and explicitly states per-pool dollar attribution is
+unavailable. Monthly scans do not bound each primary polling interval, so the previously
+proposed conditional per-pool dollar jump path is deferred; adding it later requires two
+coherent per-pool observations of that same interval without delaying or replaying the
+event. Never guess a pool from outer position or bigger percentage. Percentage-point
+deltas are normalized to the source contract's maximum three fractional places before
+5/15 pp tier comparisons; 4.999/14.999 pp remain below their next tier.
 
 Notification click opens the current popover (never an old account snapshot). Preserve
 update/auth/connection click handling. All jump submissions, including legacy ones, use the same injectable authorization

@@ -28,6 +28,8 @@ row includes a commit marker and whose automatic release checking is disabled.
 - [ ] Check light/dark appearance, different display scale, small/zero/missing values,
   VoiceOver description and keyboard access. Missing is not presented as zero.
 - [ ] Keep Settings open while refreshing; current values and amount state update.
+- [ ] If a pool is supplied only by current-period enrichment, hover/AX identifies that
+  source and its own time. It does not cause a late jump or threshold notification.
 - [ ] Check the largest popover: both pools, paid/Bot, weekly chart, stale/error and
   update rows. Scrollable content does not hide Dashboard/Settings/Log Out/Update/Quit.
 - [ ] Reset countdown refreshes when reopening and its tooltip has the local absolute

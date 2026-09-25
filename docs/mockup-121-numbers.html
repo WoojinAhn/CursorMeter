@@ -21,7 +21,7 @@
 <div class="live-foot"><div class="status-line" id="status-line" aria-live="polite"></div><div class="fallback" id="fallback" hidden></div><p class="note"><span id="width-note"></span><br>메뉴바는 실제 CSS 크기입니다. 아이콘만 표시할 때 18px, 숫자와 함께 표시할 때 20px입니다. 팝오버는 읽기 쉽게 확대합니다.</p></div></section></div>
 <section class="section"><h2>같은 상태를 세 가지 표시 방식으로 비교</h2><div class="modes" id="modes"></div></section>
 <div class="rule"><b>금액을 확인할 수 없는 계열만 퍼센트로 대체합니다.</b><p>금액 모드 선택은 유지됩니다. 집계와 대사가 완료되면 금액 비율로 돌아갑니다. $0을 임의로 채우거나 전체 Plan 금액을 대신 넣지 않습니다. 팝오버와 툴팁에 대체 이유를 표시합니다.</p><p>0%에서는 현재 스냅샷으로 한도를 역산할 수 없으므로, 사용액이 $0으로 확인돼도 한도 비율은 표시하지 않습니다. 추정 금액의 <b>~</b> 표시는 한도가 추정치임을 뜻합니다.</p></div>
-<div class="footer">숫자 연동 동작을 판단하기 위한 HTML 제안입니다. 앱 코드 및 이슈의 숫자 정책은 아직 변경하지 않았습니다. 사용률·금액·경고 기준은 배치 변경에 영향을 받지 않습니다.</div>
+<div class="footer">Historical synthetic design reference; Swift implementation is complete. The final specification supersedes exploratory options on this page. Live native validation remains owner-pending. <a href="superpowers/reports/2026-09-26-issue-121-implementation.md">Implementation report</a> · <a href="superpowers/specs/2026-09-26-issue-121-split-usage-design.md">Final specification</a>. This page does not change app preferences.</div>
 </main><script>
 (()=>{const $=id=>document.getElementById(id);const presets={normal:[5,85],cross:[95,5],zero:[0,0],full:[100,100]};let c=5,o=85;
 function color(p,dark){if($('mono').checked)return dark?'#f0f4f8':'#33485e';return p>=90?'#e62626':p>=70?'#f2a600':'#33b340';}
