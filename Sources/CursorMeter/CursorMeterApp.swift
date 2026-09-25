@@ -21,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     private var timeZoneObserver: NSObjectProtocol?
     private var accessibilityDisplayObserver: NSObjectProtocol?
     private var wakeObserver: NSObjectProtocol?
+    private var sleepObserver: NSObjectProtocol?
     private let notificationManager: NotificationManager
 
     init(viewModel: UsageViewModel = UsageViewModel()) {
@@ -134,6 +135,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
             wakeObserver = nil
         }
+        if let observer = sleepObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+            sleepObserver = nil
+        }
         if let observer = accessibilityDisplayObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
             accessibilityDisplayObserver = nil
@@ -141,6 +146,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     }
 
     private func observeSystemPresentationChanges() {
+        sleepObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.willSleepNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            // The main-queue notification must retire work before suspension.
+            MainActor.assumeIsolated { self?.viewModel.systemWillSleep() }
+        }
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
         ) { [weak self] _ in

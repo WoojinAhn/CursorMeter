@@ -1,6 +1,6 @@
 # CursorMeter split usage implementation report
 
-**Status: checkpoint B resolved and implementation committed; final review and feature CI pending.**
+**Status: full Gate C reviews complete; final corrections pass locally, with focused three-model confirmation and replacement CI pending.**
 
 CursorMeter now represents Cursor Models and Other Models independently in its menu bar, hover details, popover, settings and alerts. The legacy included-dollar limit no longer defines a combined split-plan percentage. Dollar activity is retained with source time, coverage and conditional estimates. Included-dollar jump messages remain aggregate; per-pool dollar attribution for individual polling intervals is deferred.
 
@@ -25,7 +25,7 @@ Display, Alerts and Usage settings now expose placement, individual targets and 
 | --- | --- | --- | --- | --- |
 | A: specification | Complete | Complete | Complete | Material findings resolved before parallel development |
 | B: core implementation | Complete | Complete | Complete | Material findings resolved; 820 tests passed |
-| C: integrated branch | Pending | Pending | Pending | Pending |
+| C: integrated branch | Complete | Complete | Complete | Four confirmed defects corrected; focused confirmation pending |
 
 Exact requested configurations: `muse-spark-1.3-max` (Muse Spark 1.3 300K Max), `grok-4.7-xhigh` (Grok 4.7 256K Extra High), and `claude-opus-5-5-max` (Claude Opus 5.5 300K Max). Review dispositions and job references are retained in [the review record](../reviews/2026-09-26-issue-121.md).
 
@@ -33,14 +33,16 @@ Exact requested configurations: `muse-spark-1.3-max` (Muse Spark 1.3 300K Max), 
 
 - Baseline after the separate Swift 6.4 entry-point compatibility fix: 642 existing tests passed; initial draft-PR ARM and Intel CI passed.
 - Combined core checkpoint: 753 tests passed; debug build passed.
-- After Gate B and CI corrections: `swift test` — **820 tests, 0 failures** (11.396 seconds), with no compiler warnings.
-- CI exposed a formatter compatibility issue and Display overflow on a small screen. The corrected Display scrolls within available space; a 681 pt screen fixture verifies top/bottom access and dynamic visibility. The replacement ARM/Intel run is pending.
+- After Gate B and CI corrections: `swift test` — **829 tests, 0 failures** (11.567 seconds), with no compiler warnings.
+- CI exposed a formatter compatibility issue and Display overflow on a small screen. The corrected Display scrolls within available space; a 681 pt screen fixture verifies top/bottom access and dynamic visibility. Both ARM/Intel passed [run 36171208212](https://github.com/WoojinAhn/CursorMeter/actions/runs/36171208212) for `1460ea0`; the Gate C correction commit requires a new run.
 - `swift build` passed (0.23 seconds); `swift build -c release` passed (12.53 seconds).
 - Installer checks: **12 tests, OK** (9.787 seconds). Compiler: Apple Swift 6.4.
-- Synthetic offscreen AppKit fixtures covered Display, Alerts, Summary and the split popover, including missing values, placement, partial cached details, bounded scrolling and reset dates.
+- Synthetic offscreen AppKit fixtures covered Display, Alerts, Summary and the split popover, including missing values, placement, partial cached details, bounded scrolling and reset dates. Additional Summary captures verify automatic-pause and sleeping captions fit at 440 × 498 pt with the correct retry-button state.
 - README and SECURITY English/Korean pairs have matching heading structure.
 
 These are automated/offscreen results. The running application, installed bundle and native preferences were not deliberately changed for live verification. Real hover timing, system notification delivery, VoiceOver, display scale and installation remain the owner's checks. Existing repository screenshots are explicitly identified as the single-pool interface until native captures are refreshed.
+
+Gate C corrections cover delayed coherent period values across equal revisions, cancellation before system sleep, rejection of unreconciled source-end history, and request-scope adoption before split publication. Each confirmed defect has a failing reproducer and passing regression coverage.
 
 ## Manual handoff and limits
 

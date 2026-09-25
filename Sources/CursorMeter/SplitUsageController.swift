@@ -39,6 +39,7 @@ final class SplitUsageController {
     @ObservationIgnored private var membership: String?
     @ObservationIgnored private var planLimit: Int?
     @ObservationIgnored private var cycle: UsageCycle?
+    private var isSleeping = false
 
     init(apiClient: CursorAPIClient? = nil, store: CycleUsageStore? = nil,
          now: @escaping () -> Date = { Date() }, collect: Collect? = nil, fetchPeriod: FetchPeriod? = nil) {
@@ -130,7 +131,7 @@ final class SplitUsageController {
     }
 
     func requestAmounts(manual: Bool = true) {
-        guard eligibility == .eligible, !isStale, let snapshot = primarySnapshot, snapshot.identity.cycle != nil,
+        guard !isSleeping, eligibility == .eligible, !isStale, let snapshot = primarySnapshot, snapshot.identity.cycle != nil,
               let (summary, cookie) = latestRequest, supplementTask == nil else { return }
         guard let collect, let allowance = schedule.begin(at: now(), manual: manual),
               let attemptID = schedule.currentAttemptID else {
@@ -204,7 +205,8 @@ final class SplitUsageController {
     private func acceptSupplement(_ supplemental: SplitUsageSnapshot, fingerprint: String, taskID: UInt64? = nil) {
         guard !Task.isCancelled, eligibility == .eligible, !isStale,
               taskID.map({ $0 == taskRevision }) ?? true,
-              let primarySnapshot, supplemental.identity == primarySnapshot.identity,
+              let primarySnapshot, supplemental.identity.sameScope(as: primarySnapshot.identity),
+              supplemental.identity.credentialGeneration == primarySnapshot.identity.credentialGeneration,
               fingerprint == primaryFingerprint, let capturedAt = supplemental.periodCapturedAt,
               (0...600).contains(now().timeIntervalSince(capturedAt)) else { return }
         periodCursorPlaces = max(periodCursorPlaces, supplemental.periodCursorObservedPlaces)
@@ -262,17 +264,20 @@ final class SplitUsageController {
     }
 
     var canRefreshAmounts: Bool {
-        eligibility == .eligible && !isStale && !isFetchingSupplement && snapshot?.identity.cycle != nil
+        !isSleeping && eligibility == .eligible && !isStale && !isFetchingSupplement && snapshot?.identity.cycle != nil
             && schedule.availability(at: now(), manual: true) == .ready
     }
 
     var amountsRefreshStateText: String {
         guard eligibility == .eligible else { return "Amounts unavailable until split usage is verified" }
+        guard !isSleeping else { return "Paused while Mac sleeps" }
         guard !isStale else { return "Waiting for a successful usage refresh" }
         guard snapshot?.identity.cycle != nil else { return "Billing cycle unavailable" }
         if isFetchingSupplement { return "Refreshing percentages…" }
         switch schedule.availability(at: now(), manual: true) {
-        case .ready: return "Refresh amounts"
+        case .ready:
+            return schedule.availability(at: now(), manual: false) == .cycleLimit
+                ? "Auto collection paused · Retry manually" : "Refresh amounts"
         case .collecting: return "Refreshing amounts…"
         case let .waiting(until): return "Available in \(max(1, Int(ceil(until.timeIntervalSince(now())))))s"
         case .cycleLimit: return "Collection limit reached"
@@ -281,6 +286,13 @@ final class SplitUsageController {
     }
 
     func recordFailure() { if suppressesLegacyMeter { isStale = true } }
+
+    func prepareForSleep() {
+        isSleeping = true
+        retireTask()
+    }
+
+    func resumeAfterWake() { isSleeping = false }
 
     func suspend(removePersisted: Bool = false, subjectDigest: String? = nil) {
         retireTask()

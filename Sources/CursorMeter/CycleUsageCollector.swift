@@ -111,6 +111,7 @@ struct CycleUsageCollector: Sendable {
                 aggregate.cursorObservedPlaces = resolved.cursorObservedPlaces
                 aggregate.otherObservedPlaces = resolved.otherObservedPlaces
                 var included: Decimal = 0
+                var reachedCycleStart = false
                 var unresolved = false, invalid = false
                 var lastDate: Date?, seenPages = Set<String>(), priorRows = Set<String>()
                 var reportedTotal: Int?, totalPresence: Bool?, visited = 0
@@ -145,7 +146,7 @@ struct CycleUsageCollector: Sendable {
                             lastDate = date
                             aggregate.coverage.oldest = date
                             if aggregate.coverage.newest == nil { aggregate.coverage.newest = date }
-                            if date < cycle.start { crossedStart = true; continue }
+                            if date < cycle.start { crossedStart = true; reachedCycleStart = true; continue }
                             guard date < cycle.end else { continue }
                             aggregate.coverage.eventCount += 1
                             let classification = CycleModelClassifier.classify(event.model, serverModels: models)
@@ -207,6 +208,11 @@ struct CycleUsageCollector: Sendable {
                 aggregate.coverage.pageCount = pages; aggregate.coverage.byteCount = bytes
                 aggregate.residualCents = snapshot.includedUsedCents.map { included - $0 }
                 let reconciled = aggregate.residualCents.map { abs($0) <= 1 } == true
+                if !reachedCycleStart && !reconciled {
+                    partial = nil
+                    if attempt == 0 { continue }
+                    return result(.unstable)
+                }
                 aggregate.status = reconciled && !unresolved ? .estimatedAttribution : .unavailable
                 let noSpillover = (resolved.cursorPercent.map { $0 < 100 } == true) && (resolved.otherPercent.map { $0 < 100 } == true)
                 if reconciled && !unresolved && noSpillover && models != nil {

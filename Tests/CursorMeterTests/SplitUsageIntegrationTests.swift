@@ -124,4 +124,96 @@ final class SplitUsageIntegrationTests: XCTestCase {
         XCTAssertTrue(bodies.isEmpty)
     }
 
+    private func installEnterpriseHistoryFailure(fallback: @escaping (URLRequest) throws -> (HTTPURLResponse, Data)) {
+        MockURLProtocol.requestHandler = { request in
+            let body: String
+            var status = 200
+            switch request.url!.path {
+            case "/api/usage-summary": body = """
+                {"membershipType":"enterprise","billingCycleStart":"2026-09-01T00:00:00Z","billingCycleEnd":"2026-10-01T00:00:00Z","individualUsage":{"plan":{"used":0,"limit":40000}}}
+                """
+            case "/api/dashboard/teams": body = "{\"teams\":[{\"id\":7}]}"
+            case "/api/dashboard/get-team-spend": body = "{\"teamMemberSpend\":[{\"userId\":42,\"email\":\"demo@example.test\"}]}"
+            case "/api/dashboard/get-filtered-usage-events": body = "{}"; status = 403
+            default: return try fallback(request)
+            }
+            return (HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!, Data(body.utf8))
+        }
+    }
+
+    func testPersonalSplitPublishesOnFirstRefreshAfterEnterpriseHistoryFailure() async {
+        var bodies: [String] = []
+        let manager = NotificationManager(requestAuthorization: { true }, deliver: { bodies.append($0.content.body) })
+        let vm = vm(used: 38000, manager: manager)
+        defer { vm.stopAutoRefreshForTests() }
+        let personal = MockURLProtocol.requestHandler!
+        installEnterpriseHistoryFailure(fallback: personal)
+        await vm.refresh()
+        XCTAssertEqual(vm.usageData?.membershipType, "enterprise")
+        XCTAssertNil(vm.cachedWeeklyMode, "The rejected history shape drops its optimization cache")
+        MockURLProtocol.requestHandler = personal
+        vm.notificationEnabled = true
+        await vm.refresh()
+        for _ in 0..<30 { await Task.yield() }
+        XCTAssertEqual(vm.splitUsage.eligibility, .eligible)
+        XCTAssertEqual(vm.usageData?.splitUsage?.cursorPercent, 10)
+        XCTAssertEqual(vm.usageData?.splitEligibility, .eligible)
+        XCTAssertEqual(vm.cachedWeeklyMode, .personal)
+        XCTAssertTrue(bodies.isEmpty, "The legacy95% ratio must never alert during scope adoption")
+    }
+
+    func testSleepRetiresHeldMonthlyWorkWithoutTerminalPartialOrClearingMeter() async throws {
+        actor CollectionGate {
+            var started = false
+            var continuation: CheckedContinuation<Void, Never>?
+            func collect() async -> CycleCollectionResult {
+                started = true
+                await withCheckedContinuation { continuation = $0 }
+                return .init(status: .partial, snapshot: nil, pageCount: 1, byteCount: 0)
+            }
+            func release() { continuation?.resume(); continuation = nil }
+        }
+        let gate = CollectionGate()
+        var time = Date()
+        let controller = SplitUsageController(now: { time }, collect: { _, _, _, _, _ in await gate.collect() })
+        let vm = vm(controller: controller)
+        defer { vm.stopAutoRefreshForTests() }
+        await vm.refresh()
+        let end = ContinuousClock.now.advanced(by: .seconds(2))
+        while !(await gate.started), ContinuousClock.now < end { await Task.yield() }
+        let original = try XCTUnwrap(controller.primarySnapshot)
+        vm.systemWillSleep()
+        XCTAssertFalse(controller.canRefreshAmounts)
+        XCTAssertEqual(controller.primarySnapshot, original)
+        time = time.addingTimeInterval(3600)
+        await gate.release()
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while controller.schedule.automaticPagesRemaining(at: time) != 299, ContinuousClock.now < deadline { await Task.yield() }
+        vm.systemDidWake()
+        XCTAssertEqual(controller.schedule.availability(at: time, manual: false), .ready)
+        XCTAssertTrue(controller.canRefreshAmounts)
+        XCTAssertEqual(controller.primarySnapshot, original)
+        XCTAssertEqual(controller.eligibility, .eligible)
+    }
+
+    func testMissingMembershipCannotReplaceKnownEnterpriseRequestScopeWithSplit() async {
+        let vm = vm()
+        defer { vm.stopAutoRefreshForTests() }
+        let personal = MockURLProtocol.requestHandler!
+        installEnterpriseHistoryFailure(fallback: personal)
+        await vm.refresh()
+        XCTAssertNil(vm.cachedWeeklyMode)
+        MockURLProtocol.requestHandler = { request in
+            let (response, data) = try personal(request)
+            guard request.url!.path == "/api/usage-summary" else { return (response, data) }
+            var json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+            json.removeValue(forKey: "membershipType")
+            return (response, try JSONSerialization.data(withJSONObject: json))
+        }
+        await vm.refresh()
+        XCTAssertEqual(vm.splitUsage.eligibility, .legacy)
+        XCTAssertNil(vm.splitUsage.primarySnapshot)
+        XCTAssertNil(vm.usageData?.splitUsage)
+    }
+
 }

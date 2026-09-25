@@ -83,7 +83,10 @@ final class CycleUsageCollectorTests: XCTestCase, @unchecked Sendable {
             CycleUsageEvent(timestamp: "6000", model: "unknown", kind: "USAGE_EVENT_KIND_INCLUDED_IN_ULTRA", chargedCents: 5),
             CycleUsageEvent(timestamp: "5000", model: "composer-2.5", kind: "USAGE_EVENT_KIND_CUSTOM_SUBSCRIPTION", chargedCents: 6)
         ]
-        let result = await collector(PageFeed([page(rows, total: 5)])).collect(snapshot: snapshot(used: 19), summary: summary(used: 19))
+        let collector = CycleUsageCollector(fetchPage: { _, _ in self.page(rows, total: 5) }, fetchSummary: { self.summary(used: 6) }, fetchPeriod: { try self.period() })
+        let result = await collector.collect(snapshot: snapshot(used: 6), summary: summary(used: 6))
+        XCTAssertEqual(result.status, .complete)
+        XCTAssertEqual(result.snapshot?.status, .unavailable)
         XCTAssertEqual(result.snapshot?.cursorCents, 1)
         XCTAssertEqual(result.snapshot?.botCents, 3)
         XCTAssertEqual(result.snapshot?.paidCents, 4)
@@ -193,6 +196,47 @@ final class CycleUsageCollectorTests: XCTestCase, @unchecked Sendable {
             XCTAssertEqual(result.pageCount, 2)
             XCTAssertEqual(result.byteCount, 200)
         }
+    }
+
+    func testSourceExhaustionWithoutBoundaryRequiresReconciliation() async throws {
+        for usesTotal in [true, false] {
+            let collector = CycleUsageCollector(fetchPage: { number, _ in
+                if number == 1 { return self.page([self.event("2000", "3")], total: usesTotal ? 1 : nil) }
+                return self.page([])
+            }, fetchSummary: { self.summary(used: 10) }, fetchPeriod: { try self.period() })
+            let result = await collector.collect(snapshot: snapshot(used: 10), summary: summary(used: 10))
+            XCTAssertEqual(result.status, .unstable, "Source exhaustion must not imply full cycle coverage without reconciliation")
+            XCTAssertNil(result.snapshot, "A rejected subtotal must not replace the previous complete snapshot")
+            XCTAssertEqual(result.pageCount, usesTotal ? 4 : 6, "Only one retry shares the original budget")
+        }
+    }
+    func testReachedCycleBoundaryCanHaveCompleteCoverageButUnavailableAttribution() async throws {
+        let collector = CycleUsageCollector(fetchPage: { _, _ in
+            self.page([self.event("2000", "3"), self.event("500", "10")], total: 50)
+        }, fetchSummary: { self.summary(used: 10) }, fetchPeriod: { try self.period() })
+        let result = await collector.collect(snapshot: snapshot(used: 10), summary: summary(used: 10))
+        XCTAssertEqual(result.status, .complete)
+        XCTAssertEqual(result.snapshot?.coverage.complete, true)
+        XCTAssertEqual(result.snapshot?.status, .unavailable)
+        XCTAssertEqual(result.snapshot?.residualCents, -7)
+        XCTAssertEqual(result.snapshot?.cursorCents, 3)
+        XCTAssertNil(result.snapshot?.estimatedCursorLimitCents)
+        XCTAssertEqual(result.pageCount, 2)
+    }
+    func testExhaustionMismatchRetryCanRecoverWithoutExceedingSharedBudget() async throws {
+        let periods = CollectionSequence()
+        let collector = CycleUsageCollector(fetchPage: { _, _ in
+            let attemptStarted = await periods.value
+            return self.page([self.event("2000", attemptStarted <= 2 ? "3" : "10")], total: 1)
+        }, fetchSummary: { self.summary(used: 10) }, fetchPeriod: {
+            _ = await periods.next()
+            return try self.period()
+        })
+        let result = await collector.collect(snapshot: snapshot(used: 10), summary: summary(used: 10))
+        XCTAssertEqual(result.status, .complete)
+        XCTAssertEqual(result.snapshot?.cursorCents, 10)
+        XCTAssertEqual(result.snapshot?.coverage.complete, true)
+        XCTAssertEqual(result.pageCount, 4)
     }
 
     func collector(_ feed: PageFeed, maxPages: Int = 100) -> CycleUsageCollector {

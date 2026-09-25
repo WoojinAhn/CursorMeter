@@ -84,6 +84,33 @@ final class SplitUsageUITests: XCTestCase {
         XCTAssertTrue(labels(vc.view).contains { $0.contains("Primary summary refreshed:") })
     }
 
+    func testSummaryPausedCaptionsFitAndKeepManualRetryStateVisible() async throws {
+        _ = NSApplication.shared
+        for sleeping in [false, true] {
+            let vm = try await makePausedViewModel(sleeping: sleeping)
+            let vc = SettingsUsageTabViewController(viewModel: vm)
+            _ = vc.view
+            vc.updateUI()
+            let window = NSWindow(contentViewController: vc)
+            window.isReleasedWhenClosed = false
+            window.setContentSize(vc.view.fittingSize)
+            vc.view.layoutSubtreeIfNeeded()
+            defer { window.contentViewController = nil; window.close() }
+            let expected = sleeping ? "Paused while Mac sleeps" : "Auto collection paused · Retry manually"
+            let caption = try XCTUnwrap(allViews(vc.view).compactMap { $0 as? NSTextField }
+                .first { $0.stringValue == expected })
+            XCTAssertFalse(caption.isHiddenOrHasHiddenAncestor)
+            XCTAssertTrue(vc.view.bounds.contains(caption.convert(caption.bounds, to: vc.view)))
+            let textSize = try XCTUnwrap(caption.cell).cellSize(forBounds: caption.bounds)
+            XCTAssertLessThanOrEqual(textSize.height, caption.bounds.height + 1)
+            XCTAssertGreaterThan(caption.bounds.width, 0)
+            let refresh = try XCTUnwrap(allViews(vc.view).compactMap { $0 as? NSButton }
+                .first { $0.accessibilityLabel() == "Refresh cycle amounts" })
+            XCTAssertEqual(refresh.isEnabled, !sleeping)
+            XCTAssertEqual(vc.view.fittingSize.width, 440, accuracy: 1)
+        }
+    }
+
     func testSplitDisplayHonorsPlacementAndKeepsSavedLegacyMode() throws {
         let vm = makeViewModel()
         try publishSplit(to: vm)
@@ -169,6 +196,8 @@ final class SplitUsageUITests: XCTestCase {
         vm.notificationEnabled = true
         vm.usageSummarySelected = true
         let periodVM = try await makePeriodViewModel()
+        let pausedVM = try await makePausedViewModel(sleeping: false)
+        let sleepingVM = try await makePausedViewModel(sleeping: true)
         let popover = MenuBarPopoverViewController(viewModel: vm, onLogin: {}, onSettings: {})
         let surfaces: [(String, NSViewController)] = [
             ("popover", popover),
@@ -177,6 +206,8 @@ final class SplitUsageUITests: XCTestCase {
             ("display-short", SettingsAppearanceTabViewController(viewModel: vm, screenHeight: { 681 })),
             ("alerts", SettingsNotificationsTabViewController(viewModel: vm)),
             ("summary", SettingsUsageTabViewController(viewModel: vm)),
+            ("summary-paused", SettingsUsageTabViewController(viewModel: pausedVM)),
+            ("summary-sleeping", SettingsUsageTabViewController(viewModel: sleepingVM)),
         ]
         for (name, controller) in surfaces {
             _ = controller.view
@@ -361,6 +392,29 @@ final class SplitUsageUITests: XCTestCase {
         for _ in 0..<50 where controller.amountState == .refreshing {
             try await Task.sleep(for: .milliseconds(2))
         }
+        return vm
+    }
+
+    private func makePausedViewModel(sleeping: Bool) async throws -> UsageViewModel {
+        var now = Date()
+        let controller = SplitUsageController(now: { now }, collect: { snapshot, _, _, _, _ in
+            let amounts = CycleAmountSnapshot(
+                identity: snapshot.identity, capturedAt: snapshot.capturedAt,
+                cursorCents: 1000, otherCents: 2000, botCents: 0, paidCents: 0,
+                unknownCents: 0, unknownCount: 0, residualCents: nil,
+                coverage: CycleCoverage(complete: false, pageCount: 100, eventCount: 10000),
+                status: .unavailable)
+            return CycleCollectionResult(status: .partial, snapshot: amounts, pageCount: 100, byteCount: 1000)
+        })
+        let vm = makeViewModel(splitUsage: controller)
+        vm.usageSummarySelected = true
+        let summary = try publishSplit(to: vm)
+        controller.requestAmounts(summary: summary, cookieHeader: "synthetic")
+        for _ in 0..<50 where controller.amountState == .refreshing {
+            try await Task.sleep(for: .milliseconds(2))
+        }
+        now = now.addingTimeInterval(61)
+        if sleeping { controller.prepareForSleep() }
         return vm
     }
 

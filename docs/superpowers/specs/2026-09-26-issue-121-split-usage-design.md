@@ -77,6 +77,8 @@ good summary, delete credentials or log out the user. A coherent period measurem
 can be displayed before history completes, including when history later fails. Retain
 it across identical canonical primary fingerprints for at most ten minutes, under the
 same account/scope/credential generation, with its original period source timestamp.
+A delayed result may fill an unchanged newer local revision under those same checks;
+keep that newer primary identity and never replace raw primary event evidence.
 A changed fingerprint or expired measurement requires fresh validation. Primary and
 period precision histories remain separate. Period-only fallback is display enrichment:
 threshold and jump evaluation uses primary summary measurements, so late enrichment
@@ -147,8 +149,11 @@ plan change still establishes a new ownership scope.
 
 Cancel amount work and clear visible private state on logout/expiry/account transition.
 Credential renewal preserves same-account delivered alert identities only after fresh
-identity validation. Explicit logout removes that account's caches and delivered
-ledger, preserves preferences, and continues to suppress IDE automatic relogin.
+identity validation. Explicit logout attempts to remove the verified account's caches
+and delivered ledger, preserves preferences, and continues to suppress IDE automatic
+relogin. Without a verified subject in the current process (for example, a cold offline
+start), old unidentified files remain unread and are not guessed to belong to that
+account. File removal is best effort, not secure erasure.
 
 Keep primary refresh admission (3 seconds), shared in-flight joining and feedback
 (1.3-second progress, 0.65-second result). Preserve polling 1/2/5/15 minutes, activity
@@ -169,7 +174,11 @@ values as a substitute for the exact monthly path. Track page count, event count
 oldest/newest dates, total-count consistency, termination and reconciliation evidence.
 
 Initial hard budgets: 100 pages / 10,000 events, 16 MiB response data across pages,
-60 seconds wall-clock task duration, one collector per scope. Exceeded budgets
+60 seconds wall-clock task duration, one collector per scope. System sleep retires an
+active collector as cancellation before suspension; primary completion cannot start
+new amount work while asleep. Wake restores normal admission with cancellation
+cooldown and actual retired-page accounting. A real hard partial exposes that automatic
+collection is paused and manual retry remains available after cooldown. Exceeded budgets
 produce a partial state; they never silently establish complete coverage. Reject a single oversized response before decoding; aggregate response-byte accounting
 belongs in a separate history-page result without changing weekly semantics. This is a
 decoded/retained payload budget: existing URLSession.data(for:) still buffers one response
@@ -523,7 +532,9 @@ review outcomes, test/build evidence, known API uncertainty and manual check ste
 - Precision gates at integer-only 1/3/10/50 and fractionally observed resolution, plus
   no-fractional-second cycle dates and source endpoint precision ownership.
 - End-of-source without crossing the cycle start requires included reconciliation before
-  full-cycle labels. Other subtotals remain observed activity with coverage caveats;
+  full-cycle labels. A mismatch rejects the aggregate, retries once within the shared
+  budget, then follows instability backoff without replacing prior complete evidence.
+  Other subtotals remain observed activity with coverage caveats;
   never claim a separately verified Bot weekly or paid-month total from truncation.
 - Keep all legacy assertions except deliberately changed Max-mode wording and usage
   notification click routing; update those named tests explicitly. Threshold identifiers

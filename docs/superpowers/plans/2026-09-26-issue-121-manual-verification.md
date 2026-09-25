@@ -27,6 +27,9 @@ row includes a commit marker and whose automatic release checking is disabled.
   targets, thresholds and alert history do not change.
 - [ ] Check light/dark appearance, different display scale, small/zero/missing values,
   VoiceOver description and keyboard access. Missing is not presented as zero.
+- [ ] Check whether the popover “Included usage” section heading is clear without a
+  total beside it. Included dollars remain in hover and Summary; there is no combined
+  split-plan percentage. This is a nonblocking final-review UX observation.
 - [ ] Keep Settings open while refreshing; current values and amount state update.
 - [ ] If a pool is supplied only by current-period enrichment, hover/AX identifies that
   source and its own time. It does not cause a late jump or threshold notification.
@@ -66,6 +69,9 @@ by synthetic automated fixtures; the owner can verify delivery during normal act
 - [ ] Simultaneous eligible threshold and Bold events produce one coherent banner.
 - [ ] Relaunch within the same account/cycle does not replay a successfully delivered
   threshold. Clicking a usage notification opens the current popover.
+- [ ] Closing the lid during an amount scan does not leave automatic collection paused
+  for the billing cycle after wake. A real hard collection limit explains the automatic
+  pause and keeps manual retry available after cooldown.
 - [ ] Wake or reconnect does not claim accumulated split usage was a new immediate jump;
   a fresh not-yet-delivered current threshold can still notify once.
 

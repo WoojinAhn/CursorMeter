@@ -909,7 +909,16 @@ final class UsageViewModel {
         // team/user ids before this check could run — on a switch their
         // results must be discarded, not merely the caches reset.
         let accountSwitched = resetIfAccountSwitched(newEmail: userInfo.email, newSubject: userInfo.sub)
-        let modeContradicted = Self.weeklyModeContradicts(optimisticMode, membershipType: summary?.membershipType)
+        // A rejected history request drops its optimization cache, but the last
+        // verified scope must still retire before publishing a different plan.
+        let previousRequestMode: WeeklyMode? = lastRequestScope.map {
+            switch $0 {
+            case .personal: .personal
+            case let .enterprise(teamID, userID): .enterprise(teamId: teamID, userId: userID)
+            }
+        }
+        let modeContradicted = Self.weeklyModeContradicts(optimisticMode ?? previousRequestMode,
+            membershipType: summary?.membershipType)
         if accountSwitched || modeContradicted {
             if !accountSwitched { resetPerAccountState() }
             context = try adoptSession(context, cookieHeader: cookieHeader)
@@ -973,8 +982,12 @@ final class UsageViewModel {
             if var base = baseData {
                 if let summary {
                     let wasSplit = splitUsage.suppressesLegacyMeter
+                    let enterpriseRequestScope: Bool
+                    if case .enterprise = lastRequestScope { enterpriseRequestScope = true }
+                    else { enterpriseRequestScope = false }
                     splitUsage.accept(summary: summary, usage: usage, userInfo: userInfo,
-                        generation: context.generation, enterpriseScope: cachedWeeklyMode?.teamID ?? 0 > 0)
+                        generation: context.generation,
+                        enterpriseScope: enterpriseRequestScope || (cachedWeeklyMode?.teamID ?? 0) > 0)
                     if wasSplit != splitUsage.suppressesLegacyMeter {
                         previousPlanUsedCents = nil; previousRequestsUsed = nil
                         previousServerPercent = nil; previousOnDemandUsedCents = nil; previousMode = nil
@@ -1578,7 +1591,13 @@ final class UsageViewModel {
         case .provisional: notificationPermissionStatus = "Provisional"
         }
     }
+    func systemWillSleep() {
+        splitUsage.prepareForSleep()
+        splitAlerts.resetContinuity()
+    }
+
     func systemDidWake() {
+        splitUsage.resumeAfterWake()
         splitAlerts.resetContinuity()
     }
 

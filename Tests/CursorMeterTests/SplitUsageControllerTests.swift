@@ -241,6 +241,21 @@ final class SplitUsageControllerTests: XCTestCase {
         XCTAssertTrue(controller.amounts?.coverage.complete == true)
     }
 
+    func testHardCollectionLimitExplainsAutomaticPauseWhileManualRetryRemainsAvailable() async throws {
+        var time = Date()
+        let controller = SplitUsageController(now: { time }, collect: { _, _, _, _, _ in
+            .init(status: .partial, snapshot: nil, pageCount: 100, byteCount: 0)
+        })
+        controller.accept(summary: summary(), usage: try usage(), userInfo: user, generation: 1, enterpriseScope: false)
+        controller.requestAmounts(summary: summary(), cookieHeader: "fixture")
+        await eventually { controller.amountState == .unavailable }
+        XCTAssertFalse(controller.canRefreshAmounts)
+        time = time.addingTimeInterval(61)
+        XCTAssertEqual(controller.schedule.availability(at: time, manual: false), .cycleLimit)
+        XCTAssertTrue(controller.canRefreshAmounts)
+        XCTAssertEqual(controller.amountsRefreshStateText, "Auto collection paused · Retry manually")
+    }
+
     func testEarlyPeriodSupplementSurvivesHistoryFailureAndNeverChangesPrimary() async throws {
         let period = try period()
         let controller = SplitUsageController(collect: { snapshot, summary, _, _, supplement in
@@ -350,27 +365,6 @@ final class SplitUsageControllerTests: XCTestCase {
         }
     }
 
-    func testLateCollectionSupplementCannotFillNewRevisionOrGeneration() async throws {
-        for generation: UInt64 in [1, 2] {
-            let gate = CollectionGate()
-            let period = try period()
-            let controller = SplitUsageController(collect: { snapshot, summary, _, _, supplement in
-                let result = await gate.collect(snapshot)
-                await supplement(snapshot.supplemented(by: period, summary: summary, at: snapshot.capturedAt))
-                return result
-            })
-            let missing = summary(cursor: nil)
-            controller.accept(summary: missing, usage: try usage(), userInfo: user, generation: 1, enterpriseScope: false)
-            controller.requestAmounts(summary: missing, cookieHeader: "fixture")
-            await eventually { await gate.calls == 1 }
-            controller.accept(summary: missing, usage: try usage(), userInfo: user, generation: generation, enterpriseScope: false)
-            await gate.release()
-            await eventually { controller.schedule.automaticPagesRemaining(at: Date()) == 298 }
-            XCTAssertNil(controller.snapshot?.cursorPercent)
-            XCTAssertNil(controller.primarySnapshot?.cursorPercent)
-        }
-    }
-
     func testResetDeletesExplicitVerifiedSubjectBeforeStoreActivation() async throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: url) }
@@ -384,6 +378,81 @@ final class SplitUsageControllerTests: XCTestCase {
         let controller = SplitUsageController(store: CycleUsageStore(fileURL: url))
         controller.reset(removePersisted: true, subjectDigest: snapshot.identity.accountDigest)
         await eventually { !FileManager.default.fileExists(atPath: url.path) }
+    }
+
+    private actor SupplementGate {
+        var started = false
+        var continuation: CheckedContinuation<Void, Never>?
+        func wait() async {
+            started = true
+            await withCheckedContinuation { continuation = $0 }
+        }
+        func release() { continuation?.resume(); continuation = nil }
+    }
+
+    func testDelayedSupplementFillsEqualPrimaryRevisionAcrossAllDeliveryPaths() async throws {
+        for path in ["callback", "result", "standalone"] {
+            let gate = SupplementGate()
+            let period = try period()
+            let collect: SplitUsageController.Collect = { snapshot, summary, _, _, supplement in
+                await gate.wait()
+                let enriched = snapshot.supplemented(by: period, summary: summary, at: snapshot.capturedAt)
+                if path == "callback" { await supplement(enriched) }
+                return .init(status: .complete, snapshot: nil, pageCount: 0, byteCount: 0,
+                    supplementarySnapshot: path == "result" ? enriched : nil)
+            }
+            let controller = SplitUsageController(collect: path == "standalone" ? nil : collect, fetchPeriod: { _ in
+                await gate.wait()
+                return period
+            })
+            let missing = summary(cursor: nil)
+            controller.accept(summary: missing, usage: try usage(), userInfo: user, generation: 1, enterpriseScope: false)
+            let original = try XCTUnwrap(controller.primarySnapshot)
+            controller.requestAmounts(summary: missing, cookieHeader: "fixture")
+            await eventually { await gate.started }
+            controller.accept(summary: missing, usage: try usage(), userInfo: user, generation: 1, enterpriseScope: false)
+            let latest = try XCTUnwrap(controller.primarySnapshot)
+            XCTAssertNotEqual(original.identity.localID, latest.identity.localID, path)
+            await gate.release()
+            await eventually { !controller.isFetchingSupplement && controller.amountState != .refreshing }
+            XCTAssertEqual(controller.snapshot?.cursorPercent, 1.234, path)
+            XCTAssertEqual(controller.snapshot?.cursorSource, .period, path)
+            XCTAssertNotNil(controller.snapshot?.periodCapturedAt, path)
+            XCTAssertEqual(controller.snapshot?.identity, latest.identity, path)
+            XCTAssertEqual(controller.primarySnapshot, latest, "Display enrichment must not mutate primary event evidence: \(path)")
+        }
+    }
+
+    func testDelayedSupplementRejectsChangedEvidenceOwnershipAndExpiredSource() async throws {
+        for change in ["amount", "percentage", "generation", "account", "expiry"] {
+            var time = Date()
+            let gate = SupplementGate()
+            let period = try period()
+            let controller = SplitUsageController(now: { time }, collect: { snapshot, summary, _, _, supplement in
+                await gate.wait()
+                await supplement(snapshot.supplemented(by: period, summary: summary, at: snapshot.capturedAt))
+                return .init(status: .complete, snapshot: nil, pageCount: 0, byteCount: 0)
+            })
+            let missing = summary(cursor: nil)
+            controller.accept(summary: missing, usage: try usage(), userInfo: user, generation: 1, enterpriseScope: false)
+            controller.requestAmounts(summary: missing, cookieHeader: "fixture")
+            await eventually { await gate.started }
+            let changed: UsageSummaryResponse
+            if change == "amount" {
+                changed = try JSONDecoder().decode(UsageSummaryResponse.self, from: Data("""
+                {"billingCycleStart":"2026-09-01T00:00:00Z","billingCycleEnd":"2026-10-01T00:00:00Z","membershipType":"ultra","individualUsage":{"plan":{"used":18201,"limit":40000,"apiPercentUsed":41}}}
+                """.utf8))
+            } else { changed = summary(cursor: nil, other: change == "percentage" ? 42 : 41) }
+            if change == "expiry" { time = time.addingTimeInterval(601) }
+            let identity = change == "account" ? UserInfoResponse(email: "second@example.test", name: nil, sub: "second") : user
+            controller.accept(summary: changed, usage: try usage(), userInfo: identity,
+                generation: change == "generation" ? 2 : 1, enterpriseScope: false)
+            await gate.release()
+            await eventually { controller.amountState != .refreshing }
+            for _ in 0..<20 { await Task.yield() }
+            XCTAssertNil(controller.snapshot?.cursorPercent, change)
+            XCTAssertNil(controller.primarySnapshot?.cursorPercent, change)
+        }
     }
 
 }
