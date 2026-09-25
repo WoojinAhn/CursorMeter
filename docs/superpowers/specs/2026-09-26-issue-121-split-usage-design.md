@@ -1,7 +1,8 @@
 # CursorMeter split usage reform — issue 121
 
-Status: Gate A reviewed by Muse / Grok / Opus; material findings reconciled.
-Implementation contract approved for execution by the coordinator under user authorization.
+Status: implemented and validated through Muse / Grok / Opus specification, core and
+integrated review gates, with final findings reconciled. Source commit `9287e0a`.
+Native installation and live verification remain the owner’s handoff.
 Baseline: `origin/main` at `c0225f7`; branch: `feature/121-split-usage`.
 Issue: https://github.com/WoojinAhn/CursorMeter/issues/121
 

@@ -8,7 +8,10 @@ row includes a commit marker and whose automatic release checking is disabled.
 
 ## First launch and comparison
 
-- [ ] Confirm Settings General shows the expected development commit.
+- [ ] Use `output/issue121-dev-9287e0a/CursorMeter.app` and confirm Settings General
+  shows `9287e0a-dirty`. The dirty suffix reflects preserved unrelated local files;
+  tracked app build inputs match the reviewed source commit. Earlier candidate
+  directories are superseded.
 - [ ] Compare both percentages with the same-cycle Cursor dashboard. Other is the outer
   ring and Cursor the center by default. The old included-dollar limit does not define
   either region.

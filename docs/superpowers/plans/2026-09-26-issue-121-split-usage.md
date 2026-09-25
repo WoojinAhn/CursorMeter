@@ -100,7 +100,12 @@ Owned files: `MenuBarView.swift`, `SettingsAppearanceTabViewController.swift`, `
 - [x] Update README/README.ko and SECURITY/SECURITY.ko together; stale-reference sweep includes UI strings and docs. Native screenshots remain explicitly pending.
 - [x] Update test checklist and write next-morning native walkthrough with all changed settings/Bold/hover/auth/loading states.
 - [x] Gate B final validation: 819 Swift tests, debug/release builds, 12 installer tests; Swift 6.4. Final review changes require affected checks again.
-- [ ] Muse/Grok/Opus final branch review with test evidence; reconcile findings and rerun affected tests.
-- [ ] Final spec compliance and code quality checks, clean intended diff, meaningful commits. Leave branch for user manual validation; no main merge/release.
-- [ ] Deliver final report with review outcomes, tested boundaries, limitations and manual verification checklist.
-- [ ] Stop only task-owned caffeine assertion after all authorized work is complete; mark goal complete.
+- [x] Muse/Grok/Opus final branch review with test evidence; reconcile findings and rerun affected tests.
+- [x] Final spec compliance and code quality checks, clean intended diff, meaningful commits. Leave branch for user manual validation; no main merge/release.
+- [x] Deliver final report with review outcomes, tested boundaries, limitations and manual verification checklist.
+Final runtime cleanup: after publication verification, stop only the task-owned caffeine
+assertion and mark the goal complete. The cleanup receipt belongs to the task runtime.
+
+Final source: `9287e0a`; 838 local Swift tests passed, ARM/Intel CI passed, all three
+review gates completed and the final Grok continuation closed the two retry findings.
+See the [implementation report](../reports/2026-09-26-issue-121-implementation.md).
