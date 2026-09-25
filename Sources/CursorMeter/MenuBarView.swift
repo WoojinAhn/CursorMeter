@@ -18,6 +18,9 @@ final class MenuBarPopoverViewController: NSViewController {
     // MARK: - Root layout
 
     private let rootStack = NSStackView()
+    private let dataScroll = NSScrollView()
+    private var dataHeightConstraint: NSLayoutConstraint!
+    private var widthConstraint: NSLayoutConstraint!
 
     // MARK: - State section views (swapped in updateUI)
 
@@ -39,6 +42,10 @@ final class MenuBarPopoverViewController: NSViewController {
     // Progress row
     private let progressBar      = ColoredProgressBar()
     private let percentLabel     = NSTextField(labelWithString: "")
+    private let progressRow = NSStackView()
+    private let splitRows = NSStackView()
+    private let splitPoolRows = [SplitPoolRow(), SplitPoolRow()]
+    private let splitDetailLabel = NSTextField(wrappingLabelWithString: "")
 
     // Secondary metric row (hidden when no secondary data). In normal mode shows
     // On-demand; in on-demand mode shows the previous primary (Requests or Plan).
@@ -101,12 +108,13 @@ final class MenuBarPopoverViewController: NSViewController {
         configureRootStack()
         buildLayout()
 
+        widthConstraint = container.widthAnchor.constraint(equalToConstant: 260)
         NSLayoutConstraint.activate([
             rootStack.topAnchor.constraint(equalTo: container.topAnchor, constant: 6),
             rootStack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -6),
             rootStack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 10),
             rootStack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -10),
-            container.widthAnchor.constraint(equalToConstant: 260),
+            widthConstraint,
         ])
     }
 
@@ -120,6 +128,7 @@ final class MenuBarPopoverViewController: NSViewController {
 
     /// Called by the owner whenever viewModel state changes.
     func updateUI() {
+        widthConstraint?.constant = viewModel.splitUsage.suppressesLegacyMeter ? 300 : 260
         refreshButton.render(
             phase: viewModel.refreshFeedback.phase,
             isReady: viewModel.refreshFeedback.isReady,
@@ -131,10 +140,12 @@ final class MenuBarPopoverViewController: NSViewController {
             applyData(data)
             statusStack.isHidden = true
             dataStack.isHidden   = false
+            dataScroll.isHidden = false
         } else {
             applyStatus()
             statusStack.isHidden = false
             dataStack.isHidden   = true
+            dataScroll.isHidden = true
         }
 
         // Stale-data indicator (#77)
@@ -172,7 +183,13 @@ final class MenuBarPopoverViewController: NSViewController {
     }
 
     private func publishCurrentSize() {
-        let size = NSSize(width: 260, height: ceil(rootStack.fittingSize.height + 12))
+        if !dataScroll.isHidden {
+            let footerHeight = rootStack.fittingSize.height - dataHeightConstraint.constant
+            let screenHeight = view.window?.screen?.visibleFrame.height ?? NSScreen.main?.visibleFrame.height ?? 800
+            let available = max(100, min(760, screenHeight - 24) - footerHeight - 12)
+            dataHeightConstraint.constant = ceil(min(dataStack.fittingSize.height, available))
+        }
+        let size = NSSize(width: widthConstraint.constant, height: ceil(rootStack.fittingSize.height + 12))
         preferredContentSize = size
         onContentSizeChange?(size)
     }
@@ -195,7 +212,26 @@ final class MenuBarPopoverViewController: NSViewController {
         buildStatusStack()
 
         // Swap between data and status
-        rootStack.addArrangedSubview(dataStack)
+        let document = PopoverDataDocumentView()
+        dataScroll.documentView = document
+        dataScroll.hasVerticalScroller = true
+        dataScroll.autohidesScrollers = true
+        dataScroll.scrollerStyle = .overlay
+        dataScroll.drawsBackground = false
+        dataScroll.borderType = .noBorder
+        dataScroll.setAccessibilityLabel("Usage details")
+        document.translatesAutoresizingMaskIntoConstraints = false
+        document.addSubview(dataStack)
+        dataHeightConstraint = dataScroll.heightAnchor.constraint(equalToConstant: 1)
+        NSLayoutConstraint.activate([
+            document.widthAnchor.constraint(equalTo: dataScroll.contentView.widthAnchor),
+            dataStack.topAnchor.constraint(equalTo: document.topAnchor),
+            dataStack.bottomAnchor.constraint(equalTo: document.bottomAnchor),
+            dataStack.leadingAnchor.constraint(equalTo: document.leadingAnchor),
+            dataStack.trailingAnchor.constraint(equalTo: document.trailingAnchor),
+            dataHeightConstraint,
+        ])
+        rootStack.addArrangedSubview(dataScroll)
         rootStack.addArrangedSubview(statusStack)
 
         rootStack.addArrangedSubview(makeDivider())
@@ -296,7 +332,6 @@ final class MenuBarPopoverViewController: NSViewController {
         dataStack.addArrangedSubview(usageRow)
 
         // --- Progress bar + percent ---
-        let progressRow = NSStackView()
         progressRow.orientation = .horizontal
         progressRow.spacing = 6
         progressRow.translatesAutoresizingMaskIntoConstraints = false
@@ -315,6 +350,23 @@ final class MenuBarPopoverViewController: NSViewController {
         progressRow.addArrangedSubview(percentLabel)
 
         dataStack.addArrangedSubview(progressRow)
+
+        splitRows.orientation = .vertical
+        splitRows.alignment = .leading
+        splitRows.spacing = 8
+        splitRows.isHidden = true
+        for row in splitPoolRows {
+            splitRows.addArrangedSubview(row)
+            row.widthAnchor.constraint(equalTo: splitRows.widthAnchor).isActive = true
+        }
+        splitDetailLabel.font = .systemFont(ofSize: 10)
+        splitDetailLabel.textColor = .secondaryLabelColor
+        splitDetailLabel.preferredMaxLayoutWidth = 280
+        splitDetailLabel.setContentCompressionResistancePriority(
+            .init(NSLayoutConstraint.Priority.fittingSizeCompression.rawValue - 1), for: .horizontal)
+        splitRows.addArrangedSubview(splitDetailLabel)
+        splitDetailLabel.widthAnchor.constraint(equalTo: splitRows.widthAnchor).isActive = true
+        dataStack.addArrangedSubview(splitRows)
 
         // --- Secondary metric row ---
         secondaryRow.orientation = .horizontal
@@ -523,17 +575,20 @@ final class MenuBarPopoverViewController: NSViewController {
         }
 
         // Usage
-        usageTitleLabel.stringValue = data.usageLabel
-        usageValueLabel.stringValue = data.usageText
+        let split = viewModel.splitUsage.suppressesLegacyMeter
+        usageTitleLabel.stringValue = split ? "Included usage" : data.usageLabel
+        usageValueLabel.stringValue = split ? "" : data.usageText
         refreshButton.isHidden      = (viewModel.authState != .loggedIn)
 
         // Progress
+        progressRow.isHidden = split
+        splitRows.isHidden = !split
         progressBar.progress = min(data.percentUsed / 100.0, 1.0)
         progressBar.barColor = CircularProgressIcon.tokenColor(for: data.percentUsed)
         percentLabel.stringValue = data.percentText
 
         // Secondary metric row (label + value vary by mode — see UsageDisplayData)
-        if let label = data.secondaryUsageLabel, let value = data.secondaryUsageValue {
+        if !split, let label = data.secondaryUsageLabel, let value = data.secondaryUsageValue {
             secondaryKey.stringValue   = label
             secondaryValue.stringValue = value
             // Highlight over-limit values in red so the user immediately notices
@@ -544,6 +599,18 @@ final class MenuBarPopoverViewController: NSViewController {
             secondaryRow.isHidden = false
         } else {
             secondaryRow.isHidden = true
+        }
+        if let presentation = viewModel.splitPresentation, split {
+            for (row, pool) in zip(splitPoolRows, presentation.pools) {
+                row.update(pool, percent: viewModel.splitUsage.snapshot?[pool.id])
+            }
+            splitDetailLabel.stringValue = presentation.summaryLines.filter {
+                $0.hasPrefix("Amounts:") || $0.hasPrefix("Amount snapshot:")
+                    || $0.hasPrefix("Percent refreshed:") || $0.hasPrefix("Paid spending:")
+                    || $0.hasPrefix("Primary summary refreshed:")
+                    || $0.hasPrefix("Bot observed") || $0.hasPrefix("Older amount")
+            }.joined(separator: "\n")
+            splitRows.setAccessibilityLabel(presentation.accessibilityValue)
         }
 
         // Weekly chart (availability + master toggle gate).
@@ -864,6 +931,61 @@ final class MenuBarPopoverViewController: NSViewController {
     }
 }
 
+private final class PopoverDataDocumentView: NSView {
+    override var isFlipped: Bool { true }
+}
+
+private final class SplitPoolRow: NSStackView {
+    private let titleLabel = NSTextField(labelWithString: "")
+    private let valueLabel = NSTextField(labelWithString: "")
+    private let amountLabel = NSTextField(wrappingLabelWithString: "")
+    private let progress = ColoredProgressBar()
+
+    init() {
+        super.init(frame: .zero)
+        orientation = .vertical
+        alignment = .leading
+        spacing = 4
+        translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        valueLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
+        valueLabel.setContentHuggingPriority(.required, for: .horizontal)
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let header = NSStackView(views: [titleLabel, spacer, valueLabel])
+        header.orientation = .horizontal
+        header.spacing = 4
+        amountLabel.font = .systemFont(ofSize: 10)
+        amountLabel.textColor = .secondaryLabelColor
+        amountLabel.preferredMaxLayoutWidth = 280
+        amountLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        for child in [header, progress, amountLabel] {
+            addArrangedSubview(child)
+            child.translatesAutoresizingMaskIntoConstraints = false
+            child.widthAnchor.constraint(equalTo: widthAnchor).isActive = true
+        }
+        progress.heightAnchor.constraint(equalToConstant: 5).isActive = true
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("use init()") }
+
+    func update(_ pool: SplitPoolPresentation, percent: Double?) {
+        titleLabel.stringValue = "\(pool.id.displayName) · \(pool.position == .outer ? "Outer" : "Center")"
+        valueLabel.stringValue = pool.percentText
+        var amount = pool.amountText ?? "Amount \(pool.statusText.lowercased())"
+        if let limit = pool.limitText { amount += " / \(limit) estimated limit" }
+        if pool.amountText != nil { amount += " · \(pool.statusText)" }
+        if let sourceText = pool.sourceText { amount += "\n" + sourceText }
+        amountLabel.stringValue = amount
+        progress.isUnavailable = percent == nil
+        progress.progress = (percent ?? 0) / 100
+        progress.barColor = CircularProgressIcon.tokenColor(for: percent ?? 0)
+        setAccessibilityLabel(pool.line)
+    }
+}
+
 // MARK: - MenuRowButton
 
 /// A borderless button that highlights its background on hover, matching menu-item feel.
@@ -920,6 +1042,10 @@ private final class MenuRowButton: NSButton {
 /// A simple custom progress bar that draws fill and track with explicit colors.
 private final class ColoredProgressBar: NSView {
 
+    var isUnavailable = false {
+        didSet { needsDisplay = true }
+    }
+
     var progress: Double = 0 {
         didSet { needsDisplay = true }
     }
@@ -940,6 +1066,14 @@ private final class ColoredProgressBar: NSView {
     override func draw(_ dirtyRect: NSRect) {
         let trackColor = NSColor.quaternaryLabelColor
         let rect = bounds
+
+        if isUnavailable {
+            NSColor.secondaryLabelColor.setStroke()
+            let path = NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 2, yRadius: 2)
+            path.setLineDash([2, 2], count: 2, phase: 0)
+            path.stroke()
+            return
+        }
 
         // Track
         trackColor.setFill()

@@ -91,6 +91,26 @@ struct PlanUsage: Codable, Sendable {
     let limit: Int?
     let remaining: Int?
     let totalPercentUsed: Double?
+    let autoPercentUsed: Double?
+    let apiPercentUsed: Double?
+
+    init(enabled: Bool?, used: Int?, limit: Int?, remaining: Int?, totalPercentUsed: Double?, autoPercentUsed: Double? = nil, apiPercentUsed: Double? = nil) {
+        self.enabled = enabled; self.used = used; self.limit = limit; self.remaining = remaining
+        self.totalPercentUsed = totalPercentUsed
+        self.autoPercentUsed = SplitUsageSnapshot.validPercent(autoPercentUsed)
+        self.apiPercentUsed = SplitUsageSnapshot.validPercent(apiPercentUsed)
+    }
+    enum CodingKeys: String, CodingKey { case enabled, used, limit, remaining, totalPercentUsed, autoPercentUsed, apiPercentUsed }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled)
+        used = try c.decodeIfPresent(Int.self, forKey: .used)
+        limit = try c.decodeIfPresent(Int.self, forKey: .limit)
+        remaining = try c.decodeIfPresent(Int.self, forKey: .remaining)
+        totalPercentUsed = try c.decodeIfPresent(Double.self, forKey: .totalPercentUsed)
+        autoPercentUsed = SplitUsageSnapshot.validPercent(try? c.decode(Double.self, forKey: .autoPercentUsed))
+        apiPercentUsed = SplitUsageSnapshot.validPercent(try? c.decode(Double.self, forKey: .apiPercentUsed))
+    }
 }
 
 struct OnDemandUsage: Codable, Sendable {
@@ -102,6 +122,23 @@ struct OnDemandUsage: Codable, Sendable {
 
 struct TeamUsage: Codable, Sendable {
     let onDemand: OnDemandUsage?
+    let hasUsageData: Bool
+    init(onDemand: OnDemandUsage?) { self.onDemand = onDemand; hasUsageData = onDemand != nil }
+    private struct Key: CodingKey {
+        let stringValue: String
+        let intValue: Int? = nil
+        init?(stringValue: String) { self.stringValue = stringValue }
+        init?(intValue: Int) { return nil }
+    }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: Key.self)
+        hasUsageData = !c.allKeys.isEmpty
+        onDemand = try c.decodeIfPresent(OnDemandUsage.self, forKey: Key(stringValue: "onDemand")!)
+    }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: Key.self)
+        try c.encodeIfPresent(onDemand, forKey: Key(stringValue: "onDemand")!)
+    }
 }
 
 // MARK: - API Response: /api/dashboard/get-hard-limit
@@ -154,25 +191,19 @@ struct UsageDisplayData: Sendable {
     /// Injected by UsageViewModel after sticky-latch logic. When true, the
     /// presentation computeds (percentUsed, usageLabel, usageText, menuBar*)
     /// reflect on-demand spend instead of the primary dimension.
-    let isOnDemandActive: Bool
+    var isOnDemandActive: Bool
     let cycleStartDate: Date?
     let resetDate: Date?
+    var splitUsage: SplitUsageSnapshot? = nil
+    var splitEligibility: SplitUsageEligibility = .legacy
+    var cycleAmounts: CycleAmountSnapshot? = nil
 
     /// Returns a copy with `isOnDemandActive` overridden. Used by UsageViewModel
     /// to inject the sticky-latched mode after computing it.
     func withOnDemandActive(_ active: Bool) -> UsageDisplayData {
-        UsageDisplayData(
-            email: email, name: name, membershipType: membershipType,
-            planUsedCents: planUsedCents, planLimitCents: planLimitCents,
-            serverPercentUsed: serverPercentUsed,
-            requestsUsed: requestsUsed, requestsLimit: requestsLimit,
-            onDemandUsedCents: onDemandUsedCents,
-            onDemandLimitCents: onDemandLimitCents,
-            onDemandEnabled: onDemandEnabled,
-            isOnDemandActive: active,
-            cycleStartDate: cycleStartDate,
-            resetDate: resetDate
-        )
+        var copy = self
+        copy.isOnDemandActive = active
+        return copy
     }
 
     var isCreditBased: Bool {
@@ -363,10 +394,7 @@ struct UsageDisplayData: Sendable {
     /// A per-call formatter costs microseconds and this runs a handful of
     /// times per refresh.
     private static func parseDate(_ string: String?) -> Date? {
-        guard let string else { return nil }
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter.date(from: string)
+        UsageCycle.parse(string)
     }
 
     private static func requestCount(_ model: ModelUsage?) -> Int {

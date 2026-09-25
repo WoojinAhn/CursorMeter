@@ -11,6 +11,10 @@ final class SettingsAppearanceTabViewController: NSViewController {
     // MARK: - Controls (retained as instance vars for updateUI)
 
     private var menuBarDisplayPopUp = NSPopUpButton()
+    private let usageNumbersLabel = NSTextField(labelWithString: "")
+    private let outerPoolPopUp = NSPopUpButton()
+    private let poolLegend = SettingsCardFactory.makeCaption("")
+    private let poolPreview = NSImageView()
     private var jumpEffectToggle = NSSwitch()
     private var jumpIntensitySegmented = NSSegmentedControl()
     private var jumpGlyphStyleSegmented = NSSegmentedControl()
@@ -70,7 +74,8 @@ final class SettingsAppearanceTabViewController: NSViewController {
         // tag-addressed (tag = mode value) so removal can't shift the mapping.
         // The popup reflects the EFFECTIVE mode (None stays None, #105) via
         // the same resolver the status item uses.
-        let percentOnly = viewModel.usageData?.isPercentOnly == true
+        let split = viewModel.splitUsage.suppressesLegacyMeter
+        let percentOnly = !split && viewModel.usageData?.isPercentOnly == true
         let ratioIndex = menuBarDisplayPopUp.indexOfItem(withTag: 1)
         if percentOnly {
             if ratioIndex >= 0 { menuBarDisplayPopUp.removeItem(at: ratioIndex) }
@@ -80,6 +85,17 @@ final class SettingsAppearanceTabViewController: NSViewController {
         }
         menuBarDisplayPopUp.selectItem(withTag: UsageViewModel.resolvedMenuBarDisplayMode(
             isPercentOnly: percentOnly, setting: viewModel.menuBarDisplayMode))
+        menuBarDisplayPopUp.isEnabled = !split
+        usageNumbersLabel.stringValue = split ? "On hover" : "Beside icon"
+        outerPoolPopUp.selectItem(at: viewModel.splitOuterPool == .other ? 0 : 1)
+        outerPoolPopUp.isEnabled = viewModel.splitUsage.eligibility != .legacy
+        let center: UsagePoolID = viewModel.splitOuterPool == .other ? .cursor : .other
+        poolLegend.stringValue = "Outer: \(viewModel.splitOuterPool.displayName)\nCenter: \(center.displayName)"
+        poolPreview.image = CircularProgressIcon.makeSplitImage(
+            cursorPercent: viewModel.splitUsage.snapshot?.cursorPercent,
+            otherPercent: viewModel.splitUsage.snapshot?.otherPercent,
+            outerPool: viewModel.splitOuterPool)
+        poolPreview.setAccessibilityLabel(poolLegend.stringValue)
 
         jumpEffectToggle.state = viewModel.jumpEffectEnabled ? .on : .off
         jumpIntensitySegmented.selectedSegment = viewModel.jumpIntensity.rawValue
@@ -126,10 +142,30 @@ final class SettingsAppearanceTabViewController: NSViewController {
         }
         menuBarDisplayPopUp.target = self
         menuBarDisplayPopUp.action = #selector(menuBarDisplayModeChanged)
+        menuBarDisplayPopUp.setAccessibilityLabel("Legacy usage text")
+        usageNumbersLabel.font = .systemFont(ofSize: 12)
+        usageNumbersLabel.textColor = .secondaryLabelColor
+        outerPoolPopUp.addItems(withTitles: ["Other Models", "Cursor Models"])
+        outerPoolPopUp.target = self
+        outerPoolPopUp.action = #selector(outerPoolChanged)
+        outerPoolPopUp.setAccessibilityLabel("Outer ring")
+        poolPreview.imageScaling = .scaleProportionallyUpOrDown
+        poolPreview.widthAnchor.constraint(equalToConstant: 28).isActive = true
+        poolPreview.heightAnchor.constraint(equalToConstant: 28).isActive = true
+        let legend = NSStackView(views: [poolPreview, poolLegend, SettingsCardFactory.makeSpacer()])
+        legend.orientation = .horizontal
+        legend.spacing = 12
 
         return SettingsCardFactory.makeCard(units: [
             SettingsCardFactory.makeCardRow(
-                title: "Usage text next to icon", control: menuBarDisplayPopUp),
+                title: "Usage numbers", control: usageNumbersLabel),
+            SettingsCardFactory.makeDividedUnit(SettingsCardFactory.makeCardRow(
+                title: "Legacy text", control: menuBarDisplayPopUp)),
+            SettingsCardFactory.makeDividedUnit(SettingsCardFactory.makeCardRow(
+                title: "Outer ring", control: outerPoolPopUp)),
+            SettingsCardFactory.makeFullWidthCardRow(legend),
+            SettingsCardFactory.makeFullWidthCardRow(SettingsCardFactory.makeCaption(
+                "The saved legacy text preference resumes on single-pool plans. Icon colors use 70% and 90%; alert thresholds are configured separately.")),
         ])
     }
 
@@ -178,6 +214,8 @@ final class SettingsAppearanceTabViewController: NSViewController {
                 control: jumpEffectToggle
             ),
             jumpSubRowsContainer,
+            SettingsCardFactory.makeFullWidthCardRow(SettingsCardFactory.makeCaption(
+                "Bold notifications are independent of usage-alert targets and their master switch.")),
         ])
     }
 
@@ -234,6 +272,11 @@ final class SettingsAppearanceTabViewController: NSViewController {
     @objc private func menuBarDisplayModeChanged() {
         guard let tag = menuBarDisplayPopUp.selectedItem?.tag else { return }
         viewModel.setMenuBarDisplayMode(tag)
+    }
+
+    @objc private func outerPoolChanged() {
+        viewModel.setSplitOuterPool(outerPoolPopUp.indexOfSelectedItem == 0 ? .other : .cursor)
+        updateUI()
     }
 
     @objc private func jumpEffectToggleChanged() {

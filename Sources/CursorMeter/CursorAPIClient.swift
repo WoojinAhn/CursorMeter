@@ -132,6 +132,56 @@ actor CursorAPIClient {
         return try JSONDecoder().decode(HardLimitResponse.self, from: data)
     }
 
+    func fetchCurrentPeriodUsage(cookieHeader: String) async throws -> CurrentPeriodUsageResponse {
+        let data = try await performEnrichmentRequest(
+            url: URL(string: "https://cursor.com/api/dashboard/get-current-period-usage")!,
+            cookieHeader: cookieHeader, body: Data("{}".utf8), maximumBytes: 1024 * 1024)
+        return try JSONDecoder().decode(CurrentPeriodUsageResponse.self, from: data)
+    }
+
+    func fetchCycleUsagePage(cookieHeader: String, teamId: Int, userId: Int?, page: Int, maximumBytes: Int) async throws -> CycleHistoryPage {
+        var body: [String: Any] = ["teamId": teamId, "page": page, "pageSize": 100]
+        if let userId { body["userId"] = userId }
+        let data = try await performEnrichmentRequest(url: Self.filteredUsageEventsURL, cookieHeader: cookieHeader,
+            body: JSONSerialization.data(withJSONObject: body), maximumBytes: maximumBytes)
+        return CycleHistoryPage(page: try JSONDecoder().decode(CycleUsagePage.self, from: data), byteCount: data.count)
+    }
+
+    // Enrichment must never become an authentication authority for primary refresh.
+    private func performEnrichmentRequest(url: URL, cookieHeader: String, body: Data, maximumBytes: Int) async throws -> Data {
+        try Task.checkCancellation()
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = body
+        request.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
+        request.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+        request.setValue("https://cursor.com", forHTTPHeaderField: "Origin")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let data: Data
+        let response: URLResponse
+        do { (data, response) = try await session.data(for: request) }
+        catch { if Task.isCancelled { throw CancellationError() }; throw CycleEnrichmentError.transport }
+        try Task.checkCancellation()
+        guard let http = response as? HTTPURLResponse else { throw CycleEnrichmentError.invalidResponse }
+        guard (200...299).contains(http.statusCode) else {
+            throw CycleEnrichmentError.http(status: http.statusCode, retryAfter: Self.enrichmentRetryAfter(http.value(forHTTPHeaderField: "Retry-After")))
+        }
+        guard !data.isEmpty, http.statusCode != 204 else { throw CycleEnrichmentError.invalidResponse }
+        guard data.count <= maximumBytes else { throw CycleEnrichmentError.oversizedPayload(byteCount: data.count) }
+        return data
+    }
+
+    nonisolated static func enrichmentRetryAfter(_ raw: String?, now: Date = Date()) -> TimeInterval? {
+        guard let raw else { return nil }
+        if let seconds = Double(raw.trimmingCharacters(in: .whitespacesAndNewlines)), seconds.isFinite, seconds >= 0 { return seconds }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss z"
+        guard let date = formatter.date(from: raw) else { return nil }
+        return max(0, date.timeIntervalSince(now))
+    }
+
     private func performRequest(
         url: URL,
         cookieHeader: String,

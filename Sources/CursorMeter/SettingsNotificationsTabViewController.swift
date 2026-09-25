@@ -16,6 +16,10 @@ final class SettingsNotificationsTabViewController: NSViewController {
     /// Divided-unit wrapper around the slider row — the conditional-hide
     /// target (divider collapses with the row).
     private var thresholdUnit = NSView()
+    private let cursorTarget = NSButton(checkboxWithTitle: "Cursor Models", target: nil, action: nil)
+    private let otherTarget = NSButton(checkboxWithTitle: "Other Models", target: nil, action: nil)
+    private let paidTarget = NSButton(checkboxWithTitle: "Paid budget", target: nil, action: nil)
+    private let permissionLabel = SettingsCardFactory.makeCaption("")
 
     // MARK: - Init
 
@@ -62,6 +66,14 @@ final class SettingsNotificationsTabViewController: NSViewController {
             warning: viewModel.warningThreshold,
             critical: viewModel.criticalThreshold
         )
+        let split = viewModel.splitUsage.eligibility == .eligible
+        for (button, scope) in [(cursorTarget, SplitAlertScope.cursor), (otherTarget, .other), (paidTarget, .onDemand)] {
+            button.state = viewModel.splitAlertTargets.contains(scope) ? .on : .off
+            button.isEnabled = split && viewModel.notificationEnabled
+        }
+        paidTarget.isEnabled = paidTarget.isEnabled && viewModel.usageData?.onDemandEnabled == true
+            && (viewModel.usageData?.onDemandLimitCents ?? 0) > 0
+        permissionLabel.stringValue = "Notification permission: \(viewModel.notificationPermissionStatus)"
     }
 
     // MARK: - Card
@@ -84,10 +96,26 @@ final class SettingsNotificationsTabViewController: NSViewController {
         thresholdUnit = SettingsCardFactory.makeDividedUnit(
             SettingsCardFactory.makeFullWidthCardRow(thresholdSlider)
         )
+        for (index, button) in [cursorTarget, otherTarget, paidTarget].enumerated() {
+            button.tag = index
+            button.target = self
+            button.action = #selector(targetChanged(_:))
+            button.setAccessibilityLabel(button.title)
+        }
+        let targets = NSStackView(views: [cursorTarget, otherTarget, paidTarget])
+        targets.orientation = .vertical
+        targets.alignment = .leading
+        targets.spacing = 6
 
         return SettingsCardFactory.makeCard(units: [
             SettingsCardFactory.makeCardRow(title: "Enable usage alerts", control: notificationToggle),
             thresholdUnit,
+            SettingsCardFactory.makeDividedUnit(SettingsCardFactory.makeFullWidthCardRow(targets)),
+            SettingsCardFactory.makeFullWidthCardRow(SettingsCardFactory.makeCaption(
+                "Targets apply independently to split pools. Paid budget requires enabled paid spending and a positive cap. Changes apply on the next fresh update. Percentages marked Current period are display-only and do not trigger alerts.")),
+            SettingsCardFactory.makeFullWidthCardRow(SettingsCardFactory.makeCaption(
+                "Bold jump notifications are independent of these usage alerts. Configure Bold in Display.")),
+            SettingsCardFactory.makeFullWidthCardRow(permissionLabel),
             SettingsCardFactory.makeDividedUnit(SettingsCardFactory.makeCardRow(
                 title: "App status notifications",
                 caption: "New version · connection errors",
@@ -104,6 +132,14 @@ final class SettingsNotificationsTabViewController: NSViewController {
         // Same NSStackView caveat as the jump-effect toggle: animator().isHidden
         // causes a layout/alpha desync that reads as a "blink". Snap instead.
         thresholdUnit.isHidden = !enabled
+        updateUI()
+    }
+
+    @objc private func targetChanged(_ sender: NSButton) {
+        let scopes: [SplitAlertScope] = [.cursor, .other, .onDemand]
+        guard scopes.indices.contains(sender.tag) else { return }
+        viewModel.setSplitAlertTarget(scopes[sender.tag], enabled: sender.state == .on)
+        updateUI()
     }
 
     @objc private func appStatusToggleChanged() {

@@ -18,6 +18,16 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
                                                  target: nil, action: nil)
     private let tableView = NSTableView()
     private let scrollView = NSScrollView()
+    private let usageViewControl = NSSegmentedControl(
+        labels: ["Summary", "Recent"], trackingMode: .selectOne, target: nil, action: nil)
+    private var recentCard = NSView()
+    private var summaryCard = NSView()
+    private let summaryScroll = NSScrollView()
+    private let summaryStack = NSStackView()
+    private let amountRefreshButton = NSButton(title: "Refresh amounts", target: nil, action: nil)
+    private let amountRefreshLabel = SettingsCardFactory.makeCaption("")
+    private var renderedSummaryLines: [String] = []
+    private var amountReadinessTimer: Timer?
     private var rows: [RecentUsageEntry] = []
     private var renderedCandidate: RecentUsageCandidate?
     private var renderedTimeZone: RecentUsageTimeZone?
@@ -131,12 +141,16 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
         footer.alignment = .centerY
         footer.edgeInsets = NSEdgeInsets(top: 9, left: 14, bottom: 9, right: 14)
 
-        let card = SettingsCardFactory.makeCard(units: [
+        recentCard = SettingsCardFactory.makeCard(units: [
             header, SettingsCardFactory.makeDividedUnit(tableHost),
             SettingsCardFactory.makeDividedUnit(countRow), captionHost,
             SettingsCardFactory.makeDividedUnit(footer),
         ])
-        view = SettingsCardFactory.makeTabRoot(sections: [card], width: 440)
+        usageViewControl.setAccessibilityLabel("Usage view")
+        usageViewControl.target = self
+        usageViewControl.action = #selector(usageViewChanged)
+        summaryCard = makeSummaryCard()
+        view = SettingsCardFactory.makeTabRoot(sections: [usageViewControl, summaryCard, recentCard], width: 440)
         view.setAccessibilityLabel("Usage")
     }
 
@@ -147,10 +161,28 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
 
     override func viewWillAppear() {
         super.viewWillAppear()
+        updateSummaryViewport()
         preferredContentSize = view.fittingSize
+        amountReadinessTimer?.invalidate()
+        amountReadinessTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] timer in
+            guard let self else { timer.invalidate(); return }
+            MainActor.assumeIsolated {
+                self.updateAmountRefreshControls()
+            }
+        }
+    }
+
+    override func viewDidDisappear() {
+        super.viewDidDisappear()
+        amountReadinessTimer?.invalidate()
+        amountReadinessTimer = nil
     }
 
     func updateUI() {
+        usageViewControl.selectedSegment = viewModel.usageSummarySelected ? 0 : 1
+        summaryCard.isHidden = !viewModel.usageSummarySelected
+        recentCard.isHidden = viewModel.usageSummarySelected
+        updateSummary()
         let snapshot = viewModel.recentUsage.snapshot
         let candidate = snapshot?.candidate
         let mode = viewModel.recentUsageTimeZone
@@ -205,6 +237,92 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
             placeholderLabel.stringValue = "No recent usage"
             placeholderDetail.stringValue = "New requests will appear here after Cursor reports them."
         }
+    }
+
+    private var summaryHeightConstraint: NSLayoutConstraint?
+
+    private func makeSummaryCard() -> NSView {
+        let heading = SettingsCardFactory.makeSectionHeader("Cycle summary")
+        amountRefreshButton.controlSize = .small
+        amountRefreshButton.target = self
+        amountRefreshButton.action = #selector(refreshAmountsTapped)
+        amountRefreshButton.setAccessibilityLabel("Refresh cycle amounts")
+        let header = NSStackView(views: [heading, SettingsCardFactory.makeSpacer(), amountRefreshButton])
+        header.orientation = .horizontal
+        header.spacing = 8
+
+        summaryScroll.hasVerticalScroller = true
+        summaryScroll.autohidesScrollers = true
+        summaryScroll.hasHorizontalScroller = false
+        summaryScroll.drawsBackground = false
+        summaryScroll.borderType = .noBorder
+        summaryScroll.setAccessibilityLabel("Cycle usage summary")
+        let document = SummaryDocumentView()
+        summaryScroll.documentView = document
+        document.translatesAutoresizingMaskIntoConstraints = false
+        summaryStack.orientation = .vertical
+        summaryStack.alignment = .leading
+        summaryStack.spacing = 10
+        summaryStack.translatesAutoresizingMaskIntoConstraints = false
+        document.addSubview(summaryStack)
+        NSLayoutConstraint.activate([
+            document.widthAnchor.constraint(equalTo: summaryScroll.contentView.widthAnchor),
+            summaryStack.leadingAnchor.constraint(equalTo: document.leadingAnchor, constant: 14),
+            summaryStack.trailingAnchor.constraint(equalTo: document.trailingAnchor, constant: -14),
+            summaryStack.topAnchor.constraint(equalTo: document.topAnchor, constant: 12),
+            summaryStack.bottomAnchor.constraint(equalTo: document.bottomAnchor, constant: -12),
+        ])
+        summaryHeightConstraint = summaryScroll.heightAnchor.constraint(equalToConstant: 340)
+        summaryHeightConstraint?.isActive = true
+        return SettingsCardFactory.makeCard(units: [
+            SettingsCardFactory.makeFullWidthCardRow(header),
+            SettingsCardFactory.makeDividedUnit(summaryScroll),
+            SettingsCardFactory.makeDividedUnit(SettingsCardFactory.makeFullWidthCardRow(amountRefreshLabel)),
+        ])
+    }
+
+    private func updateSummary() {
+        let lines: [String]
+        if let presentation = viewModel.splitPresentation {
+            lines = presentation.summaryLines
+        } else if viewModel.authState != .loggedIn {
+            lines = ["Connect Cursor to view cycle usage."]
+        } else if let data = viewModel.usageData {
+            lines = ["\(data.usageLabel): \(data.usageText)", data.resetAbsoluteText ?? "Cycle: Unavailable",
+                     "Split-pool details are unavailable for this plan. Recent usage remains available."]
+        } else {
+            lines = ["Loading cycle usage…"]
+        }
+        if lines != renderedSummaryLines {
+            renderedSummaryLines = lines
+            for child in summaryStack.arrangedSubviews {
+                summaryStack.removeArrangedSubview(child)
+                child.removeFromSuperview()
+            }
+            for (index, line) in lines.enumerated() {
+                let label = NSTextField(wrappingLabelWithString: line)
+                label.font = .systemFont(ofSize: index < 2 ? 12 : 11, weight: index < 2 ? .medium : .regular)
+                label.textColor = index < 2 ? .labelColor : .secondaryLabelColor
+                label.preferredMaxLayoutWidth = 350
+                label.isSelectable = true
+                label.translatesAutoresizingMaskIntoConstraints = false
+                label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+                summaryStack.addArrangedSubview(label)
+                label.widthAnchor.constraint(equalTo: summaryStack.widthAnchor).isActive = true
+            }
+        }
+        updateAmountRefreshControls()
+        updateSummaryViewport()
+    }
+
+    private func updateAmountRefreshControls() {
+        amountRefreshButton.isEnabled = viewModel.canRefreshAmounts
+        amountRefreshLabel.stringValue = viewModel.amountsRefreshStateText
+    }
+
+    private func updateSummaryViewport() {
+        let available = view.window?.screen?.visibleFrame.height ?? NSScreen.main?.visibleFrame.height ?? 800
+        summaryHeightConstraint?.constant = max(120, min(340, available - 260))
     }
 
     func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
@@ -269,6 +387,18 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
         updateUI()
     }
 
+    @objc private func usageViewChanged() {
+        viewModel.setUsageSummarySelected(usageViewControl.selectedSegment == 0)
+        updateUI()
+        view.layoutSubtreeIfNeeded()
+        preferredContentSize = view.fittingSize
+    }
+
+    @objc private func refreshAmountsTapped() {
+        viewModel.refreshCycleAmounts()
+        updateUI()
+    }
+
     @objc private func refreshTapped() {
         Task { await viewModel.refresh() }
     }
@@ -276,4 +406,8 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
     @objc private func openCursor() {
         NSWorkspace.shared.open(URL(string: "https://www.cursor.com/dashboard?tab=usage")!)
     }
+}
+
+private final class SummaryDocumentView: NSView {
+    override var isFlipped: Bool { true }
 }

@@ -13,6 +13,7 @@ final class RecentUsageUITests: XCTestCase {
         vm.sessionExpiredNotifier = {}
         vm.refreshFailingNotifier = {}
         vm.notificationEnabled = false
+        vm.usageSummarySelected = false
         vm.authState = .loggedIn
         return vm
     }

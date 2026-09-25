@@ -20,10 +20,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     private var activityWatcher: CursorActivityWatcher?
     private var timeZoneObserver: NSObjectProtocol?
     private var accessibilityDisplayObserver: NSObjectProtocol?
-    private let notificationManager = NotificationManager()
+    private var wakeObserver: NSObjectProtocol?
+    private let notificationManager: NotificationManager
 
     init(viewModel: UsageViewModel = UsageViewModel()) {
         self.viewModel = viewModel
+        self.notificationManager = viewModel.notificationManager
         super.init()
     }
 
@@ -35,10 +37,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         let cacheURL = URL.applicationSupportDirectory
             .appendingPathComponent("CursorMeter", isDirectory: true)
             .appendingPathComponent("recent-usage-v1.json")
-        let viewModel = UsageViewModel(recentUsage: RecentUsageController(
+        let apiClient = CursorAPIClient()
+        let manager = NotificationManager(permissionStateProvider: { await NotificationManager.systemPermissionState() })
+        let amountURL = cacheURL.deletingLastPathComponent().appendingPathComponent("cycle-usage-v1.json")
+        let viewModel = UsageViewModel(apiClient: apiClient, recentUsage: RecentUsageController(
             store: RecentUsageStore(fileURL: cacheURL),
             validityPersistence: .preferences(domain: Bundle.main.bundleIdentifier ?? "com.woojin.CursorMeter")
-        ))
+        ), notificationManager: manager,
+            splitUsage: SplitUsageController(apiClient: apiClient, store: CycleUsageStore(fileURL: amountURL)),
+            splitAlertStore: SplitUsageAlertStore(directory: SplitUsageAlertStore.applicationDirectory))
         let delegate = AppDelegate(viewModel: viewModel)
         app.delegate = delegate
         app.run()
@@ -123,6 +130,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             NotificationCenter.default.removeObserver(observer)
             timeZoneObserver = nil
         }
+        if let observer = wakeObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+            wakeObserver = nil
+        }
         if let observer = accessibilityDisplayObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
             accessibilityDisplayObserver = nil
@@ -130,6 +141,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     }
 
     private func observeSystemPresentationChanges() {
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.viewModel.systemDidWake() }
+        }
         timeZoneObserver = NotificationCenter.default.addObserver(
             forName: .NSSystemTimeZoneDidChange, object: nil, queue: .main
         ) { [weak self] _ in
@@ -163,11 +179,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     }
 
     private func updateStatusItem() {
-        // Skip while the jump coordinator is showing an emoji glyph — otherwise
-        // a subsequent viewModel mutation (weekly fetch, isLoading flip, etc.)
-        // would clobber the emoji before its restore timer fires.
-        if jumpCoordinator?.isSwapping == true { return }
-        statusItem?.button?.image = currentRingImage()
+        guard let button = statusItem?.button else { return }
+        // Emoji owns the pixels temporarily; hover and accessibility stay current.
+        if jumpCoordinator?.isSwapping != true { button.image = currentRingImage() }
+        let text = viewModel.splitPresentation?.tooltip ?? viewModel.usageData?.usageText ?? "CursorMeter"
+        button.toolTip = text
+        button.setAccessibilityLabel("CursorMeter usage")
+        button.setAccessibilityValue(viewModel.splitPresentation?.accessibilityValue ?? text)
     }
 
     /// Builds the ring/idle image that should currently occupy the menu bar slot,
@@ -180,8 +198,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
                 ? CircularProgressIcon.loginRequiredImage()
                 : CircularProgressIcon.idleImage()
         }
-        let mode = UsageViewModel.resolvedMenuBarDisplayMode(
-            isPercentOnly: data.isPercentOnly, setting: viewModel.menuBarDisplayMode)
+        if viewModel.splitUsage.suppressesLegacyMeter {
+            return CircularProgressIcon.makeSplitImage(cursorPercent: viewModel.splitUsage.snapshot?.cursorPercent,
+                otherPercent: viewModel.splitUsage.snapshot?.otherPercent, outerPool: viewModel.splitOuterPool)
+        }
+        let mode = viewModel.effectiveMenuBarDisplayMode
         switch mode {
         case 2:
             return CircularProgressIcon.menuBarImageWithPercent(percent: data.percentUsed)
@@ -267,6 +288,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     // MARK: - Settings Window
 
     func openSettings() {
+        Task { await viewModel.refreshNotificationPermissionStatus() }
         if let window = settingsWindow, window.isVisible {
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
@@ -354,6 +376,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     private func observeStatusItem() {
         withObservationTracking {
             _ = viewModel.usageData
+            _ = viewModel.splitPresentation
+            _ = viewModel.splitUsage.eligibility
+            _ = viewModel.splitOuterPool
             _ = viewModel.menuBarDisplayMode
             _ = viewModel.authState
         } onChange: { [weak self] in
@@ -369,6 +394,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     private func observeSettings() {
         withObservationTracking {
             _ = viewModel.activeAuthSource
+            _ = viewModel.splitAlertTargets
+            _ = viewModel.usageSummarySelected
+            _ = viewModel.notificationPermissionStatus
+            _ = viewModel.canRefreshAmounts
+            _ = viewModel.amountsRefreshStateText
             _ = viewModel.authState
             _ = viewModel.weeklyChartAvailable
             _ = viewModel.weeklyData
@@ -377,6 +407,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             // usageData.isPercentOnly — an open Settings window must rebuild
             // when the plan shape changes (account switch, upgrade).
             _ = viewModel.usageData
+            _ = viewModel.splitPresentation
+            _ = viewModel.splitUsage.eligibility
+            _ = viewModel.splitOuterPool
             _ = viewModel.isLoading
             _ = viewModel.recentUsage.snapshot
             _ = viewModel.recentUsage.status
@@ -442,8 +475,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
 
     /// Routes a clicked notification via the pure `clickAction` router (#79, #83):
     /// session-expired → login window, update-available → GitHub release page
-    /// (host-validated), refresh-failing → popover. Threshold/usage-jump keep
-    /// the default no-op since the app has no main window to activate into.
+    /// (host-validated), and usage/connection notifications → current popover.
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse,
@@ -484,6 +516,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     private func observePopover() {
         withObservationTracking {
             _ = viewModel.usageData
+            _ = viewModel.splitPresentation
+            _ = viewModel.splitUsage.eligibility
+            _ = viewModel.splitOuterPool
             _ = viewModel.isLoading
             _ = viewModel.errorMessage
             _ = viewModel.authState

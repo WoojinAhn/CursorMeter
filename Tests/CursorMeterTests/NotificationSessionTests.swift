@@ -29,6 +29,16 @@ final class NotificationSessionTests: XCTestCase {
         )
     }
 
+    func testLegacyJumpUsesInjectedBoundaries() async {
+        var deliveries = 0
+        let manager = NotificationManager(requestAuthorization: { true }, deliver: { request in
+            deliveries += 1
+            XCTAssertTrue(request.identifier.hasPrefix("usage-jump-"))
+        })
+        await manager.notifyUsageJump(displayDelta: "+$0.30", currentUsage: "$1.00")
+        XCTAssertEqual(deliveries, 1)
+    }
+
     func testResetWhileAuthorizationPendingPreventsOldDeliveryAndDedup() async {
         let gate = Gate()
         var deliveries = 0
