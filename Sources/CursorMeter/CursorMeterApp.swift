@@ -29,7 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
 
     // MARK: - NSApplicationDelegate Entry Point
 
-    nonisolated static func main() {
+    static func main() {
         let app = NSApplication.shared
         // Only the production entry point opens persistent usage storage.
         let cacheURL = URL.applicationSupportDirectory
