@@ -18,6 +18,33 @@ final class CycleUsageStoreTests: XCTestCase, @unchecked Sendable {
         let invalid = await store.load(operation: operation, now: now)
         XCTAssertNil(invalid)
     }
+    func testOutdatedClassifierCacheIsRejectedAndReplaced() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("amounts.json")
+        var outdated = snapshot()
+        outdated.classifierVersion = CycleModelClassifier.version - 1
+        outdated.unknownCents = 123
+        outdated.unknownCount = 2
+        let store = CycleUsageStore(fileURL: url)
+        let operation = await store.activate(identity: outdated.identity, subjectDigest: outdated.identity.accountDigest)
+        try await store.save(outdated, operation: operation)
+        let memoryCache = await store.load(operation: operation, now: now)
+        XCTAssertNil(memoryCache)
+
+        let reader = CycleUsageStore(fileURL: url)
+        let reload = await reader.activate(identity: outdated.identity, subjectDigest: outdated.identity.accountDigest)
+        let diskCache = await reader.load(operation: reload, now: now)
+        XCTAssertNil(diskCache)
+
+        var current = snapshot()
+        current.otherCents = 123
+        try await reader.save(current, operation: reload)
+        let replacement = await reader.load(operation: reload, now: now)
+        XCTAssertEqual(replacement?.otherCents, 123)
+        XCTAssertEqual(replacement?.unknownCount, 0)
+        XCTAssertEqual(replacement?.classifierVersion, CycleModelClassifier.version)
+    }
     func testAtomicStoreIdentityAgePermissionsAndAggregateOnly() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

@@ -10,9 +10,81 @@ final class CycleUsageCollectorTests: XCTestCase, @unchecked Sendable {
             XCTAssertEqual(CycleModelClassifier.classify(name, serverModels: nil).family, .cursor)
         }
         for name in ["composer-3", "grok-4.8", "not-cursor-grok-4.7", "gpt-", "claude"] {
-            XCTAssertEqual(CycleModelClassifier.classify(name, serverModels: nil).family, .unknown)
+            XCTAssertEqual(CycleModelClassifier.classify(name, serverModels: nil).family, .other)
         }
     }
+    func testNonCursorModelsDefaultToOtherWithoutProviderAllowlist() {
+        for name in ["muse-spark-1.3-max", "glm-5.2-high", "kimi-k3-high", "future-provider-model", " GPT-5 "] {
+            let result = CycleModelClassifier.classify(name, serverModels: ["composer-2.5"])
+            XCTAssertEqual(result.family, .other, name)
+            XCTAssertEqual(result.provenance, .nonCursorRemainder, name)
+        }
+        XCTAssertEqual(CycleModelClassifier.classify(" MUSE-SPARK-1.3-MAX ", serverModels: ["muse-spark-1.3-max"]).family, .cursor)
+        for name: String? in [nil, "", " \n\t "] {
+            XCTAssertEqual(CycleModelClassifier.classify(name, serverModels: [""]).family, .unknown)
+        }
+    }
+
+    func testOtherModelFallbackReconcilesIncludedCostsAndPreservesBotAndPaid() async throws {
+        let rows = [
+            event("9000", "1"),
+            CycleUsageEvent(timestamp: "8000", model: "muse-spark-1.3-max", kind: "USAGE_EVENT_KIND_INCLUDED_IN_ULTRA", chargedCents: 2),
+            CycleUsageEvent(timestamp: "7000", model: "glm-5.2-high", kind: "USAGE_EVENT_KIND_INCLUDED_IN_ULTRA", chargedCents: 3),
+            CycleUsageEvent(timestamp: "6000", model: "kimi-k3-high", kind: "USAGE_EVENT_KIND_INCLUDED_IN_ULTRA", chargedCents: 4),
+            CycleUsageEvent(timestamp: "5000", model: "grok-bot-4.7", kind: "USAGE_EVENT_KIND_INCLUDED_IN_ULTRA", chargedCents: 5),
+            CycleUsageEvent(timestamp: "4000", model: "muse-spark-1.3-max", kind: "USAGE_EVENT_KIND_USAGE_BASED", chargedCents: 6)
+        ]
+        let period = try JSONDecoder().decode(CurrentPeriodUsageResponse.self, from: Data(#"{"billingCycleStart":"1970-01-01T00:00:01Z","billingCycleEnd":"1970-01-01T00:00:10Z","planUsage":{"includedSpend":10},"autoBucketModels":["composer-2.5"]}"#.utf8))
+        let collector = CycleUsageCollector(fetchPage: { _, _ in self.page(rows, total: rows.count) }, fetchSummary: { self.summary(used: 10) }, fetchPeriod: { period })
+        let result = await collector.collect(snapshot: snapshot(used: 10), summary: summary(used: 10))
+        XCTAssertEqual(result.status, .complete)
+        XCTAssertEqual(result.snapshot?.cursorCents, 1)
+        XCTAssertEqual(result.snapshot?.otherCents, 9)
+        XCTAssertEqual(result.snapshot?.botCents, 5)
+        XCTAssertEqual(result.snapshot?.paidCents, 6)
+        XCTAssertEqual(result.snapshot?.unknownCount, 0)
+        XCTAssertEqual(result.snapshot?.unknownCents, 0)
+        XCTAssertEqual(result.snapshot?.residualCents, 0)
+        XCTAssertEqual(result.snapshot?.status, .estimatedAttribution)
+        XCTAssertNotNil(result.snapshot?.estimatedOtherLimitCents)
+    }
+
+    func testMixedBlankCatalogPreservesServerMembershipAndCoherentLimits() async throws {
+        let rows = [
+            CycleUsageEvent(timestamp: "9000", model: " default ", kind: "USAGE_EVENT_KIND_INCLUDED_IN_ULTRA", chargedCents: 2),
+            CycleUsageEvent(timestamp: "8000", model: "VEGA", kind: "USAGE_EVENT_KIND_INCLUDED_IN_ULTRA", chargedCents: 3),
+            CycleUsageEvent(timestamp: "7000", model: "other-model", kind: "USAGE_EVENT_KIND_INCLUDED_IN_ULTRA", chargedCents: 5),
+            CycleUsageEvent(timestamp: "6000", model: "grok-bot-4.7", kind: "USAGE_EVENT_KIND_INCLUDED_IN_ULTRA", chargedCents: 7),
+            CycleUsageEvent(timestamp: "5000", model: "default", kind: "USAGE_EVENT_KIND_USAGE_BASED", chargedCents: 11),
+        ]
+        for coherent in [true, false] {
+            let period = try JSONDecoder().decode(CurrentPeriodUsageResponse.self, from: Data(#"{"billingCycleStart":"1970-01-01T00:00:01Z","billingCycleEnd":"1970-01-01T00:00:10Z","planUsage":{"includedSpend":\#(coherent ? 10 : 99)},"autoBucketModels":[""," \n\t "," DEFAULT ","vega","grok-bot-4.7"]}"#.utf8))
+            let collector = CycleUsageCollector(
+                fetchPage: { _, _ in self.page(rows, total: rows.count) },
+                fetchSummary: { self.summary(used: 10) }, fetchPeriod: { period })
+            let result = await collector.collect(snapshot: snapshot(used: 10), summary: summary(used: 10))
+            let amounts = try XCTUnwrap(result.snapshot)
+            XCTAssertEqual(result.status, .complete)
+            XCTAssertTrue(amounts.coverage.complete)
+            XCTAssertEqual(amounts.status, .estimatedAttribution)
+            XCTAssertEqual(amounts.cursorCents, coherent ? 5 : 0)
+            XCTAssertEqual(amounts.otherCents, coherent ? 5 : 10)
+            XCTAssertEqual(amounts.botCents, 7)
+            XCTAssertEqual(amounts.paidCents, 11)
+            XCTAssertEqual(amounts.unknownCount, 0)
+            XCTAssertEqual(amounts.residualCents, 0)
+            XCTAssertEqual(amounts.provenance.contains(.serverMembership), coherent)
+            XCTAssertTrue(amounts.provenance.contains(.explicitBot))
+            if coherent {
+                XCTAssertEqual(amounts.estimatedCursorLimitCents, 50)
+                XCTAssertEqual(amounts.estimatedOtherLimitCents, 50)
+            } else {
+                XCTAssertNil(amounts.estimatedCursorLimitCents)
+                XCTAssertNil(amounts.estimatedOtherLimitCents)
+            }
+        }
+    }
+
     func testShortPageDoesNotProveCoverage() async throws {
         let pages = PageFeed([page([event("2000", "1")]), page([], total: nil)])
         let result = await collector(pages).collect(snapshot: snapshot(used: 1), summary: summary(used: 1))
@@ -80,7 +152,7 @@ final class CycleUsageCollectorTests: XCTestCase, @unchecked Sendable {
             event("9000", "1"),
             CycleUsageEvent(timestamp: "8000", model: "grok-bot-4.7", kind: "USAGE_EVENT_KIND_INCLUDED_IN_ULTRA", chargedCents: 3),
             CycleUsageEvent(timestamp: "7000", model: "claude-sonnet", kind: "USAGE_EVENT_KIND_USAGE_BASED", chargedCents: 4),
-            CycleUsageEvent(timestamp: "6000", model: "unknown", kind: "USAGE_EVENT_KIND_INCLUDED_IN_ULTRA", chargedCents: 5),
+            CycleUsageEvent(timestamp: "6000", model: nil, kind: "USAGE_EVENT_KIND_INCLUDED_IN_ULTRA", chargedCents: 5),
             CycleUsageEvent(timestamp: "5000", model: "composer-2.5", kind: "USAGE_EVENT_KIND_CUSTOM_SUBSCRIPTION", chargedCents: 6)
         ]
         let collector = CycleUsageCollector(fetchPage: { _, _ in self.page(rows, total: 5) }, fetchSummary: { self.summary(used: 6) }, fetchPeriod: { try self.period() })

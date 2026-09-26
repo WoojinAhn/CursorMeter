@@ -46,10 +46,11 @@ struct CycleUsagePage: Decodable, Sendable {
 struct CycleHistoryPage: Sendable { let page: CycleUsagePage; let byteCount: Int }
 
 enum CycleModelFamily: String, Codable, Sendable { case cursor, other, bot, unknown }
-enum CycleAttributionProvenance: String, Codable, Sendable { case serverMembership, boundedCorrection, providerFamily, explicitBot, unknown }
+// Keep providerFamily decodable so version-1 caches can be rejected by their classifier version.
+enum CycleAttributionProvenance: String, Codable, Sendable { case serverMembership, boundedCorrection, providerFamily, nonCursorRemainder, explicitBot, unknown }
 struct CycleModelAttribution: Equatable, Sendable { let family: CycleModelFamily; let provenance: CycleAttributionProvenance }
 enum CycleModelClassifier {
-    static let version = 1
+    static let version = 2
     static func normalize(_ value: String) -> String {
         String(value.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.map { scalar in
             (65...90).contains(scalar.value) ? Character(UnicodeScalar(scalar.value + 32)!) : Character(scalar)
@@ -58,12 +59,12 @@ enum CycleModelClassifier {
     static func classify(_ model: String?, serverModels: [String]?) -> CycleModelAttribution {
         guard let model else { return .init(family: .unknown, provenance: .unknown) }
         let name = normalize(model)
+        guard !name.isEmpty else { return .init(family: .unknown, provenance: .unknown) }
         if name.hasPrefix("grok-bot-") { return .init(family: .bot, provenance: .explicitBot) }
         if serverModels?.contains(where: { normalize($0) == name }) == true { return .init(family: .cursor, provenance: .serverMembership) }
         let pattern = #"^(?:(?:cursor-)?grok-4\.(?:5|6|7)|composer-2\.5)(?:-[a-z0-9]+)*$"#
         if name.range(of: pattern, options: .regularExpression) != nil { return .init(family: .cursor, provenance: .boundedCorrection) }
-        if ["claude-", "gpt-", "gemini-"].contains(where: { name.hasPrefix($0) && name.count > $0.count }) { return .init(family: .other, provenance: .providerFamily) }
-        return .init(family: .unknown, provenance: .unknown)
+        return .init(family: .other, provenance: .nonCursorRemainder)
     }
 }
 

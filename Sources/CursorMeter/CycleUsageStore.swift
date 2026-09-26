@@ -30,13 +30,10 @@ actor CycleUsageStore {
             candidate = envelope.snapshot
         }
         guard var snapshot = candidate, Self.valid(snapshot), snapshot.identity.sameScope(as: identity),
+              snapshot.classifierVersion == CycleModelClassifier.version,
               let cycle = identity.cycle, cycle.start <= now, now < cycle.end,
               now.timeIntervalSince(snapshot.capturedAt) >= 0, now.timeIntervalSince(snapshot.capturedAt) <= 86400 else { return nil }
         snapshot.isCached = true
-        if snapshot.classifierVersion != CycleModelClassifier.version {
-            snapshot.estimatedCursorLimitCents = nil; snapshot.estimatedOtherLimitCents = nil
-            snapshot.status = .unavailable
-        }
         return snapshot
     }
 

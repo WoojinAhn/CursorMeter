@@ -93,7 +93,8 @@ struct CycleUsageCollector: Sendable {
                 let coherentPeriod = period.response?.isCoherent(with: summary) == true
                 let rawModels = coherentPeriod ? period.response?.autoBucketModels : nil
                 let models = rawModels.flatMap { values in
-                    !values.isEmpty && values.allSatisfy { !CycleModelClassifier.normalize($0).isEmpty } ? values : nil
+                    let names = values.map(CycleModelClassifier.normalize).filter { !$0.isEmpty }
+                    return names.isEmpty ? nil : names
                 }
                 let plan = summary.individualUsage?.plan
                 guard snapshot.cursorPercent == plan?.autoPercentUsed, snapshot.otherPercent == plan?.apiPercentUsed,
