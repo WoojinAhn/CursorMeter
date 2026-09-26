@@ -61,9 +61,9 @@ Existing named fields remain usable while diagnostic summary consumers are remov
 - [x] Test evidence recorded: domain behavior RED, stale-cost and label-width regression RED, preference/retry API compile RED, followed by integrated GREEN. Not every initial concurrent worker RED reached an assertion; the review ledger records this limitation. UI verified with offscreen AppKit rendering and inspected screenshots.
 - [x] Gate B attempts concluded: Grok and Opus findings resolved or explicitly declined in the ledger; Muse failed without findings. No three-model approval claimed.
 - [x] Update before/after mock to exactly reflect segmented controls, information popover and reduced copy. Capture browser and native offscreen UI images, inspect no clipping/PII. Live installed app remains user-controlled.
-- [ ] Gate C: three-model final code-quality/regression review, resolve findings, final swift test and release build.
+- [x] Gate C: all three final reviews returned; Muse/Grok no remaining scoped findings, Opus card background fixed. Later CI scrollbar corrections independently reviewed. Full local suite: 872 tests, zero failures; final CI/package tracked in review record.
 - [x] Update applicable English/Korean README/SECURITY pairs and screenshots, stale-reference sweep, record known unsupported scopes truthfully.
-- [ ] Atomic commits referencing #121 after review; preserve unrelated work. Update existing draft PR branch only if appropriate, verify triggered CI before reporting.
+- [ ] Atomic commits pushed to the existing draft PR; unrelated work preserved. Final ARM/Intel CI verification remains before delivery.
 - [ ] Deliver source/build/test/review evidence and manual-check boundaries; stop only owned caffeine.
 
 ## Critical acceptance cases

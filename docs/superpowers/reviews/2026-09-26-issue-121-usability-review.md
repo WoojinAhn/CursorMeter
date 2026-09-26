@@ -129,7 +129,7 @@ Base: 93db9f1..7dd3d66. Subsequent late Gate B fixes are recorded above and vali
 separately; a review of this base is not a claim to have inspected a newer commit.
 
 - Muse: job-muie4or4-x7in, muse-spark-1.3-max, completed; reported Muse Spark 1.3 300K Max. No remaining concrete bugs. The reviewer also checked df4a0ff fixes. Its quoted 870-test figure came from the review prompt; the separately verified final local run is 871 tests.
-- Grok: job-muie4qfs-935b, grok-4.7-xhigh, running.
+- Grok: job-muie4qfs-935b, grok-4.7-xhigh, completed; reported Grok 4.7 256K Extra High. No findings in the scoped final contracts.
 - Opus: job-muie575k-re5i, claude-opus-5-5-max, completed; reported Claude Opus 5.5 300K Max. Also reviewed df4a0ff. One low visual finding: nested Menu Bar card background, corrected and recaptured.
 
 ## Final local verification
@@ -151,3 +151,14 @@ overlay → legacy without overriding the user's OS preference.
 - RED: `.Codex/usability-scroller-red.log`.
 - Focused GREEN: 13 Recent tests, zero failures.
 - Full GREEN after scrollbar and card fixes: 872 tests, zero failures.
+
+The first viewport fix at d90a93c still failed the original test on both CI runners
+(run 36244393957), despite the explicit-style test passing. Controller-level layout
+was therefore insufficient; the final correction must follow the scroll view's actual
+viewport layout rather than weakening the visibility assertion.
+
+The original borderless-window test now explicitly selects legacy scrollers before
+attachment and reproduced RED locally (382 > 365). The final fix moves fitting to
+`RecentUsageScrollView.tile()` after `super.tile()` resolves the viewport. It skips
+unchanged widths and retains OS preferences and fixed numeric columns. Both focused
+13-test and full 872-test suites pass; independent code review found no further issues.

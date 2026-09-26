@@ -17,7 +17,7 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
     private let zoneControl = NSSegmentedControl(labels: ["Local", "UTC"], trackingMode: .selectOne,
                                                  target: nil, action: nil)
     private let tableView = NSTableView()
-    private let scrollView = NSScrollView()
+    private let scrollView = RecentUsageScrollView()
     private var rows: [RecentUsageEntry] = []
     private var renderedCandidate: RecentUsageCandidate?
     private var renderedTimeZone: RecentUsageTimeZone?
@@ -151,14 +151,6 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
         preferredContentSize = view.fittingSize
     }
 
-    override func viewDidLayout() {
-        super.viewDidLayout()
-        let width = scrollView.contentView.bounds.width
-        guard width > 0 else { return }
-        tableView.setFrameSize(NSSize(width: width, height: tableView.frame.height))
-        tableView.sizeToFit()
-    }
-
     func updateUI() {
         let snapshot = viewModel.recentUsage.snapshot
         let candidate = snapshot?.candidate
@@ -284,5 +276,18 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
 
     @objc private func openCursor() {
         NSWorkspace.shared.open(URL(string: "https://www.cursor.com/dashboard?tab=usage")!)
+    }
+}
+
+private final class RecentUsageScrollView: NSScrollView {
+    override func tile() {
+        super.tile()
+        // Legacy scrollers can shrink the clip view after the controller layout pass.
+        guard let table = documentView as? NSTableView else { return }
+        let width = contentView.bounds.width
+        let columnsWidth = table.tableColumns.reduce(0) { $0 + $1.width }
+        guard width > 0, table.frame.width != width || columnsWidth != width else { return }
+        table.setFrameSize(NSSize(width: width, height: table.frame.height))
+        table.sizeToFit()
     }
 }

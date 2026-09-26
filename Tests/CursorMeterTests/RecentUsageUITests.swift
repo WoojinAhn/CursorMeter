@@ -280,6 +280,9 @@ final class RecentUsageUITests: XCTestCase {
         let vc = SettingsUsageTabViewController(viewModel: vm)
         _ = vc.view
         vc.updateUI()
+        let table = try XCTUnwrap(table(in: vc.view))
+        let scroll = try XCTUnwrap(table.enclosingScrollView)
+        scroll.scrollerStyle = .legacy
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: vc.view.fittingSize),
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -287,8 +290,6 @@ final class RecentUsageUITests: XCTestCase {
         window.setContentSize(vc.view.fittingSize)
         vc.view.layoutSubtreeIfNeeded()
         defer { window.contentViewController = nil; window.close() }
-        let table = try XCTUnwrap(table(in: vc.view))
-        let scroll = try XCTUnwrap(table.enclosingScrollView)
         XCTAssertEqual(table.numberOfRows, 30)
         XCTAssertEqual(table.rowHeight, 44)
         XCTAssertEqual(scroll.frame.height, 264, accuracy: 1)
