@@ -31,9 +31,12 @@ of pool allowances is a valid denominator for both model pools.
 - Split accounts use icon-only menu-bar presentation regardless of stored text mode;
   never overwrite the stored None/Ratio/Percent value, which resumes for unsplit plans. A read-only native tooltip and
   accessibility description contain both names and percentages, with eligible dollar
-  details, source time, and unavailable/stale status. No request on hover.
-- Clicking either mouse button retains the existing popover toggle. Popover shows both
-  pools, reset, actual paid spending separately, existing chart/status/actions.
+  details and concise unavailable/stale status, without raw source timestamps. No request on hover.
+- Clicking either mouse button retains the existing popover toggle. Popover enlarges the same central-pie/outer-ring meter and shows both pools,
+  reset, actual paid spending separately, and existing chart/status/actions. Display
+  settings select Percentage, Dollars, or Both (default); no unit toggle lives in the
+  popover. Dollar readings show recorded family costs; pairing with inferred limits requires
+  the separate Show estimated limits preference, default off.
 - Keep both emoji pairs: Classic `⚡ / 🚀`, Dollar `💲 / 💸`. Keep 6/15-second temporary
   replacement and Quiet/Normal/Bold semantics. Restore the newest icon after effects;
   tooltip, accessibility and Settings still update while the image is owned by an effect.
@@ -218,14 +221,14 @@ numeric values without a Double round trip. The source has no atomic
 snapshot guarantee. Expose uncertainty even after checks; do not call a delta the cost
 of the last request. Collection scheduling is result-aware and separate from primary refresh:
 
-| Last result | Automatic next attempt | Explicit Refresh amounts |
+| Last result | Automatic next attempt | Explicit stopped-collection retry |
 | --- | --- | --- |
-| Complete/stable (including attribution unavailable) | At least 10 minutes later, and only when primary fingerprint changed | 60-second cooldown |
+| Complete/stable (including attribution unavailable) | At least 10 minutes later, and only when primary fingerprint changed | Uses automatic admission; no manual bypass |
 | Partial because a hard page/event/byte/time budget was exhausted | Paused for this cycle until an explicit manual scan completes successfully or the cycle/scope resets; cancellation or failed manual work cannot clear this pause | 60-second cooldown; explain the same limit may remain |
-| Unstable snapshot after bounded retry | Backoff 5, 10, 20, then 60 minutes; two consecutive identical full primary fingerprints can permit retry after at least 60 seconds | 60-second cooldown |
-| Transport/5xx | Exponential 60-second backoff capped at 30 minutes | 60-second cooldown |
+| Unstable snapshot after bounded retry | Backoff 5, 10, 20, then 60 minutes; two consecutive identical full primary fingerprints can permit retry after at least 60 seconds | Uses automatic admission; no manual bypass |
+| Transport/5xx | Exponential 60-second backoff capped at 30 minutes | Uses automatic admission; no manual bypass |
 | 429 | Respect Retry-After, minimum 60 seconds; missing/invalid header means 30 minutes | Same server backoff; manual action cannot bypass it |
-| Other endpoint/decode failure | 30-minute backoff | 60-second cooldown |
+| Other endpoint/decode failure | 30-minute backoff | Uses automatic admission; no manual bypass |
 
 Primary fingerprint includes cycle, included used, both percentages, membership and plan
 limit. Coalesce all callers onto at most one collector. All automatic collection pages,
@@ -235,8 +238,10 @@ Automatic work waits until a full 100-page attempt allowance is available; a dep
 hourly allowance is a temporary wait, never a terminal cycle partial. Cancelled work
 reserves its allowance until completion reports actual attempted pages, then charges
 only that cost. A later partial result does not replace an existing complete dated
-snapshot; the previous source date remains visible.
-Provide a Refresh amounts button in Usage Summary with pending/cooldown/backoff status.
+snapshot; retain its provenance internally and show a concise old-cost qualifier when needed.
+The existing popover refresh action requests amount work under the same admission
+rules. Show a short pending/error state only when relevant; do not add a Summary tab
+or a separate diagnostics disclosure to expose collection internals.
 General Refresh remains a primary refresh with 3-second admission and requests amount
 work subject to its own limits; it never waits for amount completion. A single page's
 decoded payload cannot exceed the remaining 16 MiB cycle budget. API results expose
@@ -244,16 +249,29 @@ actual Data.count; 429 metadata is captured only in the new enrichment path so l
 error behavior stays intact.
 
 
-### Classification version 1
+### Classification version 2
+
+Revised after the usability review: the model-family partition is Cursor vs Other,
+with explicit Bot activity separated. Do not maintain an Other-provider allowlist.
 
 Order matters:
-1. Explicit `grok-bot-` names are Bot cycle activity, regardless of server membership.
-2. Exact normalized membership in current `autoBucketModels` is server Cursor evidence.
-3. A bounded table of observed names/variants for Composer 2.5 and Cursor Grok 4.5,
+1. Missing or blank model names remain unresolved; they cannot establish a family.
+2. Explicit `grok-bot-` names are Bot cycle activity, regardless of server membership.
+3. Exact normalized membership in current `autoBucketModels` is server Cursor evidence.
+4. A bounded table of observed names/variants for Composer 2.5 and Cursor Grok 4.5,
    4.6, 4.7 supplies a **provisional correction** where metadata lags. Unit tests
-   enumerate accepted actual spellings and rejected future versions/substring traps.
-4. Explicit known third-party families (Claude, GPT and Gemini observed names) are
-   provisional Other classification. Unknown names remain Unknown, never catch-all Other.
+   enumerate accepted actual spellings and ensure future versions/substring traps
+   do not acquire Cursor status through this correction alone.
+5. Every remaining nonblank model is provisionally Other, including newly observed
+   providers. Record `nonCursorRemainder` provenance rather than claiming a known provider.
+
+Version-1 snapshots must be discarded in full and recollected: their family subtotals,
+not only their estimated limits, can be wrong. Preserve the legacy provenance enum
+value only to decode and reject those snapshots. Regression tests cover Muse, GLM,
+Kimi, a future provider, server-list precedence, Bot precedence, blank model names,
+and separate included/paid/billing-error handling. A missing or lagging Cursor catalog
+can still misattribute an unrecognized Cursor alias to Other; these remain provisional
+model-family amounts rather than confirmed charged-pool amounts.
 
 Classification reports both family and provenance. The exact monthly kind allowlist and chargeability rules in the source-contract
 appendix are normative. Cost-bearing CUSTOM_SUBSCRIPTION/free and unknown kinds remain
@@ -274,13 +292,40 @@ plausible. Keep authoritative percentages regardless.
 Reconcile sum of included non-Bot raw costs against the coherent summary included
 cents with at most 1 cent absolute tolerance (an app policy, not a guaranteed server rounding rule). Keep Bot/paid/unknown subtotals separate.
 Round each displayed subtotal independently; do not force residual into a pool or drop
-fractional cents to manufacture agreement. Report residual and coverage in Summary.
+fractional cents to manufacture agreement. Keep residual and coverage in internal diagnostics, outside normal user-facing views.
 
 An estimated effective limit is `attributable included cents / (poolPercent / 100)`.
+
+**User opt-in (2026-09-26 usability revision):** add the persisted Display > Popover
+preference **Show estimated limits**, default off, independent of Percentage / Dollars /
+Both. Off hides inferred denominators everywhere without hiding recorded costs or
+changing reported percentages, circle geometry, alert thresholds, or paid budget caps.
+Explicit server-provided limits are not estimates and are unaffected. Enabling the
+preference permits display only after the eligibility checks below pass; it must not
+force a denominator or treat request count alone as sufficient evidence. Keep `~` on
+every inferred denominator. Revalidate on account, cycle, or plan changes and withhold
+inference when spillover or contradictory data prevents reliable attribution.
+
+Present an accessible information button beside Show estimated limits. Clicking it
+opens a small transient help popover; the first transition from off to on opens the
+same popover if it has not already been viewed. Any successful showing, including an
+explicit information-button activation, records that it has been shown. Escape and outside clicks close
+it, and keyboard users can open it and return focus. Do not require confirmation or
+show permanent explanatory paragraphs. Help content:
+- Unofficial limits estimated from sufficient matching usage and cost history.
+- Plan changes or usage spilling into another pool can require revalidation.
+- Circles and alerts use reported percentages.
+Keep the explanation out of the main usage popover. Enabled but ineligible inference
+may show one short Estimate not ready status. Disabled inference is an ordinary
+amount-only view. Preserve the preference while hiding controls on unsupported accounts.
+
 Require complete stable reconciled coverage, same scope/cycle/plan/revision values,
 positive pool amount, percentage >= 0.1 and < 100, sufficiently precise source resolution, no unresolved classifications or
 charge routing contradictions. Server list plus bounded correction is still an
-estimate: label `~` and "Estimated from this cycle; model attribution may differ".
+estimate: label inferred limits with `~`; keep explanatory detail in the estimate help
+popover instead of repeating a permanent caption. Round inferred limits to whole USD for display while preserving
+full precision internally; retain cents for recorded usage. Do not snap the calculation
+to predetermined plan amounts. Do not present estimates as official contractual allowances.
 Track observed fractional decimal places per pool/source/scope, conservatively capped
 at three places; no observed fractional precision means resolution 1 percentage point.
 Let resolution q = 10^(-observedPlaces). In addition to the percentage floor, require
@@ -294,9 +339,11 @@ at/above-100 current values in either pool block both inferred limits. Empty or 
 server model lists do not count as usable membership evidence.
 At zero/tiny/insufficiently precise percentage, show amount if otherwise eligible, no
 inferred denominator.
-An absent server model list still permits provisional family subtotals from the bounded
-table, but blocks inferred pool limits until coherent metadata exists. Summary shows
-Unknown cost/count explicitly; one unknown cost-bearing row blocks limits for both pools.
+An absent server model list still permits provisional family subtotals from the
+classifier, but blocks inferred pool limits until coherent metadata exists. Hide attributed pool costs when unresolved records or reconciliation failures prevent
+estimated attribution; keep the authoritative included total and a concise costs-unavailable status. Do not show a permanent Unknown
+category when all records have been assigned. One unknown cost-bearing row blocks
+limits for both pools. Do not add unknown billing/amount errors to included totals.
 The one-cent rule compares cents-valued Decimal residual against `1`, not `0.01`.
 Never use `$400`, a fixed Ultra multiplier, or this user's measured caps as fallback.
 
@@ -305,7 +352,7 @@ atomic file capped at 1 MiB, permission 0600, current cycle, max age 24 hours, l
 only after identity validation. Cache values are labeled cached; they never seed jump baselines, high-water or delivery
 ledger, cannot generate alerts and cannot be paired with a newer percentage to recompute a fresh estimate. Format dollar values by dividing cents
 by 100 and decimal-rounding to two USD places using `.plain` (half up for nonnegative
-amounts); format inferred caps the same way with `~`. Never round the ledger itself. Recent's
+amounts); format inferred caps to whole USD with `~`. Never round the ledger itself. Recent's
 version-1 256 KiB/30-row store and keys remain unchanged. Changing classifier version
 invalidates inferred limits until recollection.
 
@@ -347,9 +394,13 @@ never inject `isOnDemandActive:true` or call legacy single-ratio `checkAndNotify
 `wouldActivateOnDemand` cannot replace either pool. Paid is a separate row and scope;
 legacy unsplit latch behavior remains unchanged.
 
-Keep existing master, custom warning/critical and app-status settings. Defaults on,
-80/90, app-status on. Add independently persisted targets Cursor, Other, paid budget,
-all initially selected. Targets only affect split thresholds. Use the existing slider
+Keep the existing master and app-status settings. Each Cursor/Other card has its own
+enabled state and warning/critical pair. Initialize new pairs from the saved shared
+values, preserving user customization; untouched defaults remain 80/90. Keep a
+separate paid-budget card only when spending is enabled with a positive cap. The
+master switch preserves all individual choices. Reuse the existing single-track,
+dual-thumb gauge in each card, including W/C chips, zone colors, ticks, and legend;
+do not split Warning and Critical into separate slider rows. Use the existing slider
 range 0–100, step 5, minimum separation 5, with one shared normalizer for loading,
 editing and evaluation. Persisted 95/100 must remain 95/100 on relaunch; invalid values
 are clamped consistently. Do not silently rewrite valid legacy preference values.
@@ -370,8 +421,8 @@ and 4096 records; oversized/invalid stores are ignored and use session-only stat
 Do not delete the current same-account ledger at launch or verified credential renewal. Permission denied/delivery error does not mark
 success. Invalidate pending ownership on account/cycle change and the corresponding component
 on any master/target/threshold or jump enabled/intensity edit, including while awaiting
-permission; use the component rules above, not blanket cancellation. New split/combined bodies use Korean prose with
-stable English pool names and unit symbols. Legacy bodies otherwise retain their
+permission; use the component rules above, not blanket cancellation. New split/combined bodies use concise English matching the existing app and approved
+mock, with stable pool names and unit symbols. Legacy bodies otherwise retain their
 existing language; the unsupported Max-mode clause is removed. First fresh snapshot may notify once if already over threshold. Recovery means the
 first fresh result after sleep/network failure or a retry after denied/failed delivery,
 and is eligible only for a not-yet-delivered identity. A dip below the threshold and
@@ -404,7 +455,7 @@ For every split signal (included cents, each pool percentage and enabled paid ce
 retain its own cycle high-water value. Eligible delta =
 `max(0, current - max(previousAccepted, highWaterBefore))`. Update high-water afterward.
 50→40→56 yields +6 pp, not +16. Correction/rebound text names the high-water reference;
-normal monotonic text says "since the previous valid update". Reset high-water on account, cycle, plan identity, scope or capability transition.
+normal monotonic text says "since last refresh". Reset high-water on account, cycle, plan identity, scope or capability transition.
 Wake, failed-refresh recovery and long gaps reset comparison continuity only and retain
 cycle high-water; then update it as max(prior high-water, current). Placement never
 resets either state. This can suppress real consumption after a downward correction;
@@ -420,9 +471,8 @@ auth-state icon. Form
 one event batch per revision: combine threshold and Bold messages when both qualify,
 without making either's settings a prerequisite for the other. Successfully delivered
 threshold identities are recorded even in a combined banner. This implementation titles
-included-dollar activity **Included Usage Jump**, shows the aggregate delta and both
-current primary percentages, and explicitly states per-pool dollar attribution is
-unavailable. Monthly scans do not bound each primary polling interval, so the previously
+included-dollar activity **Included usage increased**, and shows the aggregate delta
+and both current primary percentages without a per-pool attribution disclaimer. Monthly scans do not bound each primary polling interval, so the previously
 proposed conditional per-pool dollar jump path is deferred; adding it later requires two
 coherent per-pool observations of that same interval without delaying or replaying the
 event. Never guess a pool from outer position or bigger percentage. Percentage-point
@@ -437,34 +487,55 @@ Do not request notification permission just by opening Settings. Unit tests must
 
 ## 6. App-wide presentation and preferences
 
+Usability revision, 2026-09-26: these requirements supersede the earlier Summary
+and diagnostic-heavy UI. The interactive proposal is `docs/mockup-121-usability.html`;
+native presentation changes are still pending implementation.
+
 - **Icon:** clamp geometry to 0…100, retain source value in text. Zero has visible track;
   missing has a distinct dashed/neutral unavailable region, not an empty-zero fill.
   Independent regions remain legible in light/dark and without color. Existing
   70%/90% yellow/red boundaries stay independent of 80%/90% alert defaults.
 - **Hover/AX:** use native `NSStatusBarButton.toolTip` with structured multiline plain
-  text, equivalent accessibility value; no custom focus-taking panel is required.
-  Opening popover naturally dismisses system tooltip; no fetch or new window ownership.
-  Stable name/order matches inner/outer setting. Show amount snapshot time separately
-  from percent refresh time and pending/error/cache status.
-- **Popover:** use 300 pt width for split, existing width for legacy. Preserve identity,
-  membership, reset tooltip and countdown recalculation, fresh/stale/error display,
-  weekly chart, update and all footer actions. Fit dynamic height after visibility
-  changes; use bounded scrollable details if content exceeds the usable screen. Keep
-  Dashboard/Settings/Log Out/Update/Quit and Cmd+, reachable. Both click buttons toggle.
-- **Display settings:** split "Usage numbers: On hover", placement selector + identity
-  legend; keep stored legacy None/Ratio/Percent selection visible as legacy preference.
-  Disable placement on genuinely unsplit accounts without resetting it. Preserve weekly
-  enable/metric/Today-style gates and both emoji/intensity controls.
-  Do not reset preferences on transient data failure or pool placement changes.
-- **Alerts:** master/custom slider/targets, explanation that Bold lives in Display and
-  is independent; paid target requires enabled positive cap. Denied permission is
-  shown honestly without pretending a notification was delivered.
-- **Usage:** Summary / Recent selector within existing Usage tab. Summary shows cycle,
-  both percent/amount states, effective estimates with caveat, included total,
-  separately paid actual/cap and Bot cycle activity, coverage/reconciliation/time.
-  Summary content scrolls within the available Settings screen height. Recent retains
-  all 30-row/timezone/cache/refresh/error behavior. Switching subtabs
-  reads published state and does not refetch. Preserve stored timezone/selection.
+  text and equivalent accessibility value. Hover never fetches or takes focus; opening
+  the popover dismisses it. Include both named pools in saved spatial order. Describe
+  actual stale/pending/unavailable conditions briefly without dumping collection timestamps.
+- **Popover:** use 300 pt width for split, existing width for legacy. Enlarge the same
+  central-pie/outer-ring geometry used in the menu bar. The review mock proposes 112 px;
+  verify native fitting rather than treating HTML pixels as exact AppKit parity. Do not
+  replace this visualization with two horizontal progress bars. Put exact pool readings
+  beside the circle, identified by outer-outline and center-filled markers.
+  Percentage mode shows both pool percentages. Dollars mode shows recorded family
+  amounts and, only when opted in and eligible, each pool's estimated limit. Both mode
+  shows percentages plus recorded costs, with the same opt-in rule for denominators. Circle geometry always uses authoritative pool
+  percentages, regardless of text mode. Missing amounts/limits never become zero or
+  a fabricated denominator. Do not sum pool limits into a shared allowance.
+  Move useful cycle summary information here: recorded included total in monetary
+  modes, attributable Bot activity, paid spend/cap (including nonzero spending after
+  paid usage is disabled), reset/cycle, and existing chart.
+  Keep one cost-status line, selected by failure, availability, old-cost and estimate
+  readiness precedence. Do not show partial Bot totals. Do not include Collection details,
+  coverage counts, reconciliation residuals, or raw timestamps in the normal UI.
+  Preserve identity, membership, refresh, update, Dashboard/Settings/Log Out/Quit,
+  `Cmd+,`, and both-button toggle behavior. Fit height dynamically and keep actions
+  reachable on small screens. Recent usage opens the existing Usage tab directly.
+- **Display settings:** show a working outer-pool selector and preview for split plans.
+  Hide irrelevant legacy text controls while preserving their saved preferences; show
+  the working None/Ratio/Percent selector only for applicable single-pool plans. Hide
+  split placement controls on single-pool plans. A Popover section provides the saved
+  Usage values preference: % / $ / Both, default Both, using NSSegmentedControl. This control
+  belongs only in Settings, never in the popover. Its preview honors the same amount
+  availability, estimate opt-in, and estimated-limit conditions as the popover. Add the
+  default-off Show estimated limits switch and information popover specified in section 4
+  for eligible split account types. Keep the existing Quiet/Normal/Bold and emoji-style
+  NSSegmentedControls; do not replace these with dropdowns. Keep both emoji styles,
+  intensity/sensitivity and weekly options. Transient failures do not reset preferences.
+- **Alerts:** retain the master and independent per-family enable switches and threshold
+  pairs. Reuse the existing dual-thumb gauge unchanged. Hide an inapplicable paid card.
+  Show OS permission problems only when actionable; no permanent "Allowed" caption.
+  Explain Bold only beside its selected intensity in Display; omit cross-tab prose.
+- **Usage:** remove the Summary/Recent selector and the duplicate Summary view. Open
+  recent individual usage directly, retaining all 30-row/timezone/cache/refresh/error
+  behavior and saved timezone. Do not replace this with another cycle overview.
 - **General:** existing startup, refresh, update/version/dev provenance unchanged.
 - **Observation:** extend every relevant `withObservationTracking` re-arm block in
   app, popover and Settings. Separate image updates from title/tooltip/AX updates.
@@ -544,3 +615,94 @@ review outcomes, test/build evidence, known API uncertainty and manual check ste
   receive an intentional usage prefix so only usage notifications route to the popover.
 - Settings creation makes no notification-center call; 95/100 thresholds survive reload;
   amount refresh/period cadence and unsplit disabled placement are tested.
+
+## 9. Accepted usability implementation revision (2026-09-26 evening)
+
+The user authorized native implementation of the revised mock and copy audit. This
+section supersedes earlier surface descriptions where they conflict. Existing data
+safety, classification-v2, notification deduplication and authentication contracts remain.
+
+- Remove Usage Summary and its diagnostic presentation, retaining the complete existing
+  recent-usage table, refresh, cached/error states, row count and timezone behavior.
+- Use the enlarged C meter in the popover. Percent/dollar/both is a Settings-only
+  preference. Support legacy credit, request and percent-only shapes without inventing
+  a second pool or dollar denominators. Existing team exclusions remain; this revision
+  does not establish unverified team split support.
+- Dollars represent recorded model costs, not subscription payments or invoices.
+  Inferred denominators require opt-in and all existing data gates. Never seed them
+  from published/community plan amounts. No fixed request-count warmup is required.
+- Separate warning/critical pairs per Cursor Models, Other Models and eligible paid
+  budget. Copy normalized existing shared thresholds only when a scope has no saved
+  pair; retain existing enabled-target preferences. Later shared-setting changes do
+  not overwrite explicit per-scope choices. Use the existing ThresholdRangeSlider
+  with its dual-thumb layout. Preserve the master switch and per-card switches.
+- Apply the copy audit to native Settings, popover, hover, VoiceOver and notifications.
+  Keep concise meaningful errors/freshness flags. Hide normal permission, internal
+  source/scheduler/coverage/residual states and redundant off/saved captions.
+- Bold retains its independent enable semantics, both emoji sets and dollar sensitivity.
+  Describe it once at the selected Bold control. Aggregate cost jumps remain Included
+  usage; never fabricate a per-pool attribution or mislabel high-water delta as a
+  previous-refresh delta.
+- Preserve all unrelated controls, existing authentication/refresh/admission, real
+  nonzero paid spend, menu actions and accessible labels. New preferences participate
+  in the application's observation re-arm paths and reset/migration behavior.
+
+See `../reviews/2026-09-26-issue-121-copy-audit.md` for exact copy dispositions.
+
+### Gate A contract clarifications
+
+- View-model migration materializes and persists all missing cursor/other/onDemand
+  threshold pairs from the normalized legacy shared pair once, while preserving saved
+  pairs and enabled targets. The engine's empty-map fallback exists for legacy callers
+  and tests, not for the migrated view-model policy. Scope edits never write shared
+  keys. The legacy single-pool gauge continues using only the shared setters.
+- Compare effective per-scope pairs when invalidating pending threshold delivery;
+  estimate preferences never invalidate alert or jump state. Gauge edits publish the
+  warning/critical pair atomically.
+- Estimate opt-in is an additional presentation gate; it never replaces source, scope,
+  reconciliation, precision or spillover checks. Off hides all estimate-only statuses.
+- Dollar display selection is available for verified split and legacy monetary data.
+  Request-only and percent-only accounts keep their existing unit display and do not
+  expose dollar controls. Server-reported single-pool limits remain real, unaffected
+  by the estimation preference. Checking/unknown capability cannot invent dollar data.
+- Information help uses transient NSPopover (not NSAlert). The information button is
+  keyboard accessible and labelled About estimated limits. Escape/Close restore focus
+  to it; an outside click retains the destination's focus. Any successful show
+  records estimateExplanationSeen in UserDefaults; explicit info access
+  remains available. No repeated automatic display on later toggles.
+- Ignore retired usageSummarySelected storage; Recent is always the Usage destination.
+  Do not remove the unrelated Local/UTC segmented control.
+
+
+### Integrated usability review clarifications
+
+- The accepted threshold migration is eager: first load materializes missing Cursor,
+  Other and paid pairs from normalized shared values. Existing pairs survive, and later
+  legacy edits do not change them. Preference tests restore every key they write.
+- Removing Summary does not remove recovery. Popover and Recent user refresh first run
+  the shared primary refresh, then retry monthly collection manually only when the
+  automatic schedule is at the cycle-budget stop. The existing 60-second completion
+  cooldown, server Retry-After, identity, sleep and freshness gates remain. Ordinary
+  clicks do not turn unchanged/history-backoff states into manual scans.
+- Recorded pool costs require a matching-scope `estimatedAttribution` snapshot; partial,
+  unresolved and unreconciled subtotals remain hidden. This preserves the existing
+  collection gate. The authoritative included total may still appear. Cached or source-
+  mismatched costs get a brief old-cost qualifier; mere timestamp ordering does not.
+- Pro/Pro+ eligibility uses capabilities, not an Ultra name check. Percentages, icons,
+  alerts and controls work when eligible. Dollars additionally require observed allowed
+  billing kinds and valid attribution. Pro billing kinds remain unverified; do not add
+  guessed kinds or promise dollar availability without a live capture.
+- Legacy monetary data supports percent/dollars/both using its real server denominator.
+  Settings and Popover share the same capability predicate: active paid usage requires
+  a reported used amount and a positive paid limit; otherwise credit-based plan data qualifies.
+  Request-only and percent-only data retain their supported units and hide dollar
+  controls. Legacy thresholds continue using shared preferences, never Other's pair.
+- Display and Alerts use bounded scroll viewports. Gauge geometry is unchanged; its
+  virtual accessibility thumbs additionally name the pool.
+- All new preferences are app-wide and survive logout. The information popover records
+  first display only after actual presentation, including an explicit prior info click.
+  Escape/Close returns focus to the info button; outside clicks preserve destination focus.
+- Review suggestions to restore long captions, Korean-only new notifications, or lazy
+  threshold inheritance were declined in favor of the agreed compact English UI and
+  eager independent migration. Earlier source-time and allocation-disclaimer wording
+  does not override this usability revision.

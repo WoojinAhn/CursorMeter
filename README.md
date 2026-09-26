@@ -21,12 +21,12 @@ Unlike in-editor extensions, CursorMeter runs independently as a native macOS ap
 
 - **Split usage at a glance** — eligible personal paid plans show Cursor Models in the center pie and Other Models in the outer ring. Each region has its own percentage and color; choose the outer pool in Display settings. Missing data stays unavailable.
 - View billing usage, request counts, and reset date from the menu bar
-- macOS notifications at customizable thresholds (default: 80%/90%), with independent Cursor Models, Other Models, and paid-budget targets on split plans.
+- macOS notifications at customizable thresholds (default: 80%/90%), with independent switches and warning/critical thresholds for Cursor Models, Other Models, and eligible paid budgets.
 - **Usage-jump effect** — menu bar icon flashes ⚡ on a moderate jump and 🚀 on a large jump, so a sudden spike is hard to miss. Three intensity levels (Quiet / Normal / Bold) and a choice of glyph style (⚡/🚀 or 💲/💸); Bold also raises a macOS notification on tier-2 jumps, independently of usage-alert targets and their master switch. Split plans retain the $0.05/$0.30 included-usage sensitivity alongside +5/+15 percentage-point signals; the message names the measured scope without guessing the cause.
 - **Weekly usage chart** (all plans) — rolling 7-day bar graph with a choice of **Amount** (default) or **Usage units** in Settings → Display. Bar height, color, and hover tooltip use the same metric. Amount includes plan-covered and on-demand usage value, not just additional charges; if monetary data is missing, the chart uses weighted usage units (`requestsCosts`) instead. Configurable today-highlight (Outline / Dim others / Both).
 - **Weekly chart freshness** — temporary failures keep the last chart. After two consecutive failures, a dated last-update label appears; if no history has loaded yet, a small retrying message appears instead. The existing refresh schedule retries automatically.
-- **Cycle summary** — Settings → Usage separates authoritative pool percentages from observed dollar activity and conditional estimated limits. Amounts keep their own source time and coverage; an estimated limit is not a billing entitlement. On-demand spend and Bot activity stay separate. Monthly collection is bounded and does not delay the primary meter.
-- **Recent usage** — Settings → Usage → Recent shows up to the latest 30 requests, with model, time, type, tokens, and USD value. Included amounts represent usage covered by your plan, not additional charges. Choose **Local** (this Mac’s time zone, the default) or **UTC**; **Open Cursor** leads to the full history and billing dashboard.
+- **Usage details** — the popover enlarges the dual meter and shows percentages, recorded USD costs, or both; choose the format in Display settings. Optional estimated limits are off by default and appear only when matching usage and cost data supports them. They are unofficial estimates, not billing entitlements. Circles and alerts always use reported percentages. On-demand spend and Bot activity stay separate.
+- **Recent usage** — Settings → Usage shows up to the latest 30 requests, with model, time, type, tokens, and USD value. Included amounts represent usage covered by your plan, not additional charges. Choose **Local** (this Mac’s time zone, the default) or **UTC**; **Open Cursor** leads to the full history and billing dashboard.
 - **Saved on this Mac** — one bounded snapshot survives restarts and shows its original cache date and time. A failed refresh keeps eligible saved data. Each Mac has its own cache and refresh schedule; this is not a local archive or device synchronization service.
 - **Shared refresh** — the popover and Usage tab share one in-flight refresh and a minimum 3-second interval between accepted starts, with at least 1.3 seconds of progress feedback. The list reuses the existing weekly event response. Opening the tab or changing time zones makes no request.
 - Split plans keep the menu bar icon compact and reveal both pools on hover; click for details. Single-pool plans retain icon-only, fraction, and percentage modes, including your saved preference.
@@ -133,7 +133,7 @@ Found a bug or have an idea? [Open an issue](https://github.com/WoojinAhn/Cursor
   </tr>
 </table>
 
-<p align="center"><em>Example data from the single-pool interface. Split-plan mockups are available in <a href="docs/mockup-121-app.html">the app-wide design</a>; live split-plan captures are pending manual validation. Click any screenshot to view it at full size.</em></p>
+<p align="center"><em>Synthetic split-plan data rendered from the native AppKit views. Installed-app interaction remains a manual check. See the <a href="docs/mockup-121-usability.html">interactive before/after mock</a>. Click a screenshot for full size.</em></p>
 
 <details>
   <summary>Popover with the weekly chart turned off</summary>
