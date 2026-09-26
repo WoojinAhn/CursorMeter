@@ -339,8 +339,11 @@ at/above-100 current values in either pool block both inferred limits. Empty or 
 server model lists do not count as usable membership evidence.
 At zero/tiny/insufficiently precise percentage, show amount if otherwise eligible, no
 inferred denominator.
-An absent server model list still permits provisional family subtotals from the
-classifier, but blocks inferred pool limits until coherent metadata exists. Hide attributed pool costs when unresolved records or reconciliation failures prevent
+An absent, empty, failed or incoherent server model list does not by itself block
+opt-in limit inference. Use the same version-2 bounded Cursor correction and Other
+remainder classification used for pool costs; valid server membership still takes
+precedence. Full collection, source coherence, reconciliation, resolved records,
+percentage precision and spillover checks remain mandatory. Hide attributed pool costs when unresolved records or reconciliation failures prevent
 estimated attribution; keep the authoritative included total and a concise costs-unavailable status. Do not show a permanent Unknown
 category when all records have been assigned. One unknown cost-bearing row blocks
 limits for both pools. Do not add unknown billing/amount errors to included totals.

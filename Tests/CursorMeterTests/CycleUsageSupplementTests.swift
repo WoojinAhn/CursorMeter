@@ -2,21 +2,21 @@ import XCTest
 @testable import CursorMeter
 
 final class CycleUsageSupplementTests: XCTestCase, @unchecked Sendable {
-    func testOptionalPeriodFailureStillCollectsFallbackAmountsWithoutCap() async throws {
+    func testOptionalPeriodFailureAllowsValidatedFallbackCap() async throws {
         let collector = makeCollector(fetchPeriod: { throw CycleEnrichmentError.http(status: 401, retryAfter: nil) })
         let result = await collector.collect(snapshot: snapshot(), summary: summary())
         XCTAssertEqual(result.status, .complete)
         XCTAssertEqual(result.snapshot?.cursorCents, 1)
         XCTAssertEqual(result.snapshot?.status, .estimatedAttribution)
-        XCTAssertNil(result.snapshot?.estimatedCursorLimitCents)
+        XCTAssertEqual(result.snapshot?.estimatedCursorLimitCents, 10)
     }
-    func testEmptyOrBlankModelListNeverEnablesEstimates() async throws {
+    func testEmptyOrBlankModelListAllowsValidatedFallbackCap() async throws {
         for models in ["[]", "[\"\"]", "[\" \"]"] {
             let collector = makeCollector(fetchPeriod: { try self.period(models: models) })
             let result = await collector.collect(snapshot: snapshot(), summary: summary())
             XCTAssertEqual(result.status, .complete)
             XCTAssertEqual(result.snapshot?.cursorCents, 1)
-            XCTAssertNil(result.snapshot?.estimatedCursorLimitCents)
+            XCTAssertEqual(result.snapshot?.estimatedCursorLimitCents, 10)
         }
     }
     func testCanonicalSummaryIdentityIgnoresCaseAndOuterWhitespace() throws {

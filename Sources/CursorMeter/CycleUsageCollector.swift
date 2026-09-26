@@ -220,7 +220,7 @@ struct CycleUsageCollector: Sendable {
                 }
                 aggregate.status = reconciled && !unresolved ? .estimatedAttribution : .unavailable
                 let noSpillover = (resolved.cursorPercent.map { $0 < 100 } == true) && (resolved.otherPercent.map { $0 < 100 } == true)
-                if reconciled && !unresolved && noSpillover && models != nil {
+                if reconciled && !unresolved && noSpillover {
                     aggregate.estimatedCursorLimitCents = Self.estimate(amount: aggregate.cursorCents, percent: resolved.cursorPercent, places: resolved.cursorObservedPlaces)
                     aggregate.estimatedOtherLimitCents = Self.estimate(amount: aggregate.otherCents, percent: resolved.otherPercent, places: resolved.otherObservedPlaces)
                 }

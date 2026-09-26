@@ -80,7 +80,7 @@ final class CycleUsageCollectorTests: XCTestCase, @unchecked Sendable {
                 XCTAssertEqual(amounts.estimatedOtherLimitCents, 50)
             } else {
                 XCTAssertNil(amounts.estimatedCursorLimitCents)
-                XCTAssertNil(amounts.estimatedOtherLimitCents)
+                XCTAssertEqual(amounts.estimatedOtherLimitCents, 100)
             }
         }
     }
@@ -223,14 +223,44 @@ final class CycleUsageCollectorTests: XCTestCase, @unchecked Sendable {
             XCTAssertNotEqual(result.snapshot?.coverage.complete, true)
         }
     }
-    func testAbsentMembershipStillShowsProvisionalAmountsWithoutLimits() async throws {
-        let collector = CycleUsageCollector(fetchPage: { _, _ in self.page([self.event("2000", "1")], total: 1) }, fetchSummary: { self.summary(used: 1) }, fetchPeriod: {
-            try JSONDecoder().decode(CurrentPeriodUsageResponse.self, from: Data(#"{"billingCycleStart":"1970-01-01T00:00:01Z","billingCycleEnd":"1970-01-01T00:00:10Z","planUsage":{"includedSpend":1}}"#.utf8))
-        })
-        let result = await collector.collect(snapshot: snapshot(used: 1), summary: summary(used: 1))
-        XCTAssertEqual(result.snapshot?.status, .estimatedAttribution)
-        XCTAssertEqual(result.snapshot?.cursorCents, 1)
-        XCTAssertNil(result.snapshot?.estimatedCursorLimitCents)
+    func testFallbackClassificationSupportsOptInLimitsWithoutServerCatalog() async throws {
+        let rows = [
+            event("9000", "1"),
+            CycleUsageEvent(timestamp: "8000", model: "other-model", kind: "USAGE_EVENT_KIND_INCLUDED_IN_ULTRA", chargedCents: 9),
+        ]
+        let responses: [String?] = [
+            nil,
+            #"{"billingCycleStart":"1970-01-01T00:00:01Z","billingCycleEnd":"1970-01-01T00:00:10Z","planUsage":{"includedSpend":10}}"#,
+            #"{"billingCycleStart":"1970-01-01T00:00:01Z","billingCycleEnd":"1970-01-01T00:00:10Z","planUsage":{"includedSpend":10},"autoBucketModels":[]}"#,
+            #"{"billingCycleStart":"1970-01-01T00:00:01Z","billingCycleEnd":"1970-01-01T00:00:10Z","planUsage":{"includedSpend":10},"autoBucketModels":[""," "]}"#,
+            #"{"billingCycleStart":"1970-01-01T00:00:01Z","billingCycleEnd":"1970-01-01T00:00:10Z","planUsage":{"includedSpend":99},"autoBucketModels":["other-model"]}"#,
+        ]
+        for raw in responses {
+            let collector = CycleUsageCollector(
+                fetchPage: { _, _ in self.page(rows, total: rows.count) },
+                fetchSummary: { self.summary(used: 10) }, fetchPeriod: {
+                    guard let raw else { throw CycleEnrichmentError.transport }
+                    return try JSONDecoder().decode(CurrentPeriodUsageResponse.self, from: Data(raw.utf8))
+                })
+            let primary = snapshot(used: 10)
+            let result = await collector.collect(snapshot: primary, summary: summary(used: 10))
+            let amounts = try XCTUnwrap(result.snapshot)
+            XCTAssertEqual(result.status, .complete)
+            XCTAssertTrue(amounts.coverage.complete)
+            XCTAssertEqual(amounts.status, .estimatedAttribution)
+            XCTAssertEqual(amounts.cursorCents, 1)
+            XCTAssertEqual(amounts.otherCents, 9)
+            XCTAssertEqual(amounts.residualCents, 0)
+            XCTAssertFalse(amounts.provenance.contains(.serverMembership))
+            XCTAssertEqual(amounts.estimatedCursorLimitCents, 10)
+            XCTAssertEqual(amounts.estimatedOtherLimitCents, 90)
+            for enabled in [false, true] {
+                let presentation = SplitUsagePresentation.make(
+                    snapshot: primary, amounts: amounts, amountState: .ready,
+                    valueMode: .dollars, showEstimatedLimits: enabled)
+                XCTAssertTrue(presentation.pools.allSatisfy { ($0.limitText != nil) == enabled })
+            }
+        }
     }
     func testExplicitEmptyAndOmittedZeroAreCompleteCycles() async throws {
         for raw in [#"{"usageEventsDisplay":[]}"#, #"{"totalUsageEventsCount":0}"#] {

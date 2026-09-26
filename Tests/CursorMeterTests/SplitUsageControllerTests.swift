@@ -217,6 +217,59 @@ final class SplitUsageControllerTests: XCTestCase {
         }
     }
 
+    func testRestartRecollectsUnchangedCachedAmountsAndPersistsNewLimits() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("amounts.json")
+        let time = try XCTUnwrap(UsageCycle.parse("2026-09-15T00:00:00Z"))
+        let primary = summary(other: 20)
+        let previous = SplitUsageController(now: { time })
+        previous.accept(summary: primary, usage: try usage(), userInfo: user, generation: 1, enterpriseScope: false)
+        let oldSnapshot = try XCTUnwrap(previous.primarySnapshot)
+        let cached = CycleAmountSnapshot(
+            identity: oldSnapshot.identity, capturedAt: time, cursorCents: 1000, otherCents: 17200,
+            residualCents: 0, coverage: .init(complete: true), status: .estimatedAttribution,
+            sourceCursorPercent: 10, sourceOtherPercent: 20)
+        let writer = CycleUsageStore(fileURL: url)
+        let operation = await writer.activate(identity: cached.identity, subjectDigest: cached.identity.accountDigest)
+        try await writer.save(cached, operation: operation)
+
+        let gate = SupplementGate()
+        let restarted = SplitUsageController(store: CycleUsageStore(fileURL: url), now: { time.addingTimeInterval(1) },
+            collect: { snapshot, _, _, _, _ in
+                await gate.wait()
+                let refreshed = CycleAmountSnapshot(
+                    identity: snapshot.identity, capturedAt: snapshot.capturedAt,
+                    cursorCents: 1000, otherCents: 17200, residualCents: 0,
+                    coverage: .init(complete: true), status: .estimatedAttribution,
+                    estimatedCursorLimitCents: 10000, estimatedOtherLimitCents: 86000,
+                    sourceCursorPercent: 10, sourceOtherPercent: 20)
+                return .init(status: .complete, snapshot: refreshed, pageCount: 2, byteCount: 100)
+            })
+        restarted.accept(summary: primary, usage: try usage(), userInfo: user, generation: 1, enterpriseScope: false)
+        XCTAssertEqual(restarted.primarySnapshot?.identity, oldSnapshot.identity)
+        restarted.requestAmounts(summary: primary, cookieHeader: "fixture", manual: false)
+        await eventually { await gate.started }
+        XCTAssertEqual(restarted.amounts?.isCached, true)
+        XCTAssertEqual(restarted.amounts?.coverage.complete, true)
+        XCTAssertNil(restarted.amounts?.estimatedCursorLimitCents)
+        XCTAssertNil(restarted.amounts?.estimatedOtherLimitCents)
+
+        await gate.release()
+        await eventually { restarted.amountState == .ready }
+        XCTAssertEqual(restarted.amounts?.isCached, false)
+        XCTAssertEqual(restarted.amounts?.estimatedCursorLimitCents, 10000)
+        XCTAssertEqual(restarted.amounts?.estimatedOtherLimitCents, 86000)
+        XCTAssertEqual(restarted.schedule.availability(at: time.addingTimeInterval(2), manual: false), .unchanged)
+        let reader = CycleUsageStore(fileURL: url)
+        let reload = await reader.activate(identity: oldSnapshot.identity, subjectDigest: oldSnapshot.identity.accountDigest)
+        let persisted = await reader.load(operation: reload, now: time.addingTimeInterval(2))
+        XCTAssertEqual(persisted?.estimatedCursorLimitCents, 10000)
+        XCTAssertEqual(persisted?.estimatedOtherLimitCents, 86000)
+        XCTAssertEqual(persisted?.capturedAt, time.addingTimeInterval(1))
+        XCTAssertEqual(persisted?.classifierVersion, cached.classifierVersion)
+    }
+
     func testPartialCollectionCannotReplacePriorCompleteAmounts() async throws {
         actor Responses {
             var calls = 0
