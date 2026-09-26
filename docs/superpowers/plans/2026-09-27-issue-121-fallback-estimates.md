@@ -19,9 +19,10 @@ plan limits, cache deletion, preference changes or new diagnostic UI.
 - [x] Remove the extra collector condition and update the authoritative specification.
 - [x] Verify cached nil limits are replaced on the first collection after restart.
 - [x] Independent code review and full local tests: 873 tests, zero failures.
-- [ ] ARM/Intel CI for the committed fix.
-- [ ] Package and replace the authorized local app; verify estimated limits in the actual UI.
-- [ ] Stop task-owned caffeine after delivery.
+- [x] ARM/Intel CI passed for 8b607a5: run 36257025760.
+- [x] Packaged, strictly verified and replaced the authorized local app with 8b607a5-dirty; prior bundle backed up.
+- [x] Owner completed the macOS Keychain prompt; native popover accessibility shows both inferred limits with the saved dollar mode and estimate opt-in.
+- [x] Delivery checks complete; release task-owned caffeine at the end of the response.
 
 ## Evidence
 
@@ -30,3 +31,15 @@ plan limits, cache deletion, preference changes or new diagnostic UI.
 - Cache restart GREEN: `.Codex/estimate-restart-cache-test.log` (1 test).
 - Full GREEN: `.Codex/estimate-fallback-full-tests.log` (873 tests).
 - Independent review found no issues; retired catalog-required test expectations updated.
+
+## Native verification boundary
+
+The installed process starts but is waiting inside `SecItemCopyMatching` for Keychain
+authorization. Computer Use refuses access to SecurityAgent; the owner was asked to
+handle the system prompt directly. No credential or Keychain access policy was changed,
+and live estimated-limit display was not marked verified while startup waited.
+
+After the owner confirmed authorization, the fresh disk snapshot contained both
+estimated limits and the native popover exposed both amounts with `~` denominators.
+The saved display mode and opt-in preference were unchanged. Actual account values
+and identity are deliberately excluded from repository evidence.
