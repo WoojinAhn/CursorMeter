@@ -119,17 +119,18 @@ static element with no repeated child readout. Removed orphan Summary VM wrapper
 
 Declined copy-only renaming of On-demand: jump messages describe spending, while
 threshold cards describe its budget; changing every scope title would confuse the
-meaning. Nested card chrome did not reproduce in inspected native screenshots and
-was left unchanged.
+meaning. Nested card chrome was initially left unchanged after screenshot inspection; Gate C
+confirmed two coincident translucent backgrounds in source, so the inner card was
+replaced by a plain stack.
 
 ## Gate C: frozen-code final reviews
 
 Base: 93db9f1..7dd3d66. Subsequent late Gate B fixes are recorded above and validated
 separately; a review of this base is not a claim to have inspected a newer commit.
 
-- Muse: job-muie4or4-x7in, muse-spark-1.3-max, running.
+- Muse: job-muie4or4-x7in, muse-spark-1.3-max, completed; reported Muse Spark 1.3 300K Max. No remaining concrete bugs. The reviewer also checked df4a0ff fixes. Its quoted 870-test figure came from the review prompt; the separately verified final local run is 871 tests.
 - Grok: job-muie4qfs-935b, grok-4.7-xhigh, running.
-- Opus: job-muie575k-re5i, claude-opus-5-5-max, running.
+- Opus: job-muie575k-re5i, claude-opus-5-5-max, completed; reported Claude Opus 5.5 300K Max. Also reviewed df4a0ff. One low visual finding: nested Menu Bar card background, corrected and recaptured.
 
 ## Final local verification
 
@@ -137,3 +138,16 @@ separately; a review of this base is not a claim to have inspected a newer commi
 - Final dark native fixture capture passed and was visually inspected; synthetic names only.
 - One cost-status line, partial Bot suppression, monetary-capability parity and nonduplicated pool accessibility are included in this revision.
 - Release package and strict ad-hoc verification passed for df4a0ff (`.Codex/usability-final-package.log`); separate dev bundle, installed app untouched.
+
+### CI environment regression
+
+Run 36244065397 failed on ARM and Intel: the Recent USD column ended at 382pt
+while the legacy scrollbar reduced the viewport to 367pt. Explicit legacy-scroller
+testing reproduced the same issue locally (365pt on the local SDK). The table now
+sizes to its actual clip-view width during layout; existing first-column-only
+autosizing preserves the token and USD columns. The new test switches legacy →
+overlay → legacy without overriding the user's OS preference.
+
+- RED: `.Codex/usability-scroller-red.log`.
+- Focused GREEN: 13 Recent tests, zero failures.
+- Full GREEN after scrollbar and card fixes: 872 tests, zero failures.

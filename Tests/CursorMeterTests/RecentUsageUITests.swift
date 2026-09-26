@@ -234,6 +234,40 @@ final class RecentUsageUITests: XCTestCase {
         XCTAssertEqual(table(in: vc.view)?.numberOfRows, 1)
     }
 
+    func testColumnsFitContentViewportWithLegacyAndOverlayScrollers() throws {
+        let vm = makeViewModel()
+        let entries = (0..<30).map { offset in
+            RecentUsageEntry(date: Date(timeIntervalSince1970: Double(1_700_000_000 - offset)),
+                             model: "example-model", kind: .included, tokens: 1_234_567, chargedCents: 12.34)
+        }
+        _ = try publish(entries, to: vm, at: Date(timeIntervalSince1970: 1_700_000_100))
+        let vc = SettingsUsageTabViewController(viewModel: vm)
+        let table = try XCTUnwrap(table(in: vc.view))
+        let scroll = try XCTUnwrap(table.enclosingScrollView)
+        scroll.scrollerStyle = .legacy
+        let window = NSWindow(contentViewController: vc)
+        window.isReleasedWhenClosed = false
+        window.setContentSize(vc.view.fittingSize)
+        defer { window.contentViewController = nil; window.close() }
+        for style in [NSScroller.Style.legacy, .overlay, .legacy] {
+            scroll.scrollerStyle = style
+            vc.view.layoutSubtreeIfNeeded()
+            let viewportWidth = scroll.contentView.bounds.width
+            XCTAssertEqual(table.numberOfRows, 30)
+            XCTAssertEqual(scroll.frame.height, 264, accuracy: 1)
+            XCTAssertLessThanOrEqual(table.rect(ofColumn: 2).maxX, viewportWidth,
+                                    "USD must fit the actual content width for scroller style \(style.rawValue)")
+            XCTAssertEqual(table.tableColumns[1].width, 70, accuracy: 0.5)
+            XCTAssertEqual(table.tableColumns[2].width, 79, accuracy: 0.5)
+            XCTAssertFalse(scroll.hasHorizontalScroller)
+            if style == .legacy {
+                XCTAssertLessThan(viewportWidth, scroll.bounds.width)
+            } else {
+                XCTAssertEqual(viewportWidth, scroll.bounds.width, accuracy: 0.5)
+            }
+        }
+    }
+
     func testRowsKeepFixedViewportAndExposeFullModelAndTokens() throws {
         _ = NSApplication.shared
         let vm = makeViewModel()

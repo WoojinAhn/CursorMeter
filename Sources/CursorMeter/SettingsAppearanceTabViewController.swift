@@ -240,10 +240,20 @@ final class SettingsAppearanceTabViewController: NSViewController {
         poolPreview.toolTip = previewHelp
         poolPreview.setAccessibilityHelp(previewHelp)
         legacyTextRow = SettingsCardFactory.makeCardRow(title: "Usage text", control: menuBarDisplayPopUp)
-        splitPlacementRows = SettingsCardFactory.makeCard(units: [
+        let placement = NSStackView(views: [
             SettingsCardFactory.makeCardRow(title: "Outer ring", control: outerPoolPopUp),
             SettingsCardFactory.makeFullWidthCardRow(legend),
         ])
+        placement.orientation = .vertical
+        placement.alignment = .leading
+        placement.spacing = 0
+        for row in placement.arrangedSubviews {
+            NSLayoutConstraint.activate([
+                row.leadingAnchor.constraint(equalTo: placement.leadingAnchor),
+                row.trailingAnchor.constraint(equalTo: placement.trailingAnchor),
+            ])
+        }
+        splitPlacementRows = placement
         return SettingsCardFactory.makeCard(units: [legacyTextRow, splitPlacementRows])
     }
 

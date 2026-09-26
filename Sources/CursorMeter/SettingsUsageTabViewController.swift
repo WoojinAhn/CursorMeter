@@ -151,6 +151,14 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
         preferredContentSize = view.fittingSize
     }
 
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        let width = scrollView.contentView.bounds.width
+        guard width > 0 else { return }
+        tableView.setFrameSize(NSSize(width: width, height: tableView.frame.height))
+        tableView.sizeToFit()
+    }
+
     func updateUI() {
         let snapshot = viewModel.recentUsage.snapshot
         let candidate = snapshot?.candidate
