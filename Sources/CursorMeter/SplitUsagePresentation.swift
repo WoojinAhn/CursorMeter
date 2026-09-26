@@ -92,10 +92,10 @@ struct SplitUsagePresentation: Sendable {
         if percentIsStale { details.append("Percentages are old") }
         if valueMode != .percent {
             if let used = snapshot.includedUsedCents { details.append("Included total: \(usd(used))") }
-            if let amounts = coherentAmounts, amounts.botCents > 0 {
+            if let amounts = attributed, amounts.botCents > 0 {
                 details.append("Bot activity: \(usd(amounts.botCents))")
             }
-            let costsAreOld = coherentAmounts.map { amounts in
+            let costsAreOld = attributed.map { amounts in
                 amounts.isCached || UsagePoolID.allCases.contains { pool in
                     let source = pool == .cursor ? amounts.sourceCursorPercent : amounts.sourceOtherPercent
                     guard let source = SplitUsageSnapshot.validPercent(source),
@@ -103,17 +103,18 @@ struct SplitUsagePresentation: Sendable {
                     return source != current
                 }
             } ?? false
-            if costsAreOld { details.append("Costs are old") }
+            var costStatus: String?
             switch amountState {
-            case .failed: details.append("Refresh failed")
-            case .pending where attributed == nil: details.append("Costs pending")
-            case .refreshing where attributed == nil: details.append("Loading costs…")
-            case .ready where attributed == nil, .unavailable where attributed == nil: details.append("Costs unavailable")
-            default: break
+            case .failed: costStatus = costsAreOld ? "Costs are old · update failed" : "Cost refresh failed"
+            case .pending where attributed == nil: costStatus = "Costs pending"
+            case .refreshing where attributed == nil: costStatus = "Loading costs…"
+            case .ready where attributed == nil, .unavailable where attributed == nil: costStatus = "Costs unavailable"
+            default: costStatus = costsAreOld ? "Costs are old" : nil
             }
-            if showEstimatedLimits, pools.contains(where: { $0.limitText == nil }) {
-                details.append("Estimate not ready")
+            if costStatus == nil, attributed != nil, showEstimatedLimits, pools.contains(where: { $0.limitText == nil }) {
+                costStatus = "Estimate not ready"
             }
+            if let costStatus { details.append(costStatus) }
         }
         if let paid, let line = paidLine(paid) { details.append(line) }
         return Self(pools: pools, detailLines: details)

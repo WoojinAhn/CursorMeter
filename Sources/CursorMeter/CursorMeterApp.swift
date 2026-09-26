@@ -430,8 +430,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             _ = viewModel.estimatedLimitsEnabled
             _ = viewModel.estimateExplanationSeen
             _ = viewModel.notificationPermissionStatus
-            _ = viewModel.canRefreshAmounts
-            _ = viewModel.amountsRefreshStateText
             _ = viewModel.authState
             _ = viewModel.weeklyChartAvailable
             _ = viewModel.weeklyData

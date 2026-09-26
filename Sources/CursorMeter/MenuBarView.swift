@@ -367,6 +367,7 @@ final class MenuBarPopoverViewController: NSViewController {
         splitMeter.translatesAutoresizingMaskIntoConstraints = false
         splitMeter.imageScaling = .scaleProportionallyUpOrDown
         splitMeter.setAccessibilityLabel("Split usage meter")
+        splitMeter.setAccessibilityElement(false)
         NSLayoutConstraint.activate([
             splitMeter.widthAnchor.constraint(equalToConstant: 112),
             splitMeter.heightAnchor.constraint(equalToConstant: 112),
@@ -604,7 +605,7 @@ final class MenuBarPopoverViewController: NSViewController {
         // Usage
         let split = viewModel.splitUsage.suppressesLegacyMeter
         usageTitleLabel.stringValue = split ? "Included usage" : data.usageLabel
-        let monetary = data.isCreditBased || data.isOnDemandActive
+        let monetary = data.supportsPopoverValueMode
         let valueMode = viewModel.popoverValueMode
         usageValueLabel.stringValue = split ? "" : (monetary && valueMode == .percent ? data.percentText : data.usageText)
         refreshButton.isHidden      = (viewModel.authState != .loggedIn)
@@ -977,6 +978,9 @@ private final class SplitPoolRow: NSStackView {
         spacing = 3
         translatesAutoresizingMaskIntoConstraints = false
         titleLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.staticText)
+        setAccessibilityChildren([])
         titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         marker.translatesAutoresizingMaskIntoConstraints = false
         marker.widthAnchor.constraint(equalToConstant: 10).isActive = true

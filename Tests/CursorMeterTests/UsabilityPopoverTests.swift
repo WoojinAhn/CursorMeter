@@ -20,6 +20,12 @@ final class UsabilityPopoverTests: XCTestCase {
             XCTAssertEqual(meter.frame.width, 112, accuracy: 1)
             XCTAssertEqual(meter.frame.height, 112, accuracy: 1)
             XCTAssertEqual(controller.preferredContentSize.width, 300)
+            XCTAssertFalse(meter.isAccessibilityElement())
+            let spokenPools = views(controller.view).filter {
+                $0.isAccessibilityElement() && ($0.accessibilityLabel()?.contains("Models (") == true)
+            }
+            XCTAssertEqual(spokenPools.count, 2)
+            XCTAssertTrue(spokenPools.allSatisfy { ($0.accessibilityChildren() ?? []).isEmpty })
             XCTAssertLessThanOrEqual(controller.testHook_contentFittingWidth(), 280)
             XCTAssertTrue((meter.accessibilityValue() as? String)?.contains("Other Models (outer ring): 41%") == true)
             let labels = visibleLabels(controller.view)

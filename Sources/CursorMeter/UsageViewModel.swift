@@ -162,9 +162,6 @@ final class UsageViewModel {
         splitUsage.suppressesLegacyMeter ? 0 : Self.resolvedMenuBarDisplayMode(
             isPercentOnly: usageData?.isPercentOnly ?? false, setting: menuBarDisplayMode)
     }
-    var amountsRefreshStateText: String { splitUsage.amountsRefreshStateText }
-    var canRefreshAmounts: Bool { splitUsage.canRefreshAmounts }
-    func refreshCycleAmounts() { splitUsage.requestAmounts(manual: true) }
 
     private(set) var recentUsageTimeZone: RecentUsageTimeZone = .local
     private(set) var recentUsageTimeZoneRevision: UInt64 = 0

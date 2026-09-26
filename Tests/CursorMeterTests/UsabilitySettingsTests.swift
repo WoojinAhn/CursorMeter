@@ -118,6 +118,14 @@ final class UsabilitySettingsTests: XCTestCase {
         NSApp.sendAction(try XCTUnwrap(values.action), to: values.target, from: values)
         XCTAssertEqual(vm.popoverValueMode, .dollars)
         XCTAssertTrue(visibleLabels(vc.view).contains("$2.00 / $10.00"))
+        let uncapped = UsageDisplayData(email: "demo@example.com", name: "Demo User", membershipType: "pro",
+            planUsedCents: nil, planLimitCents: nil, serverPercentUsed: nil, requestsUsed: 501, requestsLimit: 500,
+            onDemandUsedCents: 200, onDemandLimitCents: nil, onDemandEnabled: true, isOnDemandActive: true,
+            cycleStartDate: nil, resetDate: nil)
+        vm.usageData = uncapped
+        vc.updateUI()
+        XCTAssertTrue(values.isHiddenOrHasHiddenAncestor)
+        XCTAssertFalse(uncapped.supportsPopoverValueMode)
     }
 
     func testFailedHelpPresentationDoesNotConsumeFirstEnable() throws {

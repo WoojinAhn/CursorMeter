@@ -134,9 +134,8 @@ final class SettingsAppearanceTabViewController: NSViewController {
         menuBarDisplayPopUp.isEnabled = !split
         legacyTextRow.isHidden = split
         splitPlacementRows.isHidden = !split
-        menuBarSection.isHidden = !split && viewModel.usageData == nil
         let verifiedSplit = viewModel.splitUsage.eligibility == .eligible
-        let monetaryLegacy = !split && (viewModel.usageData?.isCreditBased == true || viewModel.usageData?.isOnDemandActive == true)
+        let monetaryLegacy = !split && viewModel.usageData?.supportsPopoverValueMode == true
         popoverSection.isHidden = !verifiedSplit && !monetaryLegacy
         estimatedLimitsRow.isHidden = !verifiedSplit
         popoverValuesSegmented.selectedSegment = viewModel.popoverValueMode.rawValue
@@ -257,6 +256,7 @@ final class SettingsAppearanceTabViewController: NSViewController {
         estimatedLimitsToggle.action = #selector(estimatedLimitsChanged)
         estimatedLimitsToggle.setAccessibilityLabel("Show estimated limits")
         estimateInfoButton.image = NSImage(systemSymbolName: "info.circle", accessibilityDescription: nil)
+        estimateInfoButton.imagePosition = .imageOnly
         estimateInfoButton.isBordered = false
         estimateInfoButton.title = ""
         estimateInfoButton.setAccessibilityLabel("About estimated limits")

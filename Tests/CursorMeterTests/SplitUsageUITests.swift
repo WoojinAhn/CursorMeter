@@ -276,9 +276,9 @@ final class SplitUsageUITests: XCTestCase {
             try await Task.sleep(for: .milliseconds(2))
         }
         XCTAssertEqual(controller.amountState, .failed)
-        XCTAssertFalse(vm.canRefreshAmounts)
+        XCTAssertFalse(controller.canRefreshAmounts)
         now = now.addingTimeInterval(61)
-        XCTAssertTrue(vm.canRefreshAmounts)
+        XCTAssertTrue(controller.canRefreshAmounts)
     }
 
     func testLegacyDisplayKeepsMenuTextAndDisablesPoolPlacement() throws {

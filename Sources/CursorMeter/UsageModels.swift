@@ -210,6 +210,11 @@ struct UsageDisplayData: Sendable {
         planLimitCents != nil && planLimitCents! > 0
     }
 
+    var supportsPopoverValueMode: Bool {
+        if isOnDemandActive { return onDemandUsedCents != nil && (onDemandLimitCents ?? 0) > 0 }
+        return isCreditBased
+    }
+
     /// True when API provides no usable used/limit values (e.g. free plan)
     var isPercentOnly: Bool {
         !isCreditBased && requestsLimit == 0 && serverPercentUsed != nil

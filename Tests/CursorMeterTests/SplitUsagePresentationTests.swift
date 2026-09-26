@@ -27,7 +27,7 @@ final class SplitUsagePresentationTests: XCTestCase {
         let result = SplitUsagePresentation.make(snapshot: snapshot(cursor: nil, other: 41), amountState: .failed, percentIsStale: true)
         XCTAssertEqual(result.pools.first { $0.id == .cursor }?.percentText, "Unavailable")
         XCTAssertTrue(result.tooltip.contains("41%"))
-        XCTAssertTrue(result.tooltip.contains("Refresh failed"))
+        XCTAssertTrue(result.tooltip.contains("Cost refresh failed"))
         XCTAssertTrue(result.tooltip.contains("Percentages are old"))
         XCTAssertTrue(result.pools.allSatisfy { $0.amountText == nil && $0.limitText == nil })
     }
@@ -137,6 +137,22 @@ final class SplitUsagePresentationTests: XCTestCase {
         XCTAssertFalse(uncapped.tooltip.contains("/ $0"))
         let percentOnly = SplitUsagePresentation.make(snapshot: current, paid: SplitPaidPresentation(enabled: false, usedCents: 500, limitCents: nil), valueMode: .percent)
         XCTAssertTrue(percentOnly.detailLines.contains("Paid spending: $5.00 · Disabled"))
+    }
+
+    func testPartialBotTotalsStayHiddenAndCostStatusDoesNotStack() {
+        let current = snapshot(cursor: 11, other: 41)
+        var amounts = estimatedAmounts(for: current)
+        amounts.botCents = 300
+        amounts.status = .unavailable
+        amounts.coverage.complete = false
+        let partial = SplitUsagePresentation.make(snapshot: current, amounts: amounts, amountState: .ready,
+                                                   showEstimatedLimits: true)
+        XCTAssertEqual(partial.detailLines, ["Included total: $182.00", "Costs unavailable"])
+        amounts.status = .estimatedAttribution
+        amounts.coverage.complete = true
+        let old = SplitUsagePresentation.make(snapshot: current, amounts: amounts, amountState: .ready,
+                                               showEstimatedLimits: true)
+        XCTAssertEqual(old.detailLines, ["Included total: $182.00", "Bot activity: $3.00", "Costs are old"])
     }
     private func snapshot(cursor: Double?, other: Double?) -> SplitUsageSnapshot {
         SplitUsageSnapshot(

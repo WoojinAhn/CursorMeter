@@ -102,7 +102,8 @@ final class SettingsNotificationsTabViewController: NSViewController {
         let chrome = view.window.map { max(0, $0.frame.height - $0.contentLayoutRect.height) } ?? 0
         let height = min(ceil(content.fittingSize.height), max(1, floor(screen - chrome - 20)))
         viewportHeight?.constant = height
-        preferredContentSize = NSSize(width: SettingsCardFactory.contentWidth, height: height)
+        let size = NSSize(width: SettingsCardFactory.contentWidth, height: height)
+        if preferredContentSize != size { preferredContentSize = size }
     }
 
     func updateUI() {
@@ -111,7 +112,7 @@ final class SettingsNotificationsTabViewController: NSViewController {
         notificationToggle.state = enabled ? .on : .off
         appStatusToggle.state = viewModel.appStatusNotificationEnabled ? .on : .off
         permissionCard.isHidden = viewModel.notificationPermissionStatus != "Denied in macOS Settings"
-        legacyCard?.view.isHidden = split || !enabled
+        legacyCard?.view.isHidden = viewModel.splitUsage.suppressesLegacyMeter || !enabled
         legacyCard?.toggle.state = enabled ? .on : .off
         legacyCard?.slider.setValues(warning: viewModel.warningThreshold, critical: viewModel.criticalThreshold)
         for (scope, card) in scopeCards {
