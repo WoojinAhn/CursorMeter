@@ -20,6 +20,7 @@ final class JumpEffectCoordinator {
 
     private var swapTimer: Timer?
     private var isObserving = false
+    private var handledEvent: JumpEvent?
 
     /// True while an emoji is currently displayed in the status item and the
     /// restore timer is still pending. Callers can consult this to avoid
@@ -60,7 +61,9 @@ final class JumpEffectCoordinator {
     private func observeLastJump() {
         withObservationTracking {
             _ = viewModel.lastJump
-        } onChange: {
+            _ = viewModel.jumpEffectEnabled
+            _ = viewModel.authState
+        } onChange: { [weak self] in
             // onChange is invoked on an arbitrary thread; bounce to MainActor.
             Task { @MainActor [weak self] in
                 guard let self, self.isObserving else { return }
@@ -71,8 +74,14 @@ final class JumpEffectCoordinator {
     }
 
     private func handleLastJumpChange() {
-        guard viewModel.jumpEffectEnabled else { return }
-        guard let event = viewModel.lastJump else { return }
+        guard viewModel.jumpEffectEnabled, viewModel.authState == .loggedIn else {
+            swapTimer?.invalidate()
+            restore()
+            handledEvent = viewModel.lastJump
+            return
+        }
+        guard let event = viewModel.lastJump, event != handledEvent else { return }
+        handledEvent = event
 
         let decision = Self.shouldFire(intensity: viewModel.jumpIntensity, tier: event.tier)
         guard decision.fire else { return }
@@ -80,7 +89,7 @@ final class JumpEffectCoordinator {
         let (emoji, glow, durationMs) = Self.swapParams(for: event.tier, style: viewModel.jumpGlyphStyle)
         performSwap(emoji: emoji, glow: glow, durationMs: durationMs)
 
-        if decision.notify {
+        if decision.notify && !event.isSplitUsage {
             let delta = event.displayDelta
             let usage = viewModel.usageData?.usageText ?? ""
             Task { @MainActor [notifier] in

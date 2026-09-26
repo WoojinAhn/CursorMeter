@@ -34,6 +34,12 @@ private enum SettingsKey: String {
     case browserLoginEnabled
     case activityRefreshEnabled
     case recentUsageTimeZone
+    case splitOuterPool
+    case splitAlertTargets
+    case splitAlertThresholds
+    case popoverValueMode
+    case estimatedLimitsEnabled
+    case estimateExplanationSeen
     // Legacy keys consulted only by `loadSettings` migration block.
     case legacyShowMenuBarText = "showMenuBarText"
     case legacyShowMenuBarPercent = "showMenuBarPercent"
@@ -90,6 +96,7 @@ struct JumpEvent: Sendable, Equatable {
     /// User-facing string already formatted with sign (e.g. "+$0.30", "+30 / 50", "+15.0%").
     let displayDelta: String
     let timestamp: Date
+    var isSplitUsage: Bool = false
 }
 
 /// User-selectable visual intensity for the jump effect.
@@ -128,6 +135,34 @@ final class UsageViewModel {
 
     let recentUsage: RecentUsageController
     let refreshFeedback: RefreshFeedback
+    let splitUsage: SplitUsageController
+    let notificationManager: NotificationManager
+    @ObservationIgnored private let splitAlerts: SplitUsageAlertDispatcher
+    var splitOuterPool: UsagePoolID = .other
+    var splitAlertTargets: Set<SplitAlertScope> = [.cursor, .other, .onDemand]
+    private(set) var splitAlertThresholds: [SplitAlertScope: SplitAlertThresholds] = [:]
+    private(set) var popoverValueMode: PopoverValueMode = .both
+    private(set) var estimatedLimitsEnabled = false
+    private(set) var estimateExplanationSeen = false
+    private(set) var notificationPermissionStatus = "Not checked"
+
+    var splitPresentation: SplitUsagePresentation? {
+        guard let snapshot = splitUsage.snapshot else { return nil }
+        let paid = usageData.map {
+            SplitPaidPresentation(enabled: $0.onDemandEnabled,
+                usedCents: $0.onDemandUsedCents.map { Decimal($0) }, limitCents: $0.onDemandLimitCents.map { Decimal($0) })
+        }
+        return SplitUsagePresentation.make(snapshot: snapshot, amounts: splitUsage.amounts, outerPool: splitOuterPool,
+            amountState: splitUsage.amountState, percentIsStale: splitUsage.isStale, paid: paid,
+            timeZone: recentUsageTimeZone == .utc ? TimeZone(secondsFromGMT: 0)! : .current,
+            valueMode: splitUsage.eligibility == .eligible ? popoverValueMode : .percent,
+            showEstimatedLimits: splitUsage.eligibility == .eligible && estimatedLimitsEnabled)
+    }
+    var effectiveMenuBarDisplayMode: Int {
+        splitUsage.suppressesLegacyMeter ? 0 : Self.resolvedMenuBarDisplayMode(
+            isPercentOnly: usageData?.isPercentOnly ?? false, setting: menuBarDisplayMode)
+    }
+
     private(set) var recentUsageTimeZone: RecentUsageTimeZone = .local
     private(set) var recentUsageTimeZoneRevision: UInt64 = 0
 
@@ -272,7 +307,6 @@ final class UsageViewModel {
     private let apiClient: CursorAPIClient
     private var refreshTask: Task<Void, Never>?
     private var cachedCookieHeader: String?
-    private let notificationManager = NotificationManager()
 
     private struct RefreshContext: Equatable, Sendable {
         let networkID: UInt64
@@ -496,11 +530,18 @@ final class UsageViewModel {
     init(
         apiClient: CursorAPIClient = CursorAPIClient(),
         recentUsage: RecentUsageController? = nil,
-        refreshFeedback: RefreshFeedback? = nil
+        refreshFeedback: RefreshFeedback? = nil,
+        notificationManager: NotificationManager? = nil,
+        splitUsage: SplitUsageController? = nil,
+        splitAlertStore: SplitUsageAlertStore? = nil
     ) {
         self.apiClient = apiClient
         self.recentUsage = recentUsage ?? RecentUsageController()
         self.refreshFeedback = refreshFeedback ?? RefreshFeedback()
+        let manager = notificationManager ?? NotificationManager()
+        self.notificationManager = manager
+        self.splitUsage = splitUsage ?? SplitUsageController(apiClient: apiClient)
+        self.splitAlerts = SplitUsageAlertDispatcher(manager: manager, store: splitAlertStore ?? SplitUsageAlertStore())
         loadSettings()
         lastUpdateCheckAt = Date()
         Task {
@@ -587,6 +628,8 @@ final class UsageViewModel {
     }
 
     private func resetPerAccountState(clearDiscovery: Bool = true) {
+        splitUsage.reset()
+        splitAlerts.invalidateOwnership()
         if clearDiscovery { clearWeeklyDiscoveryCaches() }
         resetWeeklyChartState()
         previousCycleStart = nil
@@ -638,6 +681,10 @@ final class UsageViewModel {
 
     private func invalidateRefreshSession(revokePersisted: Bool, cancelCurrent: Bool = true) {
         sessionGeneration += 1
+        splitUsage.suspend(removePersisted: revokePersisted,
+            subjectDigest: UsageRevisionIdentity.accountDigest(subject: lastAccountSubject, email: nil))
+        splitAlerts.resetContinuity()
+        if revokePersisted { splitAlerts.invalidateOwnership() }
         if cancelCurrent { activeNetworkTask?.cancel() }
         cancelOptimisticTasks()
         activeNetworkTask = nil
@@ -731,6 +778,11 @@ final class UsageViewModel {
         }
         activeNetworkTask = task
         await task.value
+    }
+
+    func refreshFromUser() async {
+        await refresh()
+        await splitUsage.retryStoppedAmounts()
     }
 
     private func finishRefresh(networkID: UInt64) {
@@ -867,7 +919,16 @@ final class UsageViewModel {
         // team/user ids before this check could run — on a switch their
         // results must be discarded, not merely the caches reset.
         let accountSwitched = resetIfAccountSwitched(newEmail: userInfo.email, newSubject: userInfo.sub)
-        let modeContradicted = Self.weeklyModeContradicts(optimisticMode, membershipType: summary?.membershipType)
+        // A rejected history request drops its optimization cache, but the last
+        // verified scope must still retire before publishing a different plan.
+        let previousRequestMode: WeeklyMode? = lastRequestScope.map {
+            switch $0 {
+            case .personal: .personal
+            case let .enterprise(teamID, userID): .enterprise(teamId: teamID, userId: userID)
+            }
+        }
+        let modeContradicted = Self.weeklyModeContradicts(optimisticMode ?? previousRequestMode,
+            membershipType: summary?.membershipType)
         if accountSwitched || modeContradicted {
             if !accountSwitched { resetPerAccountState() }
             context = try adoptSession(context, cookieHeader: cookieHeader)
@@ -910,20 +971,43 @@ final class UsageViewModel {
             }
         }
 
+        let splitSummaryFailed = summary == nil && splitUsage.suppressesLegacyMeter
+        if splitSummaryFailed {
+            splitUsage.recordFailure()
+            splitAlerts.resetContinuity()
+        }
         let baseData: UsageDisplayData?
         if let summary {
             baseData = UsageDisplayData.from(
                 summary: summary, usage: usage, userInfo: userInfo,
                 perUserMonthlyLimitDollars: perUserMonthlyLimitDollars,
                 perUserOnDemandLimitDollars: perUserOnDemandLimitDollars)
-        } else if let usage {
+        } else if let usage, !splitSummaryFailed {
             baseData = UsageDisplayData.from(usage: usage, userInfo: userInfo)
         } else {
             baseData = nil
         }
 
         if baseData != nil {
-            if let base = baseData {
+            if var base = baseData {
+                if let summary {
+                    let wasSplit = splitUsage.suppressesLegacyMeter
+                    let enterpriseRequestScope: Bool
+                    if case .enterprise = lastRequestScope { enterpriseRequestScope = true }
+                    else { enterpriseRequestScope = false }
+                    splitUsage.accept(summary: summary, usage: usage, userInfo: userInfo,
+                        generation: context.generation,
+                        enterpriseScope: enterpriseRequestScope || (cachedWeeklyMode?.teamID ?? 0) > 0)
+                    if wasSplit != splitUsage.suppressesLegacyMeter {
+                        previousPlanUsedCents = nil; previousRequestsUsed = nil
+                        previousServerPercent = nil; previousOnDemandUsedCents = nil; previousMode = nil
+                        lastJump = nil
+                        splitAlerts.invalidateOwnership()
+                    }
+                    base.splitUsage = splitUsage.snapshot
+                    base.splitEligibility = splitUsage.eligibility
+                    base.cycleAmounts = splitUsage.amounts
+                }
                 // Rollover detection must precede the latch update: otherwise the
                 // first refresh of a new cycle paints stale `isOnDemandActive = true`
                 // from the previous cycle's latch, and only unlatches on the *next*
@@ -939,7 +1023,8 @@ final class UsageViewModel {
 
                 // Latch update: once activated, stays active until cycle rollover
                 // (handled in the rollover block above) or logout (resetPerAccountState).
-                if !isOnDemandLatched && base.wouldActivateOnDemand {
+                if splitUsage.suppressesLegacyMeter { isOnDemandLatched = false }
+                if !splitUsage.suppressesLegacyMeter && !isOnDemandLatched && base.wouldActivateOnDemand {
                     isOnDemandLatched = true
                     notificationManager.resetNotifications()
                     Log.info("On-demand mode latched ON — threshold notifications reset")
@@ -969,6 +1054,10 @@ final class UsageViewModel {
             }
 
             activeRefresh?.meter = .success
+            if splitUsage.eligibility == .eligible, let snapshot = splitUsage.primarySnapshot, let data = usageData {
+                publishSplitObservation(snapshot, data: data)
+                if let summary { splitUsage.requestAmounts(summary: summary, cookieHeader: cookieHeader) }
+            }
         }
 
         if let task = optimisticWeekly, let mode = optimisticMode, !accountSwitched, !modeContradicted {
@@ -990,7 +1079,7 @@ final class UsageViewModel {
         guard baseData != nil else { throw APIError.httpError(statusCode: 0) }
 
         // Check notification thresholds
-        if let data = usageData {
+        if let data = usageData, !splitUsage.suppressesLegacyMeter {
             // Scope rediscovery must reset baselines before publishing a jump.
             updateJumpState(from: data)
             await notificationManager.checkAndNotify(
@@ -1002,6 +1091,26 @@ final class UsageViewModel {
             )
             try requireCurrent(context)
         }
+    }
+
+    private func publishSplitObservation(_ snapshot: SplitUsageSnapshot, data: UsageDisplayData) {
+        let identity = snapshot.identity
+        let ownership = SplitAlertOwnership(accountDigest: identity.accountDigest,
+            persistentSubjectDigest: splitUsage.persistentSubjectDigest,
+            requestPlanScope: identity.scopeDigest + ":" + identity.planIdentity,
+            cycleStart: identity.cycle?.start, cycleEnd: identity.cycle?.end,
+            generation: identity.credentialGeneration)
+        let observation = SplitUsageObservation(ownership: ownership, revision: identity.localID,
+            timestamp: snapshot.capturedAt,
+            includedCents: snapshot.includedUsedCents.map { NSDecimalNumber(decimal: $0).doubleValue },
+            cursorPercent: snapshot.cursorPercent, otherPercent: snapshot.otherPercent,
+            paidCents: data.onDemandUsedCents.map(Double.init), paidCapCents: data.onDemandLimitCents.map(Double.init),
+            paidEnabled: data.onDemandEnabled)
+        guard let jump = splitAlerts.accept(observation, policy: splitAlertPolicy),
+              let tier = JumpEvent.Tier(rawValue: jump.tier), tier != .zero else { return }
+        lastJump = JumpEvent(tier: tier, deltaCanonical: jump.deltas[.included] ?? jump.deltas[.onDemand] ?? 0,
+            deltaPct: max(jump.deltas[.cursor] ?? 0, jump.deltas[.other] ?? 0), mode: .credit,
+            displayDelta: jump.body, timestamp: snapshot.capturedAt, isSplitUsage: true)
     }
 
     /// Terminal expiry handling for the captured-cookie credential (#76/#84).
@@ -1019,6 +1128,9 @@ final class UsageViewModel {
             Log.error("Keychain delete failed: \(error.localizedDescription)")
         }
         authState = .loginRequired
+        splitUsage.reset(removePersisted: true,
+            subjectDigest: UsageRevisionIdentity.accountDigest(subject: lastAccountSubject, email: nil))
+        splitAlerts.invalidateOwnership()
         usageData = nil
         lastSuccessAt = nil
         lastAccountEmail = nil
@@ -1378,6 +1490,12 @@ final class UsageViewModel {
     }
 
     func logout() {
+        let subject = UsageRevisionIdentity.accountDigest(subject: lastAccountSubject, email: nil)
+        if let account = splitUsage.snapshot?.identity.accountDigest
+            ?? UsageRevisionIdentity.accountDigest(subject: lastAccountSubject, email: lastAccountEmail) {
+            splitAlerts.logout(accountDigest: account, persistentSubjectDigest: subject)
+        }
+        splitUsage.reset(removePersisted: true, subjectDigest: subject)
         invalidateRefreshSession(revokePersisted: true)
         lastRefreshAttempt = nil
         // Stop the sign-in watch and invalidate pending provider reads AND
@@ -1446,6 +1564,81 @@ final class UsageViewModel {
     func setNotificationEnabled(_ enabled: Bool) {
         notificationEnabled = enabled
         UserDefaults.standard.set(enabled, for: .notificationEnabled)
+        splitAlerts.updatePolicy(splitAlertPolicy)
+    }
+
+    private var splitAlertPolicy: SplitAlertPolicy {
+        SplitAlertPolicy(thresholdsEnabled: notificationEnabled, warning: warningThreshold, critical: criticalThreshold,
+            thresholdsByScope: splitAlertThresholds,
+            targets: splitAlertTargets, jumpEnabled: jumpEffectEnabled, bold: jumpIntensity == .bold,
+            refreshInterval: TimeInterval(refreshInterval.rawValue))
+    }
+
+    func setSplitOuterPool(_ pool: UsagePoolID) {
+        splitOuterPool = pool
+        UserDefaults.standard.set(pool.rawValue, for: .splitOuterPool)
+    }
+    func setSplitAlertTarget(_ scope: SplitAlertScope, enabled: Bool) {
+        guard scope != .included else { return }
+        if enabled { splitAlertTargets.insert(scope) } else { splitAlertTargets.remove(scope) }
+        UserDefaults.standard.set(splitAlertTargets.map(\.rawValue).sorted(), for: .splitAlertTargets)
+        splitAlerts.updatePolicy(splitAlertPolicy)
+    }
+    func setPopoverValueMode(_ mode: PopoverValueMode) {
+        popoverValueMode = mode
+        UserDefaults.standard.set(mode.rawValue, for: .popoverValueMode)
+    }
+    func setEstimatedLimitsEnabled(_ enabled: Bool) {
+        estimatedLimitsEnabled = enabled
+        UserDefaults.standard.set(enabled, for: .estimatedLimitsEnabled)
+    }
+    func markEstimateExplanationSeen() {
+        estimateExplanationSeen = true
+        UserDefaults.standard.set(true, for: .estimateExplanationSeen)
+    }
+    func splitThresholds(for scope: SplitAlertScope) -> SplitAlertThresholds {
+        splitAlertThresholds[scope] ?? SplitAlertThresholds(warning: warningThreshold, critical: criticalThreshold)
+    }
+    func setSplitThresholds(_ thresholds: SplitAlertThresholds, for scope: SplitAlertScope) {
+        guard scope != .included else { return }
+        splitAlertThresholds[scope] = SplitAlertThresholds(warning: thresholds.warning, critical: thresholds.critical)
+        persistSplitThresholds()
+        splitAlerts.updatePolicy(splitAlertPolicy)
+    }
+    func setSplitWarningThreshold(_ value: Int, for scope: SplitAlertScope) {
+        setSplitThresholds(SplitAlertThresholds(warning: value, critical: splitThresholds(for: scope).critical), for: scope)
+    }
+    func setSplitCriticalThreshold(_ value: Int, for scope: SplitAlertScope) {
+        setSplitThresholds(SplitAlertThresholds(warning: splitThresholds(for: scope).warning, critical: value), for: scope)
+    }
+    private func persistSplitThresholds() {
+        let stored = Dictionary(uniqueKeysWithValues: splitAlertThresholds.map {
+            ($0.key.rawValue, ["warning": $0.value.warning, "critical": $0.value.critical])
+        })
+        UserDefaults.standard.set(stored, for: .splitAlertThresholds)
+    }
+    private func persistThresholds() {
+        UserDefaults.standard.set(warningThreshold, for: .warningThreshold)
+        UserDefaults.standard.set(criticalThreshold, for: .criticalThreshold)
+        splitAlerts.updatePolicy(splitAlertPolicy)
+    }
+    func refreshNotificationPermissionStatus() async {
+        switch await notificationManager.permissionState() {
+        case .unknown: notificationPermissionStatus = "Not checked"
+        case .notDetermined: notificationPermissionStatus = "Not requested yet"
+        case .denied: notificationPermissionStatus = "Denied in macOS Settings"
+        case .authorized: notificationPermissionStatus = "Allowed"
+        case .provisional: notificationPermissionStatus = "Provisional"
+        }
+    }
+    func systemWillSleep() {
+        splitUsage.prepareForSleep()
+        splitAlerts.resetContinuity()
+    }
+
+    func systemDidWake() {
+        splitUsage.resumeAfterWake()
+        splitAlerts.resetContinuity()
     }
 
     func setBrowserLoginEnabled(_ enabled: Bool) {
@@ -1454,13 +1647,15 @@ final class UsageViewModel {
     }
 
     func setWarningThreshold(_ value: Int) {
-        warningThreshold = value
-        UserDefaults.standard.set(value, for: .warningThreshold)
+        let normalized = SplitAlertPolicy.normalizeThresholds(warning: value, critical: criticalThreshold)
+        warningThreshold = normalized.warning; criticalThreshold = normalized.critical
+        persistThresholds()
     }
 
     func setCriticalThreshold(_ value: Int) {
-        criticalThreshold = value
-        UserDefaults.standard.set(value, for: .criticalThreshold)
+        let normalized = SplitAlertPolicy.normalizeThresholds(warning: warningThreshold, critical: value)
+        warningThreshold = normalized.warning; criticalThreshold = normalized.critical
+        persistThresholds()
     }
 
     func setMenuBarDisplayMode(_ mode: Int) {
@@ -1476,11 +1671,13 @@ final class UsageViewModel {
     func setJumpEffectEnabled(_ enabled: Bool) {
         jumpEffectEnabled = enabled
         UserDefaults.standard.set(enabled, for: .jumpEffectEnabled)
+        splitAlerts.updatePolicy(splitAlertPolicy)
     }
 
     func setJumpIntensity(_ intensity: JumpIntensity) {
         jumpIntensity = intensity
         UserDefaults.standard.set(intensity.rawValue, for: .jumpIntensity)
+        splitAlerts.updatePolicy(splitAlertPolicy)
     }
 
     func setJumpGlyphStyle(_ style: JumpGlyphStyle) {
@@ -1576,6 +1773,8 @@ final class UsageViewModel {
     /// notification counter — a nil checker (test host without an explicit
     /// override) counts as awake.
     private func registerRefreshFailure() async {
+        splitUsage.recordFailure()
+        splitAlerts.resetContinuity()
         consecutiveFailureCount += 1
         if displayAsleepChecker?() != true {
             notificationFailureCount += 1
@@ -1608,12 +1807,27 @@ final class UsageViewModel {
         if let val = defaults.object(for: .notificationEnabled) as? Bool {
             notificationEnabled = val
         }
-        if let val = defaults.object(for: .warningThreshold) as? Int {
-            warningThreshold = min(val, 90)
+        let thresholds = SplitAlertPolicy.normalizeThresholds(
+            warning: defaults.object(for: .warningThreshold) as? Int ?? 80,
+            critical: defaults.object(for: .criticalThreshold) as? Int ?? 90)
+        warningThreshold = thresholds.warning
+        criticalThreshold = thresholds.critical
+        splitOuterPool = (defaults.object(for: .splitOuterPool) as? String).flatMap(UsagePoolID.init(rawValue:)) ?? .other
+        if let targets = defaults.object(for: .splitAlertTargets) as? [String] {
+            splitAlertTargets = Set(targets.compactMap(SplitAlertScope.init(rawValue:))).intersection([.cursor, .other, .onDemand])
         }
-        if let val = defaults.object(for: .criticalThreshold) as? Int {
-            criticalThreshold = max(min(val, 100), warningThreshold + 5)
+        let storedPairs = defaults.object(for: .splitAlertThresholds) as? [String: Any] ?? [:]
+        for scope in [SplitAlertScope.cursor, .other, .onDemand] {
+            let pair = storedPairs[scope.rawValue] as? [String: Int]
+            splitAlertThresholds[scope] = SplitAlertThresholds(
+                warning: pair?["warning"] ?? warningThreshold,
+                critical: pair?["critical"] ?? criticalThreshold)
         }
+        // Persist missing pairs once so later legacy edits cannot change split preferences.
+        persistSplitThresholds()
+        popoverValueMode = (defaults.object(for: .popoverValueMode) as? Int).flatMap(PopoverValueMode.init(rawValue:)) ?? .both
+        estimatedLimitsEnabled = defaults.object(for: .estimatedLimitsEnabled) as? Bool ?? false
+        estimateExplanationSeen = defaults.object(for: .estimateExplanationSeen) as? Bool ?? false
         if let val = defaults.object(for: .menuBarDisplayMode) as? Int {
             menuBarDisplayMode = val
         } else {
@@ -1922,7 +2136,7 @@ final class UsageViewModel {
 
     /// Per-mode absolute thresholds in canonical units. A delta meeting either the
     /// percent-of-limit or the absolute threshold is enough to escalate a tier.
-    /// Rationale: a single Max-mode query is roughly +0.30 USD or +15 requests
+    /// Historical sensitivity: +0.30 USD or +15 requests reaches tier two
     /// regardless of plan size, so absolute thresholds keep large-plan users from
     /// silently missing those jumps.
     private nonisolated static func absoluteThresholds(

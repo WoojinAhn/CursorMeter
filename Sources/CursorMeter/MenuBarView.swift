@@ -9,6 +9,7 @@ final class MenuBarPopoverViewController: NSViewController {
     private let viewModel: UsageViewModel
     private let onLogin: () -> Void
     private let onSettings: () -> Void
+    private let onRecentUsage: (() -> Void)?
 
     /// Set by the owner so we can push a new size to the live NSPopover frame.
     /// `preferredContentSize` alone is not enough — popover only consults it on
@@ -18,6 +19,9 @@ final class MenuBarPopoverViewController: NSViewController {
     // MARK: - Root layout
 
     private let rootStack = NSStackView()
+    private let dataScroll = NSScrollView()
+    private var dataHeightConstraint: NSLayoutConstraint!
+    private var widthConstraint: NSLayoutConstraint!
 
     // MARK: - State section views (swapped in updateUI)
 
@@ -39,6 +43,11 @@ final class MenuBarPopoverViewController: NSViewController {
     // Progress row
     private let progressBar      = ColoredProgressBar()
     private let percentLabel     = NSTextField(labelWithString: "")
+    private let progressRow = NSStackView()
+    private let splitRows = NSStackView()
+    private let splitPoolRows = [SplitPoolRow(), SplitPoolRow()]
+    private let splitMeter = NSImageView()
+    private let splitDetailLabel = NSTextField(wrappingLabelWithString: "")
 
     // Secondary metric row (hidden when no secondary data). In normal mode shows
     // On-demand; in on-demand mode shows the previous primary (Requests or Plan).
@@ -81,10 +90,12 @@ final class MenuBarPopoverViewController: NSViewController {
 
     // MARK: - Init
 
-    init(viewModel: UsageViewModel, onLogin: @escaping () -> Void, onSettings: @escaping () -> Void) {
+    init(viewModel: UsageViewModel, onLogin: @escaping () -> Void, onSettings: @escaping () -> Void,
+         onRecentUsage: (() -> Void)? = nil) {
         self.viewModel  = viewModel
         self.onLogin    = onLogin
         self.onSettings = onSettings
+        self.onRecentUsage = onRecentUsage
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -101,12 +112,13 @@ final class MenuBarPopoverViewController: NSViewController {
         configureRootStack()
         buildLayout()
 
+        widthConstraint = container.widthAnchor.constraint(equalToConstant: 260)
         NSLayoutConstraint.activate([
             rootStack.topAnchor.constraint(equalTo: container.topAnchor, constant: 6),
             rootStack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -6),
             rootStack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 10),
             rootStack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -10),
-            container.widthAnchor.constraint(equalToConstant: 260),
+            widthConstraint,
         ])
     }
 
@@ -120,6 +132,7 @@ final class MenuBarPopoverViewController: NSViewController {
 
     /// Called by the owner whenever viewModel state changes.
     func updateUI() {
+        widthConstraint?.constant = viewModel.splitUsage.suppressesLegacyMeter ? 300 : 260
         refreshButton.render(
             phase: viewModel.refreshFeedback.phase,
             isReady: viewModel.refreshFeedback.isReady,
@@ -131,10 +144,12 @@ final class MenuBarPopoverViewController: NSViewController {
             applyData(data)
             statusStack.isHidden = true
             dataStack.isHidden   = false
+            dataScroll.isHidden = false
         } else {
             applyStatus()
             statusStack.isHidden = false
             dataStack.isHidden   = true
+            dataScroll.isHidden = true
         }
 
         // Stale-data indicator (#77)
@@ -172,7 +187,13 @@ final class MenuBarPopoverViewController: NSViewController {
     }
 
     private func publishCurrentSize() {
-        let size = NSSize(width: 260, height: ceil(rootStack.fittingSize.height + 12))
+        if !dataScroll.isHidden {
+            let footerHeight = rootStack.fittingSize.height - dataHeightConstraint.constant
+            let screenHeight = view.window?.screen?.visibleFrame.height ?? NSScreen.main?.visibleFrame.height ?? 800
+            let available = max(100, min(760, screenHeight - 24) - footerHeight - 12)
+            dataHeightConstraint.constant = ceil(min(dataStack.fittingSize.height, available))
+        }
+        let size = NSSize(width: widthConstraint.constant, height: ceil(rootStack.fittingSize.height + 12))
         preferredContentSize = size
         onContentSizeChange?(size)
     }
@@ -195,7 +216,26 @@ final class MenuBarPopoverViewController: NSViewController {
         buildStatusStack()
 
         // Swap between data and status
-        rootStack.addArrangedSubview(dataStack)
+        let document = PopoverDataDocumentView()
+        dataScroll.documentView = document
+        dataScroll.hasVerticalScroller = true
+        dataScroll.autohidesScrollers = true
+        dataScroll.scrollerStyle = .overlay
+        dataScroll.drawsBackground = false
+        dataScroll.borderType = .noBorder
+        dataScroll.setAccessibilityLabel("Usage details")
+        document.translatesAutoresizingMaskIntoConstraints = false
+        document.addSubview(dataStack)
+        dataHeightConstraint = dataScroll.heightAnchor.constraint(equalToConstant: 1)
+        NSLayoutConstraint.activate([
+            document.widthAnchor.constraint(equalTo: dataScroll.contentView.widthAnchor),
+            dataStack.topAnchor.constraint(equalTo: document.topAnchor),
+            dataStack.bottomAnchor.constraint(equalTo: document.bottomAnchor),
+            dataStack.leadingAnchor.constraint(equalTo: document.leadingAnchor),
+            dataStack.trailingAnchor.constraint(equalTo: document.trailingAnchor),
+            dataHeightConstraint,
+        ])
+        rootStack.addArrangedSubview(dataScroll)
         rootStack.addArrangedSubview(statusStack)
 
         rootStack.addArrangedSubview(makeDivider())
@@ -205,6 +245,11 @@ final class MenuBarPopoverViewController: NSViewController {
             if let url = URL(string: "https://www.cursor.com/dashboard?tab=usage") {
                 NSWorkspace.shared.open(url)
             }
+        })
+
+        rootStack.addArrangedSubview(makeMenuRow("Recent usage", symbolName: "clock") { [weak self] in
+            guard let self else { return }
+            (self.onRecentUsage ?? self.onSettings)()
         })
 
         rootStack.addArrangedSubview(makeMenuRow("Settings...", symbolName: "gear") { [weak self] in
@@ -296,7 +341,6 @@ final class MenuBarPopoverViewController: NSViewController {
         dataStack.addArrangedSubview(usageRow)
 
         // --- Progress bar + percent ---
-        let progressRow = NSStackView()
         progressRow.orientation = .horizontal
         progressRow.spacing = 6
         progressRow.translatesAutoresizingMaskIntoConstraints = false
@@ -315,6 +359,42 @@ final class MenuBarPopoverViewController: NSViewController {
         progressRow.addArrangedSubview(percentLabel)
 
         dataStack.addArrangedSubview(progressRow)
+
+        splitRows.orientation = .vertical
+        splitRows.alignment = .leading
+        splitRows.spacing = 8
+        splitRows.isHidden = true
+        splitMeter.translatesAutoresizingMaskIntoConstraints = false
+        splitMeter.imageScaling = .scaleProportionallyUpOrDown
+        splitMeter.setAccessibilityLabel("Split usage meter")
+        splitMeter.setAccessibilityElement(false)
+        NSLayoutConstraint.activate([
+            splitMeter.widthAnchor.constraint(equalToConstant: 112),
+            splitMeter.heightAnchor.constraint(equalToConstant: 112),
+        ])
+        let readings = NSStackView(views: splitPoolRows)
+        readings.orientation = .vertical
+        readings.alignment = .leading
+        readings.spacing = 14
+        for row in splitPoolRows {
+            row.widthAnchor.constraint(equalTo: readings.widthAnchor).isActive = true
+        }
+        let meterRow = NSStackView(views: [splitMeter, readings])
+        meterRow.orientation = .horizontal
+        meterRow.alignment = .centerY
+        meterRow.spacing = 10
+        readings.trailingAnchor.constraint(equalTo: meterRow.trailingAnchor).isActive = true
+        splitRows.addArrangedSubview(meterRow)
+        meterRow.widthAnchor.constraint(equalTo: splitRows.widthAnchor).isActive = true
+        splitDetailLabel.font = .systemFont(ofSize: 10)
+        splitDetailLabel.textColor = .secondaryLabelColor
+        splitDetailLabel.preferredMaxLayoutWidth = 280
+        splitDetailLabel.setContentCompressionResistancePriority(
+            .init(NSLayoutConstraint.Priority.fittingSizeCompression.rawValue - 1), for: .horizontal)
+        splitRows.addArrangedSubview(splitDetailLabel)
+        splitDetailLabel.widthAnchor.constraint(equalTo: splitRows.widthAnchor).isActive = true
+        dataStack.addArrangedSubview(splitRows)
+        splitRows.widthAnchor.constraint(equalTo: dataStack.widthAnchor).isActive = true
 
         // --- Secondary metric row ---
         secondaryRow.orientation = .horizontal
@@ -523,17 +603,23 @@ final class MenuBarPopoverViewController: NSViewController {
         }
 
         // Usage
-        usageTitleLabel.stringValue = data.usageLabel
-        usageValueLabel.stringValue = data.usageText
+        let split = viewModel.splitUsage.suppressesLegacyMeter
+        usageTitleLabel.stringValue = split ? "Included usage" : data.usageLabel
+        let monetary = data.supportsPopoverValueMode
+        let valueMode = viewModel.popoverValueMode
+        usageValueLabel.stringValue = split ? "" : (monetary && valueMode == .percent ? data.percentText : data.usageText)
         refreshButton.isHidden      = (viewModel.authState != .loggedIn)
 
         // Progress
+        progressRow.isHidden = split
+        splitRows.isHidden = !split
         progressBar.progress = min(data.percentUsed / 100.0, 1.0)
         progressBar.barColor = CircularProgressIcon.tokenColor(for: data.percentUsed)
         percentLabel.stringValue = data.percentText
+        percentLabel.isHidden = monetary && valueMode != .both
 
         // Secondary metric row (label + value vary by mode — see UsageDisplayData)
-        if let label = data.secondaryUsageLabel, let value = data.secondaryUsageValue {
+        if !split, let label = data.secondaryUsageLabel, let value = data.secondaryUsageValue {
             secondaryKey.stringValue   = label
             secondaryValue.stringValue = value
             // Highlight over-limit values in red so the user immediately notices
@@ -544,6 +630,17 @@ final class MenuBarPopoverViewController: NSViewController {
             secondaryRow.isHidden = false
         } else {
             secondaryRow.isHidden = true
+        }
+        if let presentation = viewModel.splitPresentation, split {
+            for (row, pool) in zip(splitPoolRows, presentation.pools) { row.update(pool) }
+            splitMeter.image = CircularProgressIcon.makeSplitImage(
+                cursorPercent: viewModel.splitUsage.snapshot?.cursorPercent,
+                otherPercent: viewModel.splitUsage.snapshot?.otherPercent,
+                outerPool: viewModel.splitOuterPool, size: NSSize(width: 112, height: 112))
+            splitMeter.setAccessibilityValue(presentation.accessibilityValue)
+            splitMeter.toolTip = presentation.tooltip
+            splitDetailLabel.stringValue = presentation.detailLines.joined(separator: "\n")
+            splitDetailLabel.isHidden = presentation.detailLines.isEmpty
         }
 
         // Weekly chart (availability + master toggle gate).
@@ -850,7 +947,7 @@ final class MenuBarPopoverViewController: NSViewController {
     // MARK: - Actions
 
     @objc private func refreshTapped() {
-        Task { await viewModel.refresh() }
+        Task { await viewModel.refreshFromUser() }
     }
 
     @objc private func intervalChanged(_ sender: NSPopUpButton) {
@@ -861,6 +958,61 @@ final class MenuBarPopoverViewController: NSViewController {
     @objc private func openUpdateURL() {
         guard let url = updateURL else { return }
         ExternalURL.openGitHub(url)
+    }
+}
+
+private final class PopoverDataDocumentView: NSView {
+    override var isFlipped: Bool { true }
+}
+
+private final class SplitPoolRow: NSStackView {
+    private let marker = NSImageView()
+    private let titleLabel = NSTextField(labelWithString: "")
+    private let valueLabel = NSTextField(wrappingLabelWithString: "")
+    private let amountLabel = NSTextField(wrappingLabelWithString: "")
+
+    init() {
+        super.init(frame: .zero)
+        orientation = .vertical
+        alignment = .leading
+        spacing = 3
+        translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.staticText)
+        setAccessibilityChildren([])
+        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        marker.translatesAutoresizingMaskIntoConstraints = false
+        marker.widthAnchor.constraint(equalToConstant: 10).isActive = true
+        marker.heightAnchor.constraint(equalToConstant: 10).isActive = true
+        marker.setAccessibilityElement(false)
+        let header = NSStackView(views: [marker, titleLabel])
+        header.orientation = .horizontal
+        header.spacing = 4
+        valueLabel.font = .monospacedDigitSystemFont(ofSize: 17, weight: .semibold)
+        amountLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+        amountLabel.textColor = .secondaryLabelColor
+        for label in [valueLabel, amountLabel] {
+            label.preferredMaxLayoutWidth = 158
+            label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        }
+        for child in [header, valueLabel, amountLabel] {
+            addArrangedSubview(child)
+            child.translatesAutoresizingMaskIntoConstraints = false
+            child.widthAnchor.constraint(equalTo: widthAnchor).isActive = true
+        }
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("use init()") }
+
+    func update(_ pool: SplitPoolPresentation) {
+        titleLabel.stringValue = pool.id.displayName
+        marker.image = NSImage(systemSymbolName: pool.position == .outer ? "circle" : "circle.fill", accessibilityDescription: nil)
+        valueLabel.stringValue = pool.readoutText
+        amountLabel.stringValue = pool.detailText ?? ""
+        amountLabel.isHidden = pool.detailText == nil
+        setAccessibilityLabel(pool.line)
     }
 }
 
@@ -920,6 +1072,10 @@ private final class MenuRowButton: NSButton {
 /// A simple custom progress bar that draws fill and track with explicit colors.
 private final class ColoredProgressBar: NSView {
 
+    var isUnavailable = false {
+        didSet { needsDisplay = true }
+    }
+
     var progress: Double = 0 {
         didSet { needsDisplay = true }
     }
@@ -940,6 +1096,14 @@ private final class ColoredProgressBar: NSView {
     override func draw(_ dirtyRect: NSRect) {
         let trackColor = NSColor.quaternaryLabelColor
         let rect = bounds
+
+        if isUnavailable {
+            NSColor.secondaryLabelColor.setStroke()
+            let path = NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 2, yRadius: 2)
+            path.setLineDash([2, 2], count: 2, phase: 0)
+            path.stroke()
+            return
+        }
 
         // Track
         trackColor.setFill()

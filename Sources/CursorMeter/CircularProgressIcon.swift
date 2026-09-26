@@ -52,6 +52,29 @@ enum CircularProgressIcon {
         return image
     }
 
+    static func makeSplitImage(
+        cursorPercent: Double?, otherPercent: Double?, outerPool: UsagePoolID = .other,
+        size: NSSize = NSSize(width: 18, height: 18)
+    ) -> NSImage {
+        let outer = outerPool == .other ? otherPercent : cursorPercent
+        let center = outerPool == .other ? cursorPercent : otherPercent
+        let image = NSImage(size: size, flipped: false) { rect in
+            guard let context = NSGraphicsContext.current?.cgContext else { return false }
+            let diameter = min(rect.width, rect.height)
+            let origin = CGPoint(x: rect.midX, y: rect.midY)
+            let ringWidth = diameter / 9
+            let ringRadius = diameter / 2 - ringWidth / 2 - diameter / 36
+            let centerRadius = diameter * 0.27
+            drawSplitRegion(in: context, center: origin, radius: ringRadius,
+                            lineWidth: ringWidth, percent: outer, filled: false)
+            drawSplitRegion(in: context, center: origin, radius: centerRadius,
+                            lineWidth: diameter / 24, percent: center, filled: true)
+            return true
+        }
+        image.isTemplate = false
+        return image
+    }
+
     /// Pie chart + fraction text (used / limit) as a single NSImage
     static func menuBarImageWithText(percent: Double, usedText: String, limitText: String) -> NSImage {
         let pieSize: CGFloat = 20
@@ -285,6 +308,54 @@ enum CircularProgressIcon {
 
     private static func pieColor(for percent: Double) -> NSColor {
         tokenColor(for: percent)
+    }
+
+    private static func drawSplitRegion(
+        in context: CGContext, center: CGPoint, radius: CGFloat,
+        lineWidth: CGFloat, percent: Double?, filled: Bool
+    ) {
+        context.saveGState()
+        defer { context.restoreGState() }
+        let bounds = CGRect(x: center.x - radius, y: center.y - radius,
+                            width: radius * 2, height: radius * 2)
+        context.setLineWidth(lineWidth)
+        context.setLineCap(.butt)
+        guard let percent, percent.isFinite, percent >= 0 else {
+            context.setStrokeColor(NSColor.labelColor.withAlphaComponent(0.65).cgColor)
+            context.setLineDash(phase: 0, lengths: [lineWidth, lineWidth])
+            context.strokeEllipse(in: bounds)
+            if filled {
+                context.setLineDash(phase: 0, lengths: [])
+                context.move(to: CGPoint(x: center.x - radius * 0.4, y: center.y))
+                context.addLine(to: CGPoint(x: center.x + radius * 0.4, y: center.y))
+                context.strokePath()
+            }
+            return
+        }
+        context.setStrokeColor(NSColor.labelColor.withAlphaComponent(0.35).cgColor)
+        context.strokeEllipse(in: bounds)
+        if filled {
+            context.setFillColor(NSColor.labelColor.withAlphaComponent(0.15).cgColor)
+            context.fillEllipse(in: bounds)
+        }
+        let progress = min(percent, 100) / 100
+        guard progress > 0 else { return }
+        let color = tokenColor(for: percent).cgColor
+        let start = CGFloat.pi / 2
+        if filled {
+            context.setFillColor(color)
+            context.move(to: center)
+        } else {
+            context.setStrokeColor(color)
+        }
+        context.addArc(center: center, radius: radius, startAngle: start,
+                       endAngle: start - 2 * .pi * progress, clockwise: true)
+        if filled {
+            context.closePath()
+            context.fillPath()
+        } else {
+            context.strokePath()
+        }
     }
 
     private static func drawPie(in ctx: CGContext, rect: CGRect, percent: Double) {
