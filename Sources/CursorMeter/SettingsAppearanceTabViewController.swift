@@ -15,10 +15,20 @@ final class SettingsAppearanceTabViewController: NSViewController {
     // MARK: - Controls (retained as instance vars for updateUI)
 
     private var menuBarDisplayPopUp = NSPopUpButton()
-    private let usageNumbersLabel = NSTextField(labelWithString: "")
     private let outerPoolPopUp = NSPopUpButton()
     private let poolLegend = SettingsCardFactory.makeCaption("")
     private let poolPreview = NSImageView()
+    private var legacyTextRow = NSView()
+    private var splitPlacementRows = NSView()
+    private var menuBarSection = NSView()
+    private var popoverSection = NSView()
+    private var popoverValuesSegmented = NSSegmentedControl()
+    private let valuePreview = SettingsCardFactory.makeCaption("")
+    private let estimatedLimitsToggle = NSSwitch()
+    private let estimateInfoButton = KeyboardAccessibleInfoButton()
+    private let estimateHelp = EstimatedLimitsHelpController()
+    private var estimatedLimitsRow = NSView()
+    private var boldExplanation = NSView()
     private var jumpEffectToggle = NSSwitch()
     private var jumpIntensitySegmented = NSSegmentedControl()
     private var jumpGlyphStyleSegmented = NSSegmentedControl()
@@ -50,8 +60,11 @@ final class SettingsAppearanceTabViewController: NSViewController {
     override func loadView() {
         weeklyChartSection = SettingsCardFactory.makeSection(
             header: "Weekly Chart", content: makeWeeklyChartCard())
+        menuBarSection = SettingsCardFactory.makeSection(header: "Menu Bar", content: makeMenuBarCard())
+        popoverSection = SettingsCardFactory.makeSection(header: "Popover", content: makePopoverCard())
         content = SettingsCardFactory.makeTabRoot(sections: [
-            SettingsCardFactory.makeSection(header: "Menu Bar", content: makeMenuBarCard()),
+            menuBarSection,
+            popoverSection,
             SettingsCardFactory.makeSection(header: "Usage Jump", content: makeJumpCard()),
             weeklyChartSection,
         ])
@@ -119,7 +132,29 @@ final class SettingsAppearanceTabViewController: NSViewController {
         menuBarDisplayPopUp.selectItem(withTag: UsageViewModel.resolvedMenuBarDisplayMode(
             isPercentOnly: percentOnly, setting: viewModel.menuBarDisplayMode))
         menuBarDisplayPopUp.isEnabled = !split
-        usageNumbersLabel.stringValue = split ? "On hover" : "Beside icon"
+        legacyTextRow.isHidden = split
+        splitPlacementRows.isHidden = !split
+        menuBarSection.isHidden = !split && viewModel.usageData == nil
+        let verifiedSplit = viewModel.splitUsage.eligibility == .eligible
+        let monetaryLegacy = !split && (viewModel.usageData?.isCreditBased == true || viewModel.usageData?.isOnDemandActive == true)
+        popoverSection.isHidden = !verifiedSplit && !monetaryLegacy
+        estimatedLimitsRow.isHidden = !verifiedSplit
+        popoverValuesSegmented.selectedSegment = viewModel.popoverValueMode.rawValue
+        estimatedLimitsToggle.state = viewModel.estimatedLimitsEnabled ? .on : .off
+        if verifiedSplit, let presentation = viewModel.splitPresentation {
+            valuePreview.stringValue = presentation.pools.map { pool in
+                let detail = pool.detailText.map { " · " + $0 } ?? ""
+                return "\(pool.id.displayName): \(pool.readoutText)\(detail)"
+            }.joined(separator: "\n")
+        } else if monetaryLegacy, let data = viewModel.usageData {
+            switch viewModel.popoverValueMode {
+            case .percent: valuePreview.stringValue = data.percentText
+            case .dollars: valuePreview.stringValue = data.usageText
+            case .both: valuePreview.stringValue = "\(data.percentText) · \(data.usageText)"
+            }
+        } else {
+            valuePreview.stringValue = ""
+        }
         outerPoolPopUp.selectItem(at: viewModel.splitOuterPool == .other ? 0 : 1)
         outerPoolPopUp.isEnabled = viewModel.splitUsage.eligibility != .legacy
         let center: UsagePoolID = viewModel.splitOuterPool == .other ? .cursor : .other
@@ -134,6 +169,7 @@ final class SettingsAppearanceTabViewController: NSViewController {
         jumpIntensitySegmented.selectedSegment = viewModel.jumpIntensity.rawValue
         jumpGlyphStyleSegmented.selectedSegment = viewModel.jumpGlyphStyle.rawValue
         jumpSubRowsContainer.isHidden = !viewModel.jumpEffectEnabled
+        boldExplanation.isHidden = !viewModel.jumpEffectEnabled || viewModel.jumpIntensity != .bold
 
         // Keep chart preferences reachable when the weekly endpoint is unavailable.
         weeklyChartSection.isHidden = viewModel.authState != .loggedIn
@@ -190,8 +226,6 @@ final class SettingsAppearanceTabViewController: NSViewController {
         menuBarDisplayPopUp.target = self
         menuBarDisplayPopUp.action = #selector(menuBarDisplayModeChanged)
         menuBarDisplayPopUp.setAccessibilityLabel("Legacy usage text")
-        usageNumbersLabel.font = .systemFont(ofSize: 12)
-        usageNumbersLabel.textColor = .secondaryLabelColor
         outerPoolPopUp.addItems(withTitles: ["Other Models", "Cursor Models"])
         outerPoolPopUp.target = self
         outerPoolPopUp.action = #selector(outerPoolChanged)
@@ -203,16 +237,43 @@ final class SettingsAppearanceTabViewController: NSViewController {
         legend.orientation = .horizontal
         legend.spacing = 12
 
-        return SettingsCardFactory.makeCard(units: [
-            SettingsCardFactory.makeCardRow(
-                title: "Usage numbers", control: usageNumbersLabel),
-            SettingsCardFactory.makeDividedUnit(SettingsCardFactory.makeCardRow(
-                title: "Legacy text", control: menuBarDisplayPopUp)),
-            SettingsCardFactory.makeDividedUnit(SettingsCardFactory.makeCardRow(
-                title: "Outer ring", control: outerPoolPopUp)),
+        let previewHelp = "Icon colors use 70% and 90%. Alert thresholds are configured separately."
+        poolPreview.toolTip = previewHelp
+        poolPreview.setAccessibilityHelp(previewHelp)
+        legacyTextRow = SettingsCardFactory.makeCardRow(title: "Usage text", control: menuBarDisplayPopUp)
+        splitPlacementRows = SettingsCardFactory.makeCard(units: [
+            SettingsCardFactory.makeCardRow(title: "Outer ring", control: outerPoolPopUp),
             SettingsCardFactory.makeFullWidthCardRow(legend),
-            SettingsCardFactory.makeFullWidthCardRow(SettingsCardFactory.makeCaption(
-                "The saved legacy text preference resumes on single-pool plans. Icon colors use 70% and 90%; alert thresholds are configured separately.")),
+        ])
+        return SettingsCardFactory.makeCard(units: [legacyTextRow, splitPlacementRows])
+    }
+
+    private func makePopoverCard() -> NSView {
+        popoverValuesSegmented = NSSegmentedControl(
+            labels: ["%", "$", "Both"], trackingMode: .selectOne,
+            target: self, action: #selector(popoverValueModeChanged))
+        popoverValuesSegmented.setAccessibilityLabel("Popover values")
+        estimatedLimitsToggle.target = self
+        estimatedLimitsToggle.action = #selector(estimatedLimitsChanged)
+        estimatedLimitsToggle.setAccessibilityLabel("Show estimated limits")
+        estimateInfoButton.image = NSImage(systemSymbolName: "info.circle", accessibilityDescription: nil)
+        estimateInfoButton.isBordered = false
+        estimateInfoButton.title = ""
+        estimateInfoButton.setAccessibilityLabel("About estimated limits")
+        estimateInfoButton.toolTip = "About estimated limits"
+        estimateInfoButton.target = self
+        estimateInfoButton.action = #selector(showEstimateHelp)
+        estimateHelp.onShow = { [weak self] in self?.viewModel.markEstimateExplanationSeen() }
+        let controls = NSStackView(views: [estimateInfoButton, estimatedLimitsToggle])
+        controls.orientation = .horizontal
+        controls.spacing = 8
+        estimatedLimitsRow = SettingsCardFactory.makeDividedUnit(
+            SettingsCardFactory.makeCardRow(title: "Show estimated limits", control: controls))
+        valuePreview.setAccessibilityLabel("Popover values preview")
+        return SettingsCardFactory.makeCard(units: [
+            SettingsCardFactory.makeCardRow(title: "Usage values", control: popoverValuesSegmented),
+            SettingsCardFactory.makeFullWidthCardRow(valuePreview),
+            estimatedLimitsRow,
         ])
     }
 
@@ -237,11 +298,14 @@ final class SettingsAppearanceTabViewController: NSViewController {
             action: #selector(jumpGlyphStyleChanged)
         )
 
+        boldExplanation = SettingsCardFactory.makeFullWidthCardRow(
+            SettingsCardFactory.makeCaption("Large jumps also send a notification."))
         let subRows = NSStackView(views: [
             SettingsCardFactory.makeDividedUnit(SettingsCardFactory.makeCardRow(
                 title: "Intensity", control: jumpIntensitySegmented)),
             SettingsCardFactory.makeDividedUnit(SettingsCardFactory.makeCardRow(
                 title: "Style", control: jumpGlyphStyleSegmented)),
+            boldExplanation,
         ])
         subRows.orientation = .vertical
         subRows.alignment = .leading
@@ -261,8 +325,6 @@ final class SettingsAppearanceTabViewController: NSViewController {
                 control: jumpEffectToggle
             ),
             jumpSubRowsContainer,
-            SettingsCardFactory.makeFullWidthCardRow(SettingsCardFactory.makeCaption(
-                "Bold notifications are independent of usage-alert targets and their master switch.")),
         ])
     }
 
@@ -316,6 +378,26 @@ final class SettingsAppearanceTabViewController: NSViewController {
 
     // MARK: - Actions
 
+    @objc private func popoverValueModeChanged() {
+        guard let mode = PopoverValueMode(rawValue: popoverValuesSegmented.selectedSegment) else { return }
+        viewModel.setPopoverValueMode(mode)
+        updateUI()
+    }
+
+    @objc private func estimatedLimitsChanged() {
+        let enabled = estimatedLimitsToggle.state == .on
+        let firstEnable = enabled && !viewModel.estimatedLimitsEnabled && !viewModel.estimateExplanationSeen
+        viewModel.setEstimatedLimitsEnabled(enabled)
+        updateUI()
+        if firstEnable { showEstimateHelp() }
+    }
+
+    func testHook_estimateHelp() -> EstimatedLimitsHelpController { estimateHelp }
+
+    @objc private func showEstimateHelp() {
+        estimateHelp.show(relativeTo: estimateInfoButton)
+    }
+
     @objc private func menuBarDisplayModeChanged() {
         guard let tag = menuBarDisplayPopUp.selectedItem?.tag else { return }
         viewModel.setMenuBarDisplayMode(tag)
@@ -333,14 +415,14 @@ final class SettingsAppearanceTabViewController: NSViewController {
         // the view immediately while alpha fades over the animation window, so
         // siblings appear to jump first and the view "blinks" away. Setting
         // isHidden directly avoids the mid-animation discontinuity.
-        jumpSubRowsContainer.isHidden = !enabled
-        updateViewport()
+        updateUI()
     }
 
     @objc private func jumpIntensityChanged() {
         let raw = jumpIntensitySegmented.selectedSegment
         guard let intensity = JumpIntensity(rawValue: raw) else { return }
         viewModel.setJumpIntensity(intensity)
+        updateUI()
     }
 
     @objc private func jumpGlyphStyleChanged() {

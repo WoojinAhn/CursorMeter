@@ -268,6 +268,19 @@ final class SplitUsageController {
             && schedule.availability(at: now(), manual: true) == .ready
     }
 
+    var isAmountCollectionPaused: Bool {
+        schedule.availability(at: now(), manual: false) == .cycleLimit
+    }
+
+    func retryStoppedAmounts() async {
+        guard isAmountCollectionPaused else { return }
+        let owner = taskRevision
+        // Primary refresh may have started a period lookup before this manual retry.
+        await supplementTask?.value
+        guard !Task.isCancelled, taskRevision == owner, isAmountCollectionPaused else { return }
+        requestAmounts(manual: true)
+    }
+
     var amountsRefreshStateText: String {
         guard eligibility == .eligible else { return "Amounts unavailable until split usage is verified" }
         guard !isSleeping else { return "Paused while Mac sleeps" }

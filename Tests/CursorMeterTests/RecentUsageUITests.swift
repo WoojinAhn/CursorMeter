@@ -13,7 +13,6 @@ final class RecentUsageUITests: XCTestCase {
         vm.sessionExpiredNotifier = {}
         vm.refreshFailingNotifier = {}
         vm.notificationEnabled = false
-        vm.usageSummarySelected = false
         vm.authState = .loggedIn
         return vm
     }
@@ -259,6 +258,8 @@ final class RecentUsageUITests: XCTestCase {
         XCTAssertEqual(table.numberOfRows, 30)
         XCTAssertEqual(table.rowHeight, 44)
         XCTAssertEqual(scroll.frame.height, 264, accuracy: 1)
+        XCTAssertLessThanOrEqual(table.rect(ofColumn: 2).maxX, table.visibleRect.maxX,
+                                 "The entire USD column must remain visible without horizontal scrolling")
         XCTAssertEqual(vc.view.fittingSize.width, 440, accuracy: 1)
         let modelCell = try XCTUnwrap(vc.tableView(table, viewFor: table.tableColumns[0], row: 0))
         let tokenCell = try XCTUnwrap(vc.tableView(table, viewFor: table.tableColumns[1], row: 0))

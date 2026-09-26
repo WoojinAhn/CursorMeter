@@ -246,7 +246,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         let popoverVC = MenuBarPopoverViewController(
             viewModel: viewModel,
             onLogin: { [weak self] in self?.showLogin() },
-            onSettings: { [weak self] in self?.hidePopover(); self?.openSettings() }
+            onSettings: { [weak self] in self?.hidePopover(); self?.openSettings() },
+            onRecentUsage: { [weak self] in
+                guard let self else { return }
+                self.hidePopover()
+                self.openSettings()
+                (self.settingsWindow?.contentViewController as? SettingsTabViewController)?.showRecentUsage()
+            }
         )
         popoverVC.onContentSizeChange = { [weak self] size in
             guard let self else { return }
@@ -320,6 +326,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    func applicationDidBecomeActive(_ notification: Notification) {
+        guard settingsWindow?.isVisible == true else { return }
+        Task { await viewModel.refreshNotificationPermissionStatus() }
+    }
+
     // #93: drop the strong reference on close so ARC tears down the whole
     // window + VC graph (~12 MB retained otherwise; reopen builds fresh anyway).
     // Detaching the content VC matters too: AppKit's last-key-window bookkeeping
@@ -391,6 +402,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             _ = viewModel.splitUsage.eligibility
             _ = viewModel.splitOuterPool
             _ = viewModel.menuBarDisplayMode
+            _ = viewModel.popoverValueMode
+            _ = viewModel.estimatedLimitsEnabled
             _ = viewModel.authState
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
@@ -406,7 +419,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         withObservationTracking {
             _ = viewModel.activeAuthSource
             _ = viewModel.splitAlertTargets
-            _ = viewModel.usageSummarySelected
+            _ = viewModel.splitAlertThresholds
+            _ = viewModel.notificationEnabled
+            _ = viewModel.warningThreshold
+            _ = viewModel.criticalThreshold
+            _ = viewModel.jumpEffectEnabled
+            _ = viewModel.jumpIntensity
+            _ = viewModel.jumpGlyphStyle
+            _ = viewModel.popoverValueMode
+            _ = viewModel.estimatedLimitsEnabled
+            _ = viewModel.estimateExplanationSeen
             _ = viewModel.notificationPermissionStatus
             _ = viewModel.canRefreshAmounts
             _ = viewModel.amountsRefreshStateText
@@ -527,6 +549,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     private func observePopover() {
         withObservationTracking {
             _ = viewModel.usageData
+            _ = viewModel.popoverValueMode
+            _ = viewModel.estimatedLimitsEnabled
             _ = viewModel.splitPresentation
             _ = viewModel.splitUsage.eligibility
             _ = viewModel.splitOuterPool

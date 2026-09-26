@@ -32,20 +32,25 @@ struct SplitPoolPresentation: Sendable {
     let limitText: String?
     let statusText: String
     let sourceText: String?
+    let readoutText: String
+    let detailText: String?
+    let showsMoney: Bool
+
+    var moneyText: String? {
+        amountText.map { amount in limitText.map { amount + " / " + $0 } ?? amount }
+    }
 
     var line: String {
         var result = "\(id.displayName) (\(position.text)): \(percentText)"
-        if let amountText { result += " · \(amountText)" }
-        if let limitText { result += " / \(limitText) estimated limit" }
-        if amountText != nil { result += " (\(statusText))" }
-        if let sourceText { result += "\n\(sourceText)" }
+        if showsMoney, let moneyText { result += " · " + moneyText }
         return result
     }
 }
 
 struct SplitUsagePresentation: Sendable {
     let pools: [SplitPoolPresentation]
-    let summaryLines: [String]
+    let detailLines: [String]
+    var summaryLines: [String] { pools.map(\.line) + detailLines }
     var tooltip: String { summaryLines.joined(separator: "\n") }
     var accessibilityValue: String { tooltip }
 
@@ -53,79 +58,65 @@ struct SplitUsagePresentation: Sendable {
         snapshot: SplitUsageSnapshot, amounts: CycleAmountSnapshot? = nil,
         outerPool: UsagePoolID = .other,
         amountState: SplitAmountPresentationState = .pending, percentIsStale: Bool = false,
-        paid: SplitPaidPresentation? = nil, timeZone: TimeZone = .current
+        paid: SplitPaidPresentation? = nil, timeZone: TimeZone = .current,
+        valueMode: PopoverValueMode = .both, showEstimatedLimits: Bool = false
     ) -> Self {
         let coherentAmounts = amounts.flatMap { $0.identity.sameScope(as: snapshot.identity) ? $0 : nil }
-        let state: SplitAmountPresentationState = coherentAmounts == nil && amountState == .ready ? .unavailable : amountState
-        let statusLabel = coherentAmounts.map { Self.amountStatus($0) } ?? state.text
+        let attributed = coherentAmounts.flatMap { $0.status == .estimatedAttribution ? $0 : nil }
         let currentPoolsSupportEstimates = UsagePoolID.allCases.allSatisfy { pool in
             guard let value = SplitUsageSnapshot.validPercent(snapshot[pool]) else { return false }
             return value < 100
         }
         let centerPool: UsagePoolID = outerPool == .other ? .cursor : .other
         let pools = [outerPool, centerPool].enumerated().map { index, pool in
-            let attributed = coherentAmounts.flatMap { $0.status == .estimatedAttribution ? $0 : nil }
             let candidateLimit = attributed.flatMap { $0.coverage.complete ? $0.estimatedLimitCents(for: pool) : nil }
             let sourcePercent = attributed.flatMap {
                 SplitUsageSnapshot.validPercent(pool == .cursor ? $0.sourceCursorPercent : $0.sourceOtherPercent)
             }
             let estimateIsCurrent = currentPoolsSupportEstimates && sourcePercent != nil
                 && sourcePercent == SplitUsageSnapshot.validPercent(snapshot[pool])
-            let limit = estimateIsCurrent ? candidateLimit : nil
-            let status = statusLabel + (candidateLimit != nil && !estimateIsCurrent ? " · Estimate stale — refresh amounts" : "")
-            let source = pool == .cursor ? snapshot.cursorSource : snapshot.otherSource
-            let sourceText = source == .period
-                ? "Percent source: Current period · \(snapshot.periodCapturedAt.map { timestamp($0, timeZone: timeZone) } ?? "Time unavailable")"
-                : nil
+            let limit = showEstimatedLimits && estimateIsCurrent ? candidateLimit : nil
+            let amountText = attributed.map { usd($0.amountCents(for: pool)) }
+            let limitText = limit.map { "~" + wholeUSD($0) }
+            let moneyText = amountText.map { amount in limitText.map { amount + " / " + $0 } ?? amount }
+            let percentText = percent(snapshot[pool])
             return SplitPoolPresentation(
                 id: pool, position: index == 0 ? .outer : .center,
-                percentText: percent(snapshot[pool]),
-                amountText: attributed.map { usd($0.amountCents(for: pool)) },
-                limitText: limit.map { "~" + usd($0) }, statusText: status, sourceText: sourceText)
+                percentText: percentText, amountText: amountText, limitText: limitText,
+                statusText: "", sourceText: nil,
+                readoutText: valueMode == .dollars ? amountText ?? "Unavailable" : percentText,
+                detailText: valueMode == .both ? moneyText : (valueMode == .dollars ? limitText.map { "of " + $0 } : nil),
+                showsMoney: valueMode != .percent)
         }
-        var lines = pools.map(\.line)
-        let refreshLabel = snapshot.cursorSource == .period || snapshot.otherSource == .period
-            ? "Primary summary refreshed" : "Percent refreshed"
-        lines.append("\(refreshLabel): \(timestamp(snapshot.capturedAt, timeZone: timeZone))\(percentIsStale ? " (stale)" : "")")
-        if let cycle = snapshot.identity.cycle {
-            lines.append("Cycle: \(timestamp(cycle.start, timeZone: timeZone)) – \(timestamp(cycle.end, timeZone: timeZone))")
-        } else {
-            lines.append("Cycle: Unavailable")
+        var details: [String] = []
+        if percentIsStale { details.append("Percentages are old") }
+        if valueMode != .percent {
+            if let used = snapshot.includedUsedCents { details.append("Included total: \(usd(used))") }
+            if let amounts = coherentAmounts, amounts.botCents > 0 {
+                details.append("Bot activity: \(usd(amounts.botCents))")
+            }
+            let costsAreOld = coherentAmounts.map { amounts in
+                amounts.isCached || UsagePoolID.allCases.contains { pool in
+                    let source = pool == .cursor ? amounts.sourceCursorPercent : amounts.sourceOtherPercent
+                    guard let source = SplitUsageSnapshot.validPercent(source),
+                          let current = SplitUsageSnapshot.validPercent(snapshot[pool]) else { return true }
+                    return source != current
+                }
+            } ?? false
+            if costsAreOld { details.append("Costs are old") }
+            switch amountState {
+            case .failed: details.append("Refresh failed")
+            case .pending where attributed == nil: details.append("Costs pending")
+            case .refreshing where attributed == nil: details.append("Loading costs…")
+            case .ready where attributed == nil, .unavailable where attributed == nil: details.append("Costs unavailable")
+            default: break
+            }
+            if showEstimatedLimits, pools.contains(where: { $0.limitText == nil }) {
+                details.append("Estimate not ready")
+            }
         }
-        lines.append("Amounts: \(state.text)\(coherentAmounts == nil ? "" : " · " + statusLabel)")
-        if let amounts = coherentAmounts {
-            lines.append("Amount snapshot: \(timestamp(amounts.capturedAt, timeZone: timeZone))")
-            if amounts.capturedAt < snapshot.capturedAt {
-                lines.append("Older amount snapshot; percentages refreshed separately")
-            }
-            if amounts.status == .estimatedAttribution {
-                lines.append("Estimated from this cycle; model attribution may differ")
-            }
-            lines.append("Coverage: \(amounts.coverage.complete ? "Complete" : "Partial") · \(amounts.coverage.eventCount) events / \(amounts.coverage.pageCount) pages")
-            if amounts.status == .unavailable {
-                lines.append("Cursor Models observed family subtotal: \(usd(amounts.cursorCents))")
-                lines.append("Other Models observed family subtotal: \(usd(amounts.otherCents))")
-                lines.append("Observed subtotals are provisional; pool amounts and limits are unavailable")
-            }
-            lines.append("Unknown: \(usd(amounts.unknownCents)) · \(amounts.unknownCount) events")
-            if let residual = amounts.residualCents {
-                lines.append("Reconciliation residual: \(NSDecimalNumber(decimal: residual).stringValue) cents")
-            } else {
-                lines.append("Reconciliation: Unavailable")
-            }
-            lines.append("Bot observed cycle activity: \(usd(amounts.botCents))")
-            lines.append("Paid observed history: \(usd(amounts.paidCents))")
-            lines.append(amounts.coverage.complete
-                ? "Bot and paid history are observed activity, not independently verified billing totals"
-                : "Observed activity only; coverage is partial")
-        }
-        if let used = snapshot.includedUsedCents {
-            lines.append("Included total: \(usd(used))")
-        } else {
-            lines.append("Included total: Unavailable")
-        }
-        if let paid { lines.append(paidLine(paid)) }
-        return Self(pools: pools, summaryLines: lines)
+        if let paid, let line = paidLine(paid) { details.append(line) }
+        return Self(pools: pools, detailLines: details)
     }
 
     private static func percent(_ value: Double?) -> String {
@@ -138,35 +129,30 @@ struct SplitUsagePresentation: Sendable {
         return (formatter.string(from: NSNumber(value: value)) ?? String(value)) + "%"
     }
 
-    private static func timestamp(_ date: Date, timeZone: TimeZone) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.timeZone = timeZone
-        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss zzz"
-        return formatter.string(from: date)
-    }
-
     private static func usd(_ cents: Decimal) -> String {
         CycleAmountSnapshot.formattedUSD(cents: cents)
     }
 
-    private static func amountStatus(_ amounts: CycleAmountSnapshot) -> String {
-        let attribution = amounts.status == .estimatedAttribution ? "Estimated attribution" : "Unavailable"
-        return (amounts.isCached ? "Cached · " : "") + attribution + (amounts.coverage.complete ? "" : " · Partial")
+    private static func wholeUSD(_ cents: Decimal) -> String {
+        let formatter = NumberFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.numberStyle = .currency
+        formatter.currencyCode = "USD"
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 0
+        formatter.roundingMode = .halfUp
+        formatter.positiveFormat = "$#,##0"
+        formatter.negativeFormat = "-$#,##0"
+        return formatter.string(from: NSDecimalNumber(decimal: cents / 100)) ?? "$—"
     }
 
-    private static func paidLine(_ paid: SplitPaidPresentation) -> String {
+    private static func paidLine(_ paid: SplitPaidPresentation) -> String? {
+        guard paid.enabled == true || (paid.usedCents ?? 0) > 0 else { return nil }
         let actual = paid.usedCents.map(usd) ?? "Unavailable"
-        guard let enabled = paid.enabled else {
-            return "Paid spending: \(actual) · Availability unknown"
+        if paid.enabled == false { return "Paid spending: \(actual) · Disabled" }
+        if paid.enabled == true, let limit = paid.limitCents, limit > 0 {
+            return "Paid spending: \(actual) / \(usd(limit))"
         }
-        guard enabled else {
-            return "Paid spending: \(actual) · Disabled\((paid.usedCents ?? 0) > 0 ? "; residual spending" : "")"
-        }
-        if let limit = paid.limitCents, limit > 0 {
-            return "Paid spending: \(actual) / \(usd(limit)) budget cap"
-        }
-        return "Paid spending: \(actual) · No budget cap"
+        return "Paid spending: \(actual)"
     }
 }

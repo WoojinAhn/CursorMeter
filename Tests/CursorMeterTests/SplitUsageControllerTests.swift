@@ -256,6 +256,129 @@ final class SplitUsageControllerTests: XCTestCase {
         XCTAssertEqual(controller.amountsRefreshStateText, "Auto collection paused · Retry manually")
     }
 
+    func testUserRefreshRecoversOnlyStoppedCollectionAndHonorsCooldown() async throws {
+        actor Counter {
+            var calls = 0
+            func increment() { calls += 1 }
+        }
+        for partial in [false, true] {
+            var time = Date()
+            let counter = Counter()
+            let controller = SplitUsageController(now: { time }, collect: { _, _, _, _, _ in
+                await counter.increment()
+                return .init(status: partial ? .partial : .complete, snapshot: nil, pageCount: 1, byteCount: 0)
+            })
+            controller.accept(summary: summary(), usage: try usage(), userInfo: user, generation: 1, enterpriseScope: false)
+            controller.requestAmounts(summary: summary(), cookieHeader: "fixture")
+            await eventually { controller.amountState != .refreshing }
+            await controller.retryStoppedAmounts()
+            XCTAssertNotEqual(controller.amountState, .refreshing)
+            time = time.addingTimeInterval(61)
+            await controller.retryStoppedAmounts()
+            await eventually { controller.amountState != .refreshing }
+            let calls = await counter.calls
+            XCTAssertEqual(calls, partial ? 2 : 1)
+        }
+    }
+
+    func testUserRetryWaitsForPendingSupplementAndCoalescesClicks() async throws {
+        actor Counter {
+            var calls = 0
+            func increment() { calls += 1 }
+        }
+        var time = Date()
+        let counter = Counter()
+        let gate = SupplementGate()
+        let period = try period()
+        let controller = SplitUsageController(now: { time }, collect: { _, _, _, _, _ in
+            await counter.increment()
+            return .init(status: .partial, snapshot: nil, pageCount: 100, byteCount: 0)
+        }, fetchPeriod: { _ in
+            await gate.wait()
+            return period
+        })
+        controller.accept(summary: summary(), usage: try usage(), userInfo: user, generation: 1, enterpriseScope: false)
+        controller.requestAmounts(summary: summary(), cookieHeader: "fixture")
+        await eventually { controller.amountState == .unavailable }
+        time = time.addingTimeInterval(61)
+        let missing = summary(cursor: nil)
+        controller.accept(summary: missing, usage: try usage(), userInfo: user, generation: 1, enterpriseScope: false)
+        controller.requestAmounts(summary: missing, cookieHeader: "fixture")
+        await eventually { await gate.started }
+        var started = 0
+        let retries = (0..<2).map { _ in Task {
+            started += 1
+            await controller.retryStoppedAmounts()
+        } }
+        await eventually { started == 2 }
+        let pendingCalls = await counter.calls
+        XCTAssertEqual(pendingCalls, 1)
+        await gate.release()
+        for retry in retries { await retry.value }
+        await eventually { controller.amountState != .refreshing }
+        let calls = await counter.calls
+        XCTAssertEqual(calls, 2)
+    }
+
+    func testPendingUserRetryHonorsOwnershipAndSupplementFailureGates() async throws {
+        actor Counter {
+            var calls = 0
+            func increment() { calls += 1 }
+        }
+        for change in ["generation", "account", "cycle", "sleep", "failure", "rateLimit", "cancel"] {
+            var time = Date()
+            let counter = Counter()
+            let gate = SupplementGate()
+            let period = try period()
+            let controller = SplitUsageController(now: { time }, collect: { _, _, _, _, _ in
+                await counter.increment()
+                return .init(status: .partial, snapshot: nil, pageCount: 100, byteCount: 0)
+            }, fetchPeriod: { _ in
+                await gate.wait()
+                if change == "rateLimit" { throw CycleEnrichmentError.http(status: 429, retryAfter: 1800) }
+                return period
+            })
+            controller.accept(summary: summary(), usage: try usage(), userInfo: user, generation: 1, enterpriseScope: false)
+            controller.requestAmounts(summary: summary(), cookieHeader: "fixture")
+            await eventually { controller.amountState == .unavailable }
+            time = time.addingTimeInterval(61)
+            let missing = summary(cursor: nil)
+            controller.accept(summary: missing, usage: try usage(), userInfo: user, generation: 1, enterpriseScope: false)
+            controller.requestAmounts(summary: missing, cookieHeader: "fixture")
+            await eventually { await gate.started }
+            var started = false
+            let retry = Task {
+                started = true
+                await controller.retryStoppedAmounts()
+            }
+            await eventually { started }
+            switch change {
+            case "generation":
+                controller.accept(summary: missing, usage: try usage(), userInfo: user, generation: 2, enterpriseScope: false)
+            case "account":
+                let secondUser = UserInfoResponse(email: "second@example.test", name: nil, sub: "second")
+                controller.accept(summary: missing, usage: try usage(), userInfo: secondUser, generation: 1, enterpriseScope: false)
+            case "cycle": controller.reset()
+            case "sleep":
+                controller.prepareForSleep()
+                controller.resumeAfterWake()
+            case "failure": controller.recordFailure()
+            case "cancel": retry.cancel()
+            default: break
+            }
+            await gate.release()
+            await retry.value
+            await eventually { !controller.isFetchingSupplement }
+            let calls = await counter.calls
+            XCTAssertEqual(calls, 1, change)
+            if change == "rateLimit" {
+                XCTAssertFalse(controller.canRefreshAmounts)
+                XCTAssertEqual(controller.schedule.availability(at: time, manual: true),
+                               .waiting(until: time.addingTimeInterval(1800)))
+            }
+        }
+    }
+
     func testEarlyPeriodSupplementSurvivesHistoryFailureAndNeverChangesPrimary() async throws {
         let period = try period()
         let controller = SplitUsageController(collect: { snapshot, summary, _, _, supplement in

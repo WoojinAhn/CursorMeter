@@ -36,7 +36,10 @@ private enum SettingsKey: String {
     case recentUsageTimeZone
     case splitOuterPool
     case splitAlertTargets
-    case usageSummarySelected
+    case splitAlertThresholds
+    case popoverValueMode
+    case estimatedLimitsEnabled
+    case estimateExplanationSeen
     // Legacy keys consulted only by `loadSettings` migration block.
     case legacyShowMenuBarText = "showMenuBarText"
     case legacyShowMenuBarPercent = "showMenuBarPercent"
@@ -137,7 +140,10 @@ final class UsageViewModel {
     @ObservationIgnored private let splitAlerts: SplitUsageAlertDispatcher
     var splitOuterPool: UsagePoolID = .other
     var splitAlertTargets: Set<SplitAlertScope> = [.cursor, .other, .onDemand]
-    var usageSummarySelected = true
+    private(set) var splitAlertThresholds: [SplitAlertScope: SplitAlertThresholds] = [:]
+    private(set) var popoverValueMode: PopoverValueMode = .both
+    private(set) var estimatedLimitsEnabled = false
+    private(set) var estimateExplanationSeen = false
     private(set) var notificationPermissionStatus = "Not checked"
 
     var splitPresentation: SplitUsagePresentation? {
@@ -148,7 +154,9 @@ final class UsageViewModel {
         }
         return SplitUsagePresentation.make(snapshot: snapshot, amounts: splitUsage.amounts, outerPool: splitOuterPool,
             amountState: splitUsage.amountState, percentIsStale: splitUsage.isStale, paid: paid,
-            timeZone: recentUsageTimeZone == .utc ? TimeZone(secondsFromGMT: 0)! : .current)
+            timeZone: recentUsageTimeZone == .utc ? TimeZone(secondsFromGMT: 0)! : .current,
+            valueMode: splitUsage.eligibility == .eligible ? popoverValueMode : .percent,
+            showEstimatedLimits: splitUsage.eligibility == .eligible && estimatedLimitsEnabled)
     }
     var effectiveMenuBarDisplayMode: Int {
         splitUsage.suppressesLegacyMeter ? 0 : Self.resolvedMenuBarDisplayMode(
@@ -773,6 +781,11 @@ final class UsageViewModel {
         }
         activeNetworkTask = task
         await task.value
+    }
+
+    func refreshFromUser() async {
+        await refresh()
+        await splitUsage.retryStoppedAmounts()
     }
 
     private func finishRefresh(networkID: UInt64) {
@@ -1559,6 +1572,7 @@ final class UsageViewModel {
 
     private var splitAlertPolicy: SplitAlertPolicy {
         SplitAlertPolicy(thresholdsEnabled: notificationEnabled, warning: warningThreshold, critical: criticalThreshold,
+            thresholdsByScope: splitAlertThresholds,
             targets: splitAlertTargets, jumpEnabled: jumpEffectEnabled, bold: jumpIntensity == .bold,
             refreshInterval: TimeInterval(refreshInterval.rawValue))
     }
@@ -1573,9 +1587,38 @@ final class UsageViewModel {
         UserDefaults.standard.set(splitAlertTargets.map(\.rawValue).sorted(), for: .splitAlertTargets)
         splitAlerts.updatePolicy(splitAlertPolicy)
     }
-    func setUsageSummarySelected(_ selected: Bool) {
-        usageSummarySelected = selected
-        UserDefaults.standard.set(selected, for: .usageSummarySelected)
+    func setPopoverValueMode(_ mode: PopoverValueMode) {
+        popoverValueMode = mode
+        UserDefaults.standard.set(mode.rawValue, for: .popoverValueMode)
+    }
+    func setEstimatedLimitsEnabled(_ enabled: Bool) {
+        estimatedLimitsEnabled = enabled
+        UserDefaults.standard.set(enabled, for: .estimatedLimitsEnabled)
+    }
+    func markEstimateExplanationSeen() {
+        estimateExplanationSeen = true
+        UserDefaults.standard.set(true, for: .estimateExplanationSeen)
+    }
+    func splitThresholds(for scope: SplitAlertScope) -> SplitAlertThresholds {
+        splitAlertThresholds[scope] ?? SplitAlertThresholds(warning: warningThreshold, critical: criticalThreshold)
+    }
+    func setSplitThresholds(_ thresholds: SplitAlertThresholds, for scope: SplitAlertScope) {
+        guard scope != .included else { return }
+        splitAlertThresholds[scope] = SplitAlertThresholds(warning: thresholds.warning, critical: thresholds.critical)
+        persistSplitThresholds()
+        splitAlerts.updatePolicy(splitAlertPolicy)
+    }
+    func setSplitWarningThreshold(_ value: Int, for scope: SplitAlertScope) {
+        setSplitThresholds(SplitAlertThresholds(warning: value, critical: splitThresholds(for: scope).critical), for: scope)
+    }
+    func setSplitCriticalThreshold(_ value: Int, for scope: SplitAlertScope) {
+        setSplitThresholds(SplitAlertThresholds(warning: splitThresholds(for: scope).warning, critical: value), for: scope)
+    }
+    private func persistSplitThresholds() {
+        let stored = Dictionary(uniqueKeysWithValues: splitAlertThresholds.map {
+            ($0.key.rawValue, ["warning": $0.value.warning, "critical": $0.value.critical])
+        })
+        UserDefaults.standard.set(stored, for: .splitAlertThresholds)
     }
     private func persistThresholds() {
         UserDefaults.standard.set(warningThreshold, for: .warningThreshold)
@@ -1776,7 +1819,18 @@ final class UsageViewModel {
         if let targets = defaults.object(for: .splitAlertTargets) as? [String] {
             splitAlertTargets = Set(targets.compactMap(SplitAlertScope.init(rawValue:))).intersection([.cursor, .other, .onDemand])
         }
-        usageSummarySelected = defaults.object(for: .usageSummarySelected) as? Bool ?? true
+        let storedPairs = defaults.object(for: .splitAlertThresholds) as? [String: Any] ?? [:]
+        for scope in [SplitAlertScope.cursor, .other, .onDemand] {
+            let pair = storedPairs[scope.rawValue] as? [String: Int]
+            splitAlertThresholds[scope] = SplitAlertThresholds(
+                warning: pair?["warning"] ?? warningThreshold,
+                critical: pair?["critical"] ?? criticalThreshold)
+        }
+        // Persist missing pairs once so later legacy edits cannot change split preferences.
+        persistSplitThresholds()
+        popoverValueMode = (defaults.object(for: .popoverValueMode) as? Int).flatMap(PopoverValueMode.init(rawValue:)) ?? .both
+        estimatedLimitsEnabled = defaults.object(for: .estimatedLimitsEnabled) as? Bool ?? false
+        estimateExplanationSeen = defaults.object(for: .estimateExplanationSeen) as? Bool ?? false
         if let val = defaults.object(for: .menuBarDisplayMode) as? Int {
             menuBarDisplayMode = val
         } else {

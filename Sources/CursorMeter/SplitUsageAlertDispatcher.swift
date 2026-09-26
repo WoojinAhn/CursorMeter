@@ -19,7 +19,7 @@ final class SplitUsageAlertDispatcher {
             (thresholds.map(\.body) + (bold.map { [$0.body] } ?? [])).joined(separator: "\n")
         }
         var title: String {
-            thresholds.isEmpty ? bold?.title ?? "Usage Update" : bold == nil ? "사용량 알림" : "사용량 알림 및 급증"
+            thresholds.isEmpty ? bold?.title ?? "Usage update" : bold == nil ? "Usage alert" : "Usage alert and increase"
         }
     }
     private let manager: NotificationManager

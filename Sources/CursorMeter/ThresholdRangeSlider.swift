@@ -254,6 +254,11 @@ final class ThresholdRangeSlider: NSView {
     private lazy var axWarning = makeAXThumb(.warning, label: "Warning threshold")
     private lazy var axCritical = makeAXThumb(.critical, label: "Critical threshold")
 
+    func setAccessibilityScope(_ scope: String) {
+        axWarning.setAccessibilityLabel("\(scope) warning threshold")
+        axCritical.setAccessibilityLabel("\(scope) critical threshold")
+    }
+
     private func makeAXThumb(_ thumb: Thumb, label: String) -> ThumbAXElement {
         let element = ThumbAXElement()
         element.thumb = thumb

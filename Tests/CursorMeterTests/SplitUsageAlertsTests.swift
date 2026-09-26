@@ -32,6 +32,40 @@ final class SplitUsageAlertsTests: XCTestCase {
         XCTAssertEqual(rounded.critical, 90)
     }
 
+    func testIndependentThresholdPairsAndCompatibilityFallback() {
+        var engine = SplitUsageAlertEngine()
+        var policy = SplitAlertPolicy()
+        policy.thresholdsByScope = [.cursor: .init(warning: 60, critical: 70),
+                                    .other: .init(warning: 90, critical: 95)]
+        let batch = engine.accept(sample(1, cursor: 75, other: 85, paid: 85, cap: 100, enabled: true), policy: policy)
+        XCTAssertEqual(Set(batch.thresholds.map(\.scope)), [.cursor, .onDemand])
+        XCTAssertEqual(batch.thresholds.first { $0.scope == .cursor }?.level, .critical)
+        XCTAssertEqual(batch.thresholds.first { $0.scope == .onDemand }?.level, .warning)
+        XCTAssertTrue(batch.thresholds.first { $0.scope == .cursor }?.body.contains("Current 75.00%") == true)
+        XCTAssertTrue(batch.thresholds.first { $0.scope == .cursor }?.body.contains("threshold 70%") == true)
+    }
+
+    func testEffectiveThresholdComparisonIgnoresShadowedLegacyValues() {
+        var policy = SplitAlertPolicy()
+        var explicit = policy
+        explicit.thresholdsByScope = Dictionary(uniqueKeysWithValues:
+            [SplitAlertScope.cursor, .other, .onDemand].map { ($0, .init(warning: 80, critical: 90)) })
+        XCTAssertTrue(policy.hasSameThresholds(as: explicit))
+        policy = explicit
+        explicit.warning = 20
+        explicit.critical = 30
+        XCTAssertTrue(policy.hasSameThresholds(as: explicit))
+        explicit.thresholdsByScope[.other] = .init(warning: 85, critical: 95)
+        XCTAssertFalse(policy.hasSameThresholds(as: explicit))
+    }
+
+    func testScopePairNormalizesAndRoundTrips() throws {
+        let pair = SplitAlertThresholds(warning: 83, critical: 82)
+        XCTAssertEqual(pair.warning, 85)
+        XCTAssertEqual(pair.critical, 90)
+        XCTAssertEqual(try JSONDecoder().decode(SplitAlertThresholds.self, from: JSONEncoder().encode(pair)), pair)
+    }
+
     func testExactIndependentJumpEdges() {
         for (cents, pp, expected) in [(4.99, 4.99, 0), (5.0, 0.0, 1), (0.0, 5.0, 1),
                                       (29.99, 14.99, 1), (30.0, 0.0, 2), (0.0, 15.0, 2)] {
@@ -71,8 +105,10 @@ final class SplitUsageAlertsTests: XCTestCase {
         let jump = engine.accept(sample(2, included: 140, cursor: 1, other: 1), policy: .init()).jump
         XCTAssertEqual(jump?.tier, 2)
         XCTAssertEqual(jump?.deltas[.included], 40)
-        XCTAssertEqual(jump?.title, "Included Usage Jump")
-        XCTAssertTrue(jump?.body.contains("풀별 금액 배분을 확인할 수 없습니다") == true)
+        XCTAssertEqual(jump?.title, "Included usage increased")
+        XCTAssertTrue(jump?.body.contains("+$0.40 since last refresh") == true)
+        XCTAssertTrue(jump?.body.contains("Cursor Models 1.00%, Other Models 1.00%") == true)
+        XCTAssertFalse(jump?.body.contains("allocation") == true)
     }
 
     func testHighWaterCorrectionDoesNotTurnSixPointsIntoSixteen() {
@@ -83,6 +119,8 @@ final class SplitUsageAlertsTests: XCTestCase {
         XCTAssertEqual(jump?.tier, 1)
         XCTAssertEqual(jump?.deltas[.cursor], 6)
         XCTAssertTrue(jump?.correctedScopes.contains(.cursor) == true)
+        XCTAssertTrue(jump?.body.contains("+6.00 pp above previous peak") == true)
+        XCTAssertFalse(jump?.body.contains("since last refresh") == true)
     }
 
     func testResetAndLongGapRetainHighWaterButBreakContinuity() {
@@ -147,7 +185,7 @@ final class SplitUsageAlertsTests: XCTestCase {
         let cursor = batch.thresholds.first { $0.scope == .cursor }
         XCTAssertEqual(cursor?.level, .critical)
         XCTAssertEqual(cursor?.coveredIdentities.count, 2)
-        XCTAssertTrue(cursor?.body.contains("현재 95") == true)
+        XCTAssertTrue(cursor?.body.contains("Current 95") == true)
         XCTAssertTrue(cursor?.body.contains("90%") == true)
     }
 

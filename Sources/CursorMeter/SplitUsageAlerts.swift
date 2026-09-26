@@ -61,10 +61,22 @@ struct SplitUsageObservation: Sendable {
     var continuityReset = false
 }
 
+struct SplitAlertThresholds: Codable, Sendable, Equatable {
+    var warning: Int
+    var critical: Int
+
+    init(warning: Int, critical: Int) {
+        let normalized = SplitAlertPolicy.normalizeThresholds(warning: warning, critical: critical)
+        self.warning = normalized.warning
+        self.critical = normalized.critical
+    }
+}
+
 struct SplitAlertPolicy: Sendable, Equatable {
     var thresholdsEnabled = true
     var warning = 80
     var critical = 90
+    var thresholdsByScope: [SplitAlertScope: SplitAlertThresholds] = [:]
     var targets: Set<SplitAlertScope> = [.cursor, .other, .onDemand]
     var jumpEnabled = true
     var bold = false
@@ -78,8 +90,14 @@ struct SplitAlertPolicy: Sendable, Equatable {
         return (warning, min(max(critical, warning + 5), 100))
     }
 
+    func thresholds(for scope: SplitAlertScope) -> SplitAlertThresholds {
+        let pair = thresholdsByScope[scope]
+        return SplitAlertThresholds(warning: pair?.warning ?? warning, critical: pair?.critical ?? critical)
+    }
+
     func hasSameThresholds(as other: Self) -> Bool {
-        thresholdsEnabled == other.thresholdsEnabled && warning == other.warning && critical == other.critical && targets == other.targets
+        thresholdsEnabled == other.thresholdsEnabled && targets == other.targets
+            && [SplitAlertScope.cursor, .other, .onDemand].allSatisfy { thresholds(for: $0) == other.thresholds(for: $0) }
     }
 
     func hasSameBold(as other: Self) -> Bool { jumpEnabled == other.jumpEnabled && bold == other.bold }
@@ -190,8 +208,8 @@ struct SplitUsageAlertEngine {
             if policy.bold && tier == 2 { batch.boldJump = jump }
         }
         if policy.thresholdsEnabled {
-            let thresholds = SplitAlertPolicy.normalizeThresholds(warning: policy.warning, critical: policy.critical)
             for scope in [SplitAlertScope.cursor, .other, .onDemand] where policy.targets.contains(scope) {
+                let thresholds = policy.thresholds(for: scope)
                 let percent: Double?
                 if scope == .onDemand {
                     percent = observation.paidEnabled == true ? cap.flatMap { cap in Self.valid(observation.paidCents).map { $0 / cap * 100 } } : nil
@@ -204,7 +222,7 @@ struct SplitUsageAlertEngine {
                 batch.thresholds.append(SplitThresholdEvent(scope: scope, level: critical ? .critical : .warning,
                     identity: critical ? criticalID : warningID,
                     coveredIdentities: critical ? [warningID, criticalID] : [warningID],
-                    body: "\(scope.label): 현재 \(Self.number(percent))%, 알림 기준 \(critical ? thresholds.critical : thresholds.warning)%"))
+                    body: "\(scope.label): Current \(Self.number(percent))%, threshold \(critical ? thresholds.critical : thresholds.warning)%"))
             }
         }
         return batch
@@ -224,16 +242,16 @@ struct SplitUsageAlertEngine {
         let lines = SplitAlertScope.allCases.compactMap { scope -> String? in
             guard let delta = deltas[scope] else { return nil }
             let amount = scope == .cursor || scope == .other ? "+\(Self.number(delta)) pp" : String(format: "+$%.2f", delta / 100)
-            let reference = corrected.contains(scope) ? "이전 최고치 대비" : "이전 유효 업데이트 이후"
-            return "\(scope.label): \(reference) \(amount)"
+            let reference = corrected.contains(scope) ? "above previous peak" : "since last refresh"
+            return "\(scope.label): \(amount) \(reference)"
         }
         var body = lines.joined(separator: "\n")
         if deltas[.included] != nil {
-            let cursor = Self.valid(observation.cursorPercent).map { Self.number($0) + "%" } ?? "확인 불가"
-            let other = Self.valid(observation.otherPercent).map { Self.number($0) + "%" } ?? "확인 불가"
-            body += "\n현재 Cursor Models \(cursor), Other Models \(other). 풀별 금액 배분을 확인할 수 없습니다."
+            let cursor = Self.valid(observation.cursorPercent).map { Self.number($0) + "%" } ?? "Unavailable"
+            let other = Self.valid(observation.otherPercent).map { Self.number($0) + "%" } ?? "Unavailable"
+            body += "\nNow: Cursor Models \(cursor), Other Models \(other)."
         }
         return SplitUsageJump(tier: tier, deltas: deltas, correctedScopes: corrected,
-            title: deltas[.included] != nil ? "Included Usage Jump" : "Usage Jump", body: body)
+            title: deltas[.included] != nil ? "Included usage increased" : "Usage increased", body: body)
     }
 }

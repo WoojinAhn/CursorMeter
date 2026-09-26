@@ -9,6 +9,7 @@ final class MenuBarPopoverViewController: NSViewController {
     private let viewModel: UsageViewModel
     private let onLogin: () -> Void
     private let onSettings: () -> Void
+    private let onRecentUsage: (() -> Void)?
 
     /// Set by the owner so we can push a new size to the live NSPopover frame.
     /// `preferredContentSize` alone is not enough — popover only consults it on
@@ -45,6 +46,7 @@ final class MenuBarPopoverViewController: NSViewController {
     private let progressRow = NSStackView()
     private let splitRows = NSStackView()
     private let splitPoolRows = [SplitPoolRow(), SplitPoolRow()]
+    private let splitMeter = NSImageView()
     private let splitDetailLabel = NSTextField(wrappingLabelWithString: "")
 
     // Secondary metric row (hidden when no secondary data). In normal mode shows
@@ -88,10 +90,12 @@ final class MenuBarPopoverViewController: NSViewController {
 
     // MARK: - Init
 
-    init(viewModel: UsageViewModel, onLogin: @escaping () -> Void, onSettings: @escaping () -> Void) {
+    init(viewModel: UsageViewModel, onLogin: @escaping () -> Void, onSettings: @escaping () -> Void,
+         onRecentUsage: (() -> Void)? = nil) {
         self.viewModel  = viewModel
         self.onLogin    = onLogin
         self.onSettings = onSettings
+        self.onRecentUsage = onRecentUsage
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -243,6 +247,11 @@ final class MenuBarPopoverViewController: NSViewController {
             }
         })
 
+        rootStack.addArrangedSubview(makeMenuRow("Recent usage", symbolName: "clock") { [weak self] in
+            guard let self else { return }
+            (self.onRecentUsage ?? self.onSettings)()
+        })
+
         rootStack.addArrangedSubview(makeMenuRow("Settings...", symbolName: "gear") { [weak self] in
             self?.onSettings()
         })
@@ -355,10 +364,27 @@ final class MenuBarPopoverViewController: NSViewController {
         splitRows.alignment = .leading
         splitRows.spacing = 8
         splitRows.isHidden = true
+        splitMeter.translatesAutoresizingMaskIntoConstraints = false
+        splitMeter.imageScaling = .scaleProportionallyUpOrDown
+        splitMeter.setAccessibilityLabel("Split usage meter")
+        NSLayoutConstraint.activate([
+            splitMeter.widthAnchor.constraint(equalToConstant: 112),
+            splitMeter.heightAnchor.constraint(equalToConstant: 112),
+        ])
+        let readings = NSStackView(views: splitPoolRows)
+        readings.orientation = .vertical
+        readings.alignment = .leading
+        readings.spacing = 14
         for row in splitPoolRows {
-            splitRows.addArrangedSubview(row)
-            row.widthAnchor.constraint(equalTo: splitRows.widthAnchor).isActive = true
+            row.widthAnchor.constraint(equalTo: readings.widthAnchor).isActive = true
         }
+        let meterRow = NSStackView(views: [splitMeter, readings])
+        meterRow.orientation = .horizontal
+        meterRow.alignment = .centerY
+        meterRow.spacing = 10
+        readings.trailingAnchor.constraint(equalTo: meterRow.trailingAnchor).isActive = true
+        splitRows.addArrangedSubview(meterRow)
+        meterRow.widthAnchor.constraint(equalTo: splitRows.widthAnchor).isActive = true
         splitDetailLabel.font = .systemFont(ofSize: 10)
         splitDetailLabel.textColor = .secondaryLabelColor
         splitDetailLabel.preferredMaxLayoutWidth = 280
@@ -367,6 +393,7 @@ final class MenuBarPopoverViewController: NSViewController {
         splitRows.addArrangedSubview(splitDetailLabel)
         splitDetailLabel.widthAnchor.constraint(equalTo: splitRows.widthAnchor).isActive = true
         dataStack.addArrangedSubview(splitRows)
+        splitRows.widthAnchor.constraint(equalTo: dataStack.widthAnchor).isActive = true
 
         // --- Secondary metric row ---
         secondaryRow.orientation = .horizontal
@@ -577,7 +604,9 @@ final class MenuBarPopoverViewController: NSViewController {
         // Usage
         let split = viewModel.splitUsage.suppressesLegacyMeter
         usageTitleLabel.stringValue = split ? "Included usage" : data.usageLabel
-        usageValueLabel.stringValue = split ? "" : data.usageText
+        let monetary = data.isCreditBased || data.isOnDemandActive
+        let valueMode = viewModel.popoverValueMode
+        usageValueLabel.stringValue = split ? "" : (monetary && valueMode == .percent ? data.percentText : data.usageText)
         refreshButton.isHidden      = (viewModel.authState != .loggedIn)
 
         // Progress
@@ -586,6 +615,7 @@ final class MenuBarPopoverViewController: NSViewController {
         progressBar.progress = min(data.percentUsed / 100.0, 1.0)
         progressBar.barColor = CircularProgressIcon.tokenColor(for: data.percentUsed)
         percentLabel.stringValue = data.percentText
+        percentLabel.isHidden = monetary && valueMode != .both
 
         // Secondary metric row (label + value vary by mode — see UsageDisplayData)
         if !split, let label = data.secondaryUsageLabel, let value = data.secondaryUsageValue {
@@ -601,16 +631,15 @@ final class MenuBarPopoverViewController: NSViewController {
             secondaryRow.isHidden = true
         }
         if let presentation = viewModel.splitPresentation, split {
-            for (row, pool) in zip(splitPoolRows, presentation.pools) {
-                row.update(pool, percent: viewModel.splitUsage.snapshot?[pool.id])
-            }
-            splitDetailLabel.stringValue = presentation.summaryLines.filter {
-                $0.hasPrefix("Amounts:") || $0.hasPrefix("Amount snapshot:")
-                    || $0.hasPrefix("Percent refreshed:") || $0.hasPrefix("Paid spending:")
-                    || $0.hasPrefix("Primary summary refreshed:")
-                    || $0.hasPrefix("Bot observed") || $0.hasPrefix("Older amount")
-            }.joined(separator: "\n")
-            splitRows.setAccessibilityLabel(presentation.accessibilityValue)
+            for (row, pool) in zip(splitPoolRows, presentation.pools) { row.update(pool) }
+            splitMeter.image = CircularProgressIcon.makeSplitImage(
+                cursorPercent: viewModel.splitUsage.snapshot?.cursorPercent,
+                otherPercent: viewModel.splitUsage.snapshot?.otherPercent,
+                outerPool: viewModel.splitOuterPool, size: NSSize(width: 112, height: 112))
+            splitMeter.setAccessibilityValue(presentation.accessibilityValue)
+            splitMeter.toolTip = presentation.tooltip
+            splitDetailLabel.stringValue = presentation.detailLines.joined(separator: "\n")
+            splitDetailLabel.isHidden = presentation.detailLines.isEmpty
         }
 
         // Weekly chart (availability + master toggle gate).
@@ -917,7 +946,7 @@ final class MenuBarPopoverViewController: NSViewController {
     // MARK: - Actions
 
     @objc private func refreshTapped() {
-        Task { await viewModel.refresh() }
+        Task { await viewModel.refreshFromUser() }
     }
 
     @objc private func intervalChanged(_ sender: NSPopUpButton) {
@@ -936,52 +965,49 @@ private final class PopoverDataDocumentView: NSView {
 }
 
 private final class SplitPoolRow: NSStackView {
+    private let marker = NSImageView()
     private let titleLabel = NSTextField(labelWithString: "")
-    private let valueLabel = NSTextField(labelWithString: "")
+    private let valueLabel = NSTextField(wrappingLabelWithString: "")
     private let amountLabel = NSTextField(wrappingLabelWithString: "")
-    private let progress = ColoredProgressBar()
 
     init() {
         super.init(frame: .zero)
         orientation = .vertical
         alignment = .leading
-        spacing = 4
+        spacing = 3
         translatesAutoresizingMaskIntoConstraints = false
         titleLabel.font = .systemFont(ofSize: 11, weight: .medium)
         titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        valueLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
-        valueLabel.setContentHuggingPriority(.required, for: .horizontal)
-        let spacer = NSView()
-        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        let header = NSStackView(views: [titleLabel, spacer, valueLabel])
+        marker.translatesAutoresizingMaskIntoConstraints = false
+        marker.widthAnchor.constraint(equalToConstant: 10).isActive = true
+        marker.heightAnchor.constraint(equalToConstant: 10).isActive = true
+        marker.setAccessibilityElement(false)
+        let header = NSStackView(views: [marker, titleLabel])
         header.orientation = .horizontal
         header.spacing = 4
-        amountLabel.font = .systemFont(ofSize: 10)
+        valueLabel.font = .monospacedDigitSystemFont(ofSize: 17, weight: .semibold)
+        amountLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
         amountLabel.textColor = .secondaryLabelColor
-        amountLabel.preferredMaxLayoutWidth = 280
-        amountLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        for child in [header, progress, amountLabel] {
+        for label in [valueLabel, amountLabel] {
+            label.preferredMaxLayoutWidth = 158
+            label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        }
+        for child in [header, valueLabel, amountLabel] {
             addArrangedSubview(child)
             child.translatesAutoresizingMaskIntoConstraints = false
             child.widthAnchor.constraint(equalTo: widthAnchor).isActive = true
         }
-        progress.heightAnchor.constraint(equalToConstant: 5).isActive = true
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("use init()") }
 
-    func update(_ pool: SplitPoolPresentation, percent: Double?) {
-        titleLabel.stringValue = "\(pool.id.displayName) · \(pool.position == .outer ? "Outer" : "Center")"
-        valueLabel.stringValue = pool.percentText
-        var amount = pool.amountText ?? "Amount \(pool.statusText.lowercased())"
-        if let limit = pool.limitText { amount += " / \(limit) estimated limit" }
-        if pool.amountText != nil { amount += " · \(pool.statusText)" }
-        if let sourceText = pool.sourceText { amount += "\n" + sourceText }
-        amountLabel.stringValue = amount
-        progress.isUnavailable = percent == nil
-        progress.progress = (percent ?? 0) / 100
-        progress.barColor = CircularProgressIcon.tokenColor(for: percent ?? 0)
+    func update(_ pool: SplitPoolPresentation) {
+        titleLabel.stringValue = pool.id.displayName
+        marker.image = NSImage(systemSymbolName: pool.position == .outer ? "circle" : "circle.fill", accessibilityDescription: nil)
+        valueLabel.stringValue = pool.readoutText
+        amountLabel.stringValue = pool.detailText ?? ""
+        amountLabel.isHidden = pool.detailText == nil
         setAccessibilityLabel(pool.line)
     }
 }

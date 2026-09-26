@@ -36,78 +36,40 @@ final class SplitUsageUITests: XCTestCase {
         XCTAssertFalse(try XCTUnwrap(reset.toolTip).isEmpty)
     }
 
-    func testPartialSummaryKeepsCoverageAndIndependentTimesInScrollableViewport() async throws {
-        let controller = SplitUsageController(collect: { snapshot, _, _, _, _ in
-            let amounts = CycleAmountSnapshot(
-                identity: snapshot.identity, capturedAt: snapshot.capturedAt.addingTimeInterval(-600),
-                cursorCents: 1000, otherCents: 2000, botCents: 300, paidCents: 400,
-                unknownCents: 50, unknownCount: 1, residualCents: 5,
-                coverage: CycleCoverage(complete: false, pageCount: 100, eventCount: 10000),
-                status: .unavailable, isCached: true)
-            return CycleCollectionResult(status: .partial, snapshot: amounts, pageCount: 100, byteCount: 1000)
-        })
-        let vm = makeViewModel(splitUsage: controller)
-        let summary = try publishSplit(to: vm)
-        vm.usageSummarySelected = true
-        controller.requestAmounts(summary: summary, cookieHeader: "synthetic")
-        for _ in 0..<50 where controller.amountState == .refreshing {
-            try await Task.sleep(for: .milliseconds(2))
-        }
-        let vc = SettingsUsageTabViewController(viewModel: vm)
+    func testPartialAmountsDoNotLeakCollectionDiagnosticsIntoPopover() async throws {
+        let vm = try await makePausedViewModel(sleeping: false)
+        let vc = MenuBarPopoverViewController(viewModel: vm, onLogin: {}, onSettings: {})
         _ = vc.view
         vc.updateUI()
-        let window = NSWindow(contentViewController: vc)
-        window.isReleasedWhenClosed = false
-        window.setContentSize(vc.view.fittingSize)
-        vc.view.layoutSubtreeIfNeeded()
-        defer { window.contentViewController = nil; window.close() }
-        let scroll = try XCTUnwrap(allViews(vc.view).compactMap { $0 as? NSScrollView }
-            .first { $0.accessibilityLabel() == "Cycle usage summary" })
-        let document = try XCTUnwrap(scroll.documentView)
-        XCTAssertLessThanOrEqual(scroll.frame.height, 340)
-        XCTAssertGreaterThan(document.frame.height, scroll.contentView.bounds.height)
         let text = labels(vc.view).joined(separator: "\n")
-        for expected in ["Cached", "Partial", "Unknown: $0.50", "Percent refreshed:", "Amount snapshot:", "Reconciliation residual: 5 cents"] {
-            XCTAssertTrue(text.contains(expected), expected)
+        for diagnostic in ["Coverage:", "Unknown:", "Reconciliation residual:", "Amount snapshot:", "Amounts: Ready"] {
+            XCTAssertFalse(text.contains(diagnostic), diagnostic)
         }
-        scroll.contentView.scroll(to: NSPoint(x: 0, y: 100))
-        scroll.reflectScrolledClipView(scroll.contentView)
-        XCTAssertGreaterThan(scroll.contentView.bounds.origin.y, 0)
+        XCTAssertNotNil(vm.splitUsage.amounts)
+        XCTAssertEqual(vm.splitUsage.amounts?.coverage.complete, false)
     }
 
-    func testPopoverDisplaysPeriodSourceWithItsOwnTimestamp() async throws {
+    func testPopoverKeepsPeriodPercentageWithoutDiagnosticTimestamps() async throws {
         let vm = try await makePeriodViewModel()
         let vc = MenuBarPopoverViewController(viewModel: vm, onLogin: {}, onSettings: {})
         _ = vc.view
         vc.updateUI()
-        XCTAssertTrue(labels(vc.view).contains { $0.contains("Percent source: Current period") })
-        XCTAssertTrue(labels(vc.view).contains { $0.contains("Primary summary refreshed:") })
+        let text = labels(vc.view).joined(separator: "\n")
+        XCTAssertTrue(text.contains("41%"))
+        XCTAssertFalse(text.contains("Primary summary refreshed:"))
+        XCTAssertFalse(text.contains("Percent source:"))
     }
 
-    func testSummaryPausedCaptionsFitAndKeepManualRetryStateVisible() async throws {
-        _ = NSApplication.shared
+    func testRecentRemainsAvailableWhenCycleCollectionIsPaused() async throws {
         for sleeping in [false, true] {
             let vm = try await makePausedViewModel(sleeping: sleeping)
             let vc = SettingsUsageTabViewController(viewModel: vm)
             _ = vc.view
             vc.updateUI()
-            let window = NSWindow(contentViewController: vc)
-            window.isReleasedWhenClosed = false
-            window.setContentSize(vc.view.fittingSize)
-            vc.view.layoutSubtreeIfNeeded()
-            defer { window.contentViewController = nil; window.close() }
-            let expected = sleeping ? "Paused while Mac sleeps" : "Auto collection paused · Retry manually"
-            let caption = try XCTUnwrap(allViews(vc.view).compactMap { $0 as? NSTextField }
-                .first { $0.stringValue == expected })
-            XCTAssertFalse(caption.isHiddenOrHasHiddenAncestor)
-            XCTAssertTrue(vc.view.bounds.contains(caption.convert(caption.bounds, to: vc.view)))
-            let textSize = try XCTUnwrap(caption.cell).cellSize(forBounds: caption.bounds)
-            XCTAssertLessThanOrEqual(textSize.height, caption.bounds.height + 1)
-            XCTAssertGreaterThan(caption.bounds.width, 0)
-            let refresh = try XCTUnwrap(allViews(vc.view).compactMap { $0 as? NSButton }
-                .first { $0.accessibilityLabel() == "Refresh cycle amounts" })
-            XCTAssertEqual(refresh.isEnabled, !sleeping)
+            XCTAssertNil(allViews(vc.view).first { $0.accessibilityLabel() == "Cycle usage summary" })
+            XCTAssertNotNil(allViews(vc.view).first { $0.accessibilityLabel() == "Refresh recent usage" })
             XCTAssertEqual(vc.view.fittingSize.width, 440, accuracy: 1)
+            XCTAssertFalse(labels(vc.view).contains { $0.contains("collection paused") })
         }
     }
 
@@ -124,9 +86,9 @@ final class SplitUsageUITests: XCTestCase {
         XCTAssertTrue(placement.isEnabled)
         XCTAssertEqual(placement.titleOfSelectedItem, "Cursor Models")
         let legacy = try XCTUnwrap(popups.first { $0.accessibilityLabel() == "Legacy usage text" })
-        XCTAssertFalse(legacy.isEnabled)
+        XCTAssertTrue(legacy.isHiddenOrHasHiddenAncestor)
         XCTAssertEqual(legacy.selectedItem?.tag, 1)
-        XCTAssertTrue(labels(vc.view).contains("On hover"))
+        XCTAssertFalse(labels(vc.view).contains("On hover"))
         XCTAssertTrue(labels(vc.view).contains("Outer: Cursor Models\nCenter: Other Models"))
         XCTAssertEqual(vm.menuBarDisplayMode, 1)
     }
@@ -139,6 +101,7 @@ final class SplitUsageUITests: XCTestCase {
         vc.updateUI()
         XCTAssertEqual(vc.preferredContentSize.width, 300)
         XCTAssertEqual(labels(vc.view).filter { $0 == "Unavailable" }.count, 2)
+        XCTAssertFalse(labels(vc.view).contains { $0.contains("Costs pending") || $0.contains("Estimate not ready") })
         vm.splitUsage.reset()
         vc.updateUI()
         XCTAssertEqual(vc.preferredContentSize.width, 260)
@@ -153,61 +116,67 @@ final class SplitUsageUITests: XCTestCase {
         let vc = SettingsNotificationsTabViewController(viewModel: vm)
         _ = vc.view
         vc.updateUI()
-        let buttons = allViews(vc.view).compactMap { $0 as? NSButton }
-        let cursor = try XCTUnwrap(buttons.first { $0.title == "Cursor Models" })
-        let other = try XCTUnwrap(buttons.first { $0.title == "Other Models" })
-        let paid = try XCTUnwrap(buttons.first { $0.title == "Paid budget" })
+        let buttons = allViews(vc.view).compactMap { $0 as? NSSwitch }
+        let cursor = try XCTUnwrap(buttons.first { $0.accessibilityLabel() == "Cursor Models alerts" })
+        let other = try XCTUnwrap(buttons.first { $0.accessibilityLabel() == "Other Models alerts" })
+        let paid = try XCTUnwrap(buttons.first { $0.accessibilityLabel() == "Paid budget alerts" })
         XCTAssertTrue(cursor.isEnabled)
         XCTAssertEqual(cursor.state, .on)
         XCTAssertEqual(other.state, .off)
         XCTAssertTrue(paid.isEnabled)
         try publishSplit(to: vm, paidEnabled: false)
         vc.updateUI()
-        XCTAssertFalse(paid.isEnabled)
+        XCTAssertTrue(paid.isHiddenOrHasHiddenAncestor)
         XCTAssertEqual(paid.state, .on)
         XCTAssertEqual(vm.splitAlertTargets, [.cursor, .onDemand])
     }
 
-    func testSummaryAndRecentSwitchUsesPublishedStateWithoutRequests() throws {
+    func testUsageOpensRecentWithoutChangingPublishedCycleState() throws {
         let vm = makeViewModel()
         try publishSplit(to: vm)
-        vm.usageSummarySelected = true
+        let snapshot = vm.splitUsage.snapshot
         let vc = SettingsUsageTabViewController(viewModel: vm)
         _ = vc.view
         vc.updateUI()
-        let snapshot = vm.splitUsage.snapshot
-        let summary = try XCTUnwrap(allViews(vc.view).first { $0.accessibilityLabel() == "Cycle usage summary" })
-        let table = try XCTUnwrap(allViews(vc.view).compactMap { $0 as? NSTableView }.first)
-        let recentRefresh = try XCTUnwrap(allViews(vc.view).first { $0.accessibilityLabel() == "Refresh recent usage" })
-        XCTAssertFalse(summary.isHiddenOrHasHiddenAncestor)
-        XCTAssertTrue(table.isHiddenOrHasHiddenAncestor)
-        vm.usageSummarySelected = false
-        vc.updateUI()
-        XCTAssertTrue(summary.isHiddenOrHasHiddenAncestor)
-        XCTAssertFalse(recentRefresh.isHiddenOrHasHiddenAncestor)
+        XCTAssertNil(allViews(vc.view).first { $0.accessibilityLabel() == "Cycle usage summary" })
+        let refresh = try XCTUnwrap(allViews(vc.view).first { $0.accessibilityLabel() == "Refresh recent usage" })
+        XCTAssertFalse(refresh.isHiddenOrHasHiddenAncestor)
         XCTAssertEqual(vm.splitUsage.snapshot, snapshot)
         XCTAssertEqual(vm.splitUsage.amountState, .pending)
     }
 
     func testOffscreenSplitSurfacesFitAndRenderSyntheticFixtures() async throws {
         _ = NSApplication.shared
-        let vm = makeViewModel()
-        try publishSplit(to: vm)
+        let keys = ["popoverValueMode", "estimatedLimitsEnabled", "splitAlertThresholds"]
+        let defaults = UserDefaults.standard
+        let saved = Dictionary(uniqueKeysWithValues: keys.map { ($0, defaults.object(forKey: $0)) })
+        defer { for key in keys { if let value = saved[key] ?? nil { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) } } }
+        let vm = try await makeRecordedViewModel(mode: .both, estimates: false)
         vm.notificationEnabled = true
-        vm.usageSummarySelected = true
+        let estimatedVM = try await makeRecordedViewModel(mode: .both, estimates: true)
+        let dollarsVM = try await makeRecordedViewModel(mode: .dollars, estimates: true)
+        let percentVM = try await makeRecordedViewModel(mode: .percent, estimates: false)
+        let noChartVM = try await makeRecordedViewModel(mode: .both, estimates: false)
+        noChartVM.weeklyChartEnabled = false
         let periodVM = try await makePeriodViewModel()
         let pausedVM = try await makePausedViewModel(sleeping: false)
         let sleepingVM = try await makePausedViewModel(sleeping: true)
         let popover = MenuBarPopoverViewController(viewModel: vm, onLogin: {}, onSettings: {})
         let surfaces: [(String, NSViewController)] = [
             ("popover", popover),
+            ("popover-estimated", MenuBarPopoverViewController(viewModel: estimatedVM, onLogin: {}, onSettings: {})),
+            ("popover-dollars", MenuBarPopoverViewController(viewModel: dollarsVM, onLogin: {}, onSettings: {})),
+            ("popover-percent", MenuBarPopoverViewController(viewModel: percentVM, onLogin: {}, onSettings: {})),
+            ("popover-no-chart", MenuBarPopoverViewController(viewModel: noChartVM, onLogin: {}, onSettings: {})),
             ("popover-period", MenuBarPopoverViewController(viewModel: periodVM, onLogin: {}, onSettings: {})),
             ("display", SettingsAppearanceTabViewController(viewModel: vm)),
             ("display-short", SettingsAppearanceTabViewController(viewModel: vm, screenHeight: { 681 })),
             ("alerts", SettingsNotificationsTabViewController(viewModel: vm)),
-            ("summary", SettingsUsageTabViewController(viewModel: vm)),
-            ("summary-paused", SettingsUsageTabViewController(viewModel: pausedVM)),
-            ("summary-sleeping", SettingsUsageTabViewController(viewModel: sleepingVM)),
+            ("alerts-short", SettingsNotificationsTabViewController(viewModel: vm, screenHeight: { 600 })),
+            ("estimate-help", EstimatedLimitsHelpController()),
+            ("recent", SettingsUsageTabViewController(viewModel: vm)),
+            ("recent-paused", SettingsUsageTabViewController(viewModel: pausedVM)),
+            ("recent-sleeping", SettingsUsageTabViewController(viewModel: sleepingVM)),
         ]
         for (name, controller) in surfaces {
             _ = controller.view
@@ -217,13 +186,13 @@ final class SplitUsageUITests: XCTestCase {
             let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
                                   styleMask: [.borderless], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
-            window.appearance = NSAppearance(named: .aqua)
+            window.appearance = NSAppearance(named: ProcessInfo.processInfo.environment["CM_UI_DARK"] == "1" ? .darkAqua : .aqua)
             controller.view.appearance = window.appearance
             window.contentViewController = controller
             window.setContentSize(size)
             controller.view.layoutSubtreeIfNeeded()
             defer { window.contentViewController = nil; window.close() }
-            XCTAssertEqual(size.width, popoverController != nil ? 300 : 440, accuracy: 1, name)
+            XCTAssertEqual(size.width, popoverController != nil ? 300 : (name == "estimate-help" ? 320 : 440), accuracy: 1, name)
             XCTAssertLessThanOrEqual(size.height, (NSScreen.main?.visibleFrame.height ?? 800) - 20, name)
             let bitmap = try XCTUnwrap(controller.view.bitmapImageRepForCachingDisplay(in: controller.view.bounds))
             window.appearance?.performAsCurrentDrawingAppearance {
@@ -232,7 +201,7 @@ final class SplitUsageUITests: XCTestCase {
             let contents = NSImage(size: controller.view.bounds.size)
             contents.addRepresentation(bitmap)
             let rendered = NSImage(size: controller.view.bounds.size, flipped: false) { rect in
-                NSColor.white.setFill()
+                NSColor.windowBackgroundColor.setFill()
                 rect.fill()
                 contents.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1)
                 return true
@@ -295,7 +264,7 @@ final class SplitUsageUITests: XCTestCase {
         XCTAssertFalse(today.isHiddenOrHasHiddenAncestor)
     }
 
-    func testVisibleSummaryReenablesAmountRefreshWhenCooldownExpires() async throws {
+    func testCycleCollectionCooldownStillAllowsRetryAfterExpiry() async throws {
         var now = Date()
         let controller = SplitUsageController(now: { now }, collect: { _, _, _, _, _ in
             CycleCollectionResult(status: .rateLimited(retryAfter: 60), snapshot: nil, pageCount: 1, byteCount: 0)
@@ -307,17 +276,9 @@ final class SplitUsageUITests: XCTestCase {
             try await Task.sleep(for: .milliseconds(2))
         }
         XCTAssertEqual(controller.amountState, .failed)
-        let vc = SettingsUsageTabViewController(viewModel: vm)
-        _ = vc.view
-        vc.updateUI()
-        vc.viewWillAppear()
-        defer { vc.viewDidDisappear() }
-        let refresh = try XCTUnwrap(allViews(vc.view).compactMap { $0 as? NSButton }
-            .first { $0.accessibilityLabel() == "Refresh cycle amounts" })
-        XCTAssertFalse(refresh.isEnabled)
+        XCTAssertFalse(vm.canRefreshAmounts)
         now = now.addingTimeInterval(61)
-        try await Task.sleep(for: .milliseconds(1_200))
-        XCTAssertTrue(refresh.isEnabled)
+        XCTAssertTrue(vm.canRefreshAmounts)
     }
 
     func testLegacyDisplayKeepsMenuTextAndDisablesPoolPlacement() throws {
@@ -328,39 +289,36 @@ final class SplitUsageUITests: XCTestCase {
         vc.updateUI()
         let placement = try XCTUnwrap(allViews(vc.view).compactMap { $0 as? NSPopUpButton }
             .first { $0.accessibilityLabel() == "Outer ring" })
-        XCTAssertFalse(placement.isEnabled)
+        XCTAssertTrue(placement.isHiddenOrHasHiddenAncestor)
         let legacy = try XCTUnwrap(allViews(vc.view).compactMap { $0 as? NSPopUpButton }
             .first { $0.accessibilityLabel() == "Legacy usage text" })
         XCTAssertTrue(legacy.isEnabled)
         XCTAssertEqual(legacy.selectedItem?.tag, 1)
         XCTAssertEqual(vm.menuBarDisplayMode, 1)
-        XCTAssertTrue(labels(vc.view).contains { $0.contains("Bold notifications are independent") })
+        XCTAssertFalse(labels(vc.view).contains { $0.contains("Bold notifications are independent") })
     }
 
-    func testAlertsExposeIndependentTargetsAndPermissionWithoutRequestingIt() throws {
+    func testLegacyAlertsHideSplitTargetsAndSuccessfulPermissionNoise() throws {
         let vm = makeViewModel()
         let vc = SettingsNotificationsTabViewController(viewModel: vm)
         _ = vc.view
         vc.updateUI()
-        let targets = allViews(vc.view).compactMap { $0 as? NSButton }
-            .filter { ["Cursor Models", "Other Models", "Paid budget"].contains($0.title) }
-        XCTAssertEqual(targets.count, 3)
-        XCTAssertTrue(targets.allSatisfy { !$0.isEnabled })
-        XCTAssertTrue(labels(vc.view).contains { $0.contains("Notification permission:") })
-        XCTAssertTrue(labels(vc.view).contains { $0.contains("Bold") && $0.contains("independent") })
+        let targets = allViews(vc.view).compactMap { $0 as? NSSwitch }
+            .filter { ["Cursor Models alerts", "Other Models alerts", "Paid budget alerts"].contains($0.accessibilityLabel() ?? "") }
+        XCTAssertTrue(targets.allSatisfy { $0.isHiddenOrHasHiddenAncestor })
+        XCTAssertFalse(labels(vc.view).contains { $0.contains("Notification permission:") })
+        XCTAssertFalse(labels(vc.view).contains { $0.contains("Bold") && $0.contains("independent") })
     }
 
-    func testUsageHasSummaryRecentSelectionAndRetainsRecentTimezoneAndViewport() throws {
+    func testUsageRetainsRecentTimezoneAndViewportWithoutSummarySelector() throws {
         let vc = SettingsUsageTabViewController(viewModel: makeViewModel())
         _ = vc.view
         vc.updateUI()
         let selectors = allViews(vc.view).compactMap { $0 as? NSSegmentedControl }
-        let selector = try XCTUnwrap(selectors.first { $0.accessibilityLabel() == "Usage view" })
-        XCTAssertEqual(selector.label(forSegment: 0), "Summary")
-        XCTAssertEqual(selector.label(forSegment: 1), "Recent")
+        XCTAssertNil(selectors.first { $0.accessibilityLabel() == "Usage view" })
         XCTAssertNotNil(selectors.first { $0.accessibilityLabel() == "Time zone" })
         XCTAssertNotNil(allViews(vc.view).compactMap { $0 as? NSTableView }.first)
-        XCTAssertNotNil(allViews(vc.view).first { $0.accessibilityLabel() == "Cycle usage summary" })
+        XCTAssertNil(allViews(vc.view).first { $0.accessibilityLabel() == "Cycle usage summary" })
         XCTAssertEqual(vc.view.fittingSize.width, 440, accuracy: 1)
     }
 
@@ -373,6 +331,44 @@ final class SplitUsageUITests: XCTestCase {
         vm.keychainDeleteHandler = {}
         vm.sessionExpiredNotifier = {}
         vm.authState = .loggedIn
+        return vm
+    }
+
+    private func makeRecordedViewModel(mode: PopoverValueMode, estimates: Bool) async throws -> UsageViewModel {
+        let controller = SplitUsageController(collect: { snapshot, _, _, _, _ in
+            let amounts = CycleAmountSnapshot(identity: snapshot.identity, capturedAt: snapshot.capturedAt,
+                cursorCents: 10000, otherCents: 8200, botCents: 340, paidCents: 200,
+                unknownCents: 0, unknownCount: 0, residualCents: 0,
+                coverage: CycleCoverage(complete: true, pageCount: 2, eventCount: 180),
+                status: .estimatedAttribution, estimatedCursorLimitCents: 100000,
+                estimatedOtherLimitCents: 20000, sourceCursorPercent: 10, sourceOtherPercent: 41)
+            return CycleCollectionResult(status: .complete, snapshot: amounts, pageCount: 2, byteCount: 100)
+        })
+        let vm = makeViewModel(splitUsage: controller)
+        let summary = try publishSplit(to: vm, cursorPercent: 10)
+        controller.requestAmounts(summary: summary, cookieHeader: "synthetic")
+        for _ in 0..<100 where controller.amountState == .refreshing {
+            try await Task.sleep(for: .milliseconds(2))
+        }
+        XCTAssertEqual(controller.amountState, .ready)
+        vm.setPopoverValueMode(mode)
+        vm.setEstimatedLimitsEnabled(estimates)
+        let now = Date()
+        vm.weeklyChartEnabled = true
+        vm.weeklyChartAvailable = true
+        vm.weeklyData = [9, 6, 17, 2, 51, 4, 65].enumerated().map { offset, amount in
+            DayUsage(date: now.addingTimeInterval(Double(offset - 6) * 86400), requests: amount,
+                     isToday: offset == 6, isOnDemand: false, onDemandCents: 0,
+                     totalChargedCents: amount * 10, amountCents: Double(amount * 10))
+        }
+        vm.recentUsage.beginSession(generation: 1)
+        let context = try XCTUnwrap(vm.recentUsage.selectCredential(cookieHeader: "WorkosCursorSessionToken=synthetic", generation: 1, attemptID: 1))
+        XCTAssertTrue(vm.recentUsage.validateIdentity(subject: "synthetic-ui", scope: .personal, context: context))
+        let entries = ["claude-opus-5.5", "composer-2.5", "kimi-k3-high", "grok-4.7"].enumerated().map { offset, model in
+            RecentUsageEntry(date: now.addingTimeInterval(Double(-offset * 60)), model: model,
+                             kind: .included, tokens: 12000 + offset * 1000, chargedCents: Double(36 - offset * 5))
+        }
+        XCTAssertTrue(vm.recentUsage.publish(candidate: RecentUsageCandidate(entries: entries, cachedAt: now), context: context))
         return vm
     }
 
@@ -407,7 +403,6 @@ final class SplitUsageUITests: XCTestCase {
             return CycleCollectionResult(status: .partial, snapshot: amounts, pageCount: 100, byteCount: 1000)
         })
         let vm = makeViewModel(splitUsage: controller)
-        vm.usageSummarySelected = true
         let summary = try publishSplit(to: vm)
         controller.requestAmounts(summary: summary, cookieHeader: "synthetic")
         for _ in 0..<50 where controller.amountState == .refreshing {
@@ -420,9 +415,10 @@ final class SplitUsageUITests: XCTestCase {
 
     @discardableResult
     private func publishSplit(to vm: UsageViewModel, checking: Bool = false, paidEnabled: Bool = true,
-                              otherMissing: Bool = false) throws -> UsageSummaryResponse {
+                              otherMissing: Bool = false, cursorPercent: Double = 135) throws -> UsageSummaryResponse {
         let json = #"{"billingCycleStart":"2026-09-01T00:00:00Z","billingCycleEnd":"2026-10-01T00:00:00Z","membershipType":"ultra","individualUsage":{"plan":{"enabled":true,"used":18200,"limit":40000,"autoPercentUsed":135,"apiPercentUsed":41},"onDemand":{"enabled":PAID,"used":200,"limit":1000}}}"#
             .replacingOccurrences(of: "PAID", with: paidEnabled ? "true" : "false")
+            .replacingOccurrences(of: "\"autoPercentUsed\":135", with: "\"autoPercentUsed\":\(cursorPercent)")
             .replacingOccurrences(of: #""apiPercentUsed":41"#, with: otherMissing ? #""apiPercentUsed":null"# : #""apiPercentUsed":41"#)
         let summary = try JSONDecoder().decode(UsageSummaryResponse.self, from: Data(json.utf8))
         let usage = UsageResponse(models: [:], startOfMonth: nil)
