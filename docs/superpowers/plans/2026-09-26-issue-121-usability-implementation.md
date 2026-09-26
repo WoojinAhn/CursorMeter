@@ -63,8 +63,8 @@ Existing named fields remain usable while diagnostic summary consumers are remov
 - [x] Update before/after mock to exactly reflect segmented controls, information popover and reduced copy. Capture browser and native offscreen UI images, inspect no clipping/PII. Live installed app remains user-controlled.
 - [x] Gate C: all three final reviews returned; Muse/Grok no remaining scoped findings, Opus card background fixed. Later CI scrollbar corrections independently reviewed. Full local suite: 872 tests, zero failures; final CI/package tracked in review record.
 - [x] Update applicable English/Korean README/SECURITY pairs and screenshots, stale-reference sweep, record known unsupported scopes truthfully.
-- [ ] Atomic commits pushed to the existing draft PR; unrelated work preserved. Final ARM/Intel CI verification remains before delivery.
-- [ ] Deliver source/build/test/review evidence and manual-check boundaries; stop only owned caffeine.
+- [x] Atomic commits pushed to the existing draft PR; unrelated work preserved. ARM/Intel CI passed on final source efdf60c (run 36244732358).
+- [x] Source/build/test/review artifacts and manual-check handoff prepared. Installed app remains untouched; release only the task-owned caffeine assertion at the end of delivery.
 
 ## Critical acceptance cases
 

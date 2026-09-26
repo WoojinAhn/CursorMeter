@@ -8,8 +8,8 @@ row includes a commit marker and whose automatic release checking is disabled.
 
 ## First launch and comparison
 
-- [ ] Use `output/issue121-dev-9287e0a/CursorMeter.app` and confirm Settings General
-  shows `9287e0a-dirty`. The dirty suffix reflects preserved unrelated local files;
+- [ ] Use `output/builds/121-usability-efdf60c/CursorMeter.app` and confirm Settings General
+  shows `efdf60c-dirty`. The dirty suffix reflects preserved unrelated local files;
   tracked app build inputs match the reviewed source commit. Earlier candidate
   directories are superseded.
 - [ ] Compare both percentages with the same-cycle Cursor dashboard. Other is the outer
@@ -22,20 +22,20 @@ row includes a commit marker and whose automatic release checking is disabled.
 
 ## Menu bar, hover and popover
 
-- [ ] Hover shows both names/percentages without adding a permanent text width. Amounts
-  and inferred limits are labeled appropriately, with their own snapshot freshness.
+- [ ] Hover shows both names/percentages without adding a permanent text width. The selected cost readout has a concise freshness qualifier only when needed;
+  inferred limits remain hidden until explicitly enabled and eligible.
 - [ ] Hover does not steal focus or intercept a click. Both mouse buttons retain the
   same popover toggle; outside click and another system status menu dismiss it.
 - [ ] Swap outer placement in Display. The other region moves to center, but usage,
   targets, thresholds and alert history do not change.
 - [ ] Check light/dark appearance, different display scale, small/zero/missing values,
   VoiceOver description and keyboard access. Missing is not presented as zero.
-- [ ] Check whether the popover “Included usage” section heading is clear without a
-  total beside it. Included dollars remain in hover and Summary; there is no combined
-  split-plan percentage. This is a nonblocking final-review UX observation.
+- [ ] Check the enlarged C meter and both named readings in Percentage, Dollars and
+  Both modes. Select the mode in Display; the popover itself has no mode controls.
+  There is no combined split-plan percentage or summed inferred allowance.
 - [ ] Keep Settings open while refreshing; current values and amount state update.
-- [ ] If a pool is supplied only by current-period enrichment, hover/AX identifies that
-  source and its own time. It does not cause a late jump or threshold notification.
+- [ ] If a pool is supplied only by current-period enrichment, hover/AX qualifies that
+  condition briefly without collection timestamps. It does not cause a late jump or threshold notification.
 - [ ] Check the largest popover: both pools, paid/Bot, weekly chart, stale/error and
   update rows. Scrollable content does not hide Dashboard/Settings/Log Out/Update/Quit.
 - [ ] Reset countdown refreshes when reopening and its tooltip has the local absolute
@@ -48,13 +48,16 @@ row includes a commit marker and whose automatic release checking is disabled.
   retained. Existing weekly metric/Today-style preferences remain available.
 - [ ] Split uses effective icon-only but retains the saved legacy None/Ratio/Percent
   preference. If a legacy account is available, verify its prior selection returns.
-- [ ] Alerts retain custom warning/critical and app-status preferences. Each pool and
-  eligible paid budget has a separate target; ring placement is independent.
-- [ ] Usage Summary is for the cycle; Recent is still the latest 30 rows, with original
-  timezone, cache timestamp, loading/error and refresh behavior. Switching subviews
-  does not initiate another fetch.
-- [ ] Refresh amounts reports its own pending/cooldown state; normal refresh remains
-  usable and does not wait for the full history scan.
+- [ ] Each pool and eligible paid budget has its own enable switch and dual-thumb
+  warning/critical gauge. Existing shared thresholds are copied once; changing one
+  pool does not change another. App-status preferences and placement remain independent.
+- [ ] Usage opens Recent directly with the latest 30 rows, timezone, cache timestamp
+  and shared refresh. The USD column fits with both automatic and always-visible scrollbars.
+- [ ] Estimated limits start off. Successful info-button access counts as viewing the
+  explanation; first enable shows help only when unseen. Escape/Close restores focus
+  and clicking elsewhere dismisses help without stealing destination focus.
+- [ ] The shared refresh action can retry a cycle-budget stop after cooldown. It does
+  not bypass server backoff or wait for the full history scan.
 
 ## Alerts during ordinary use
 
@@ -73,8 +76,8 @@ by synthetic automated fixtures; the owner can verify delivery during normal act
 - [ ] Relaunch within the same account/cycle does not replay a successfully delivered
   threshold. Clicking a usage notification opens the current popover.
 - [ ] Closing the lid during an amount scan does not leave automatic collection paused
-  for the billing cycle after wake. A real hard collection limit explains the automatic
-  pause and keeps manual retry available after cooldown.
+  for the billing cycle after wake. A real hard collection limit keeps shared
+  manual retry available after cooldown without adding collection diagnostics.
 - [ ] Wake or reconnect does not claim accumulated split usage was a new immediate jump;
   a fresh not-yet-delivered current threshold can still notify once.
 

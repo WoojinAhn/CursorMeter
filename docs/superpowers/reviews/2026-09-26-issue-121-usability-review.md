@@ -162,3 +162,16 @@ attachment and reproduced RED locally (382 > 365). The final fix moves fitting t
 `RecentUsageScrollView.tile()` after `super.tile()` resolves the viewport. It skips
 unchanged widths and retains OS preferences and fixed numeric columns. Both focused
 13-test and full 872-test suites pass; independent code review found no further issues.
+
+## Delivery verification
+
+- Final source: efdf60c. [ARM and Intel CI passed](https://github.com/WoojinAhn/CursorMeter/actions/runs/36244732358).
+- Local `swift test`: 872 tests, zero failures. Installer suite: 12 tests, OK.
+- Release package: `output/builds/121-usability-efdf60c/CursorMeter.app`, dev marker
+  `efdf60c-dirty`; strict ad-hoc verification passed. The suffix includes preserved
+  unrelated local files; tracked source matches the reviewed commit.
+- Final native capture inspected after the tile correction. Installed app untouched.
+- All three Gate C reports returned. The initial Muse failures remain recorded; later
+  scrollbar fixes received an independent code review and both-architecture CI.
+- Draft PR #122 retained. Manual checks: actual menu-bar interaction, accessibility
+  focus/dismissal, notification delivery and other-plan live cost kinds.
