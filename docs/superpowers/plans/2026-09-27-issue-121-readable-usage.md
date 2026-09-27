@@ -15,8 +15,9 @@ Recent history says Updated with its original timestamp, not a new time after ca
 - [x] Show before/after mock for the requested polish.
 - [x] Add meaningful numeric boundary and raw-value regression tests; implement shared formatter.
 - [x] Update settings/help/Recent wording in parallel, retaining user preferences.
-- [ ] Independent review, full tests, inspected native/HTML capture and ARM/Intel CI.
-- [ ] Package and apply the authorized local update; verify UI and stop owned caffeine.
+- [x] Independent review, full tests, inspected native/HTML capture and ARM/Intel CI.
+- [x] Package and apply the authorized local update.
+- [ ] Complete live UI verification after the owner handles the macOS Keychain prompt; stop owned caffeine.
 
 ## Verification
 
@@ -31,4 +32,13 @@ Recent history says Updated with its original timestamp, not a new time after ca
 - Playwright verified typical, small-positive and around-100% HTML scenarios;
   inspected full-page captures are retained locally under `output/playwright/`.
 - Source/UI stale-copy sweep and `git diff --check` passed.
-- ARM/Intel CI, packaging and live installation are recorded below after completion.
+- [ARM and Intel CI passed](https://github.com/WoojinAhn/CursorMeter/actions/runs/36323114672)
+  for source `755eb69`.
+- Release packaging passed in 8.17 seconds; strict ad-hoc signature verification and
+  installed/source SHA-256 comparison passed. Authorized local replacement preserved
+  preferences and backed up the prior bundle. The new dev marker is `755eb69-dirty`;
+  tracked build inputs match the source commit, with unrelated files preserved.
+- Native synthetic captures verify presentation. Live account UI verification is
+  currently waiting for the owner to handle the macOS Keychain confirmation. Process
+  sampling confirmed startup waits in `KeychainStore.loadCookieHeader` /
+  `SecItemCopyMatching`; the security dialog is not automated.
