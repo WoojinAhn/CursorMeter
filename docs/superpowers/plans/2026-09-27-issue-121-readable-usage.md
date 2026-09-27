@@ -17,7 +17,8 @@ Recent history says Updated with its original timestamp, not a new time after ca
 - [x] Update settings/help/Recent wording in parallel, retaining user preferences.
 - [x] Independent review, full tests, inspected native/HTML capture and ARM/Intel CI.
 - [x] Package and apply the authorized local update.
-- [ ] Apply the fixed-decimal follow-up requested during live verification; finish the native check and stop owned caffeine.
+- [x] Apply the fixed-decimal follow-up and verify the live native interface.
+- [ ] Stop owned caffeine after the subsequently requested whole-branch review finishes.
 
 ## Verification
 
@@ -38,10 +39,10 @@ Recent history says Updated with its original timestamp, not a new time after ca
   installed/source SHA-256 comparison passed. Authorized local replacement preserved
   preferences and backed up the prior bundle. The new dev marker is `755eb69-dirty`;
   tracked build inputs match the source commit, with unrelated files preserved.
-- Native synthetic captures verify presentation. Live account UI verification is
-  currently waiting for the owner to handle the macOS Keychain confirmation. Process
-  sampling confirmed startup waits in `KeychainStore.loadCookieHeader` /
-  `SecItemCopyMatching`; the security dialog is not automated.
+- At the initial `755eb69` checkpoint, live account UI verification waited for the
+  owner to handle macOS Keychain confirmation. The owner subsequently handled it;
+  completed live verification of `dfc0694` is recorded below. The security dialog
+  was not automated.
 
 ## Fixed-decimal follow-up
 
@@ -65,3 +66,11 @@ legacy/overlay scrollers and a $1234.57 amount fitting the viewport. Independent
 review found and resolved two accidentally changed legacy expectations; a remaining
 AX selector was updated after removal of position labels. Native dark/light captures
 and the expanded HTML comparison were inspected; documented screenshots refreshed.
+
+Final follow-up source `dfc0694` passed [ARM/Intel CI](https://github.com/WoojinAhn/CursorMeter/actions/runs/36324057613).
+Release packaging and installed/source checksum plus strict signature verification
+passed. Live menu-bar help/AX showed one fixed decimal and no positional parentheses;
+Display preview matched. The real Recent window was visually inspected with the
+new model/time inset and visible right-aligned amounts. No private capture is committed.
+The owner then requested a fresh whole-branch Muse/Grok/Opus review before further
+delivery; caffeine remains active for that follow-up.

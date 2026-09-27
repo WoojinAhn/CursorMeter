@@ -86,10 +86,12 @@ keep that newer primary identity and never replace raw primary event evidence.
 A changed fingerprint or expired measurement requires fresh validation. Primary and
 period precision histories remain separate. Period-only fallback is display enrichment:
 threshold and jump evaluation uses primary summary measurements, so late enrichment
-never creates or replays a consumption event. When period metadata is unavailable at
-both collection boundaries, retain provisional exact family sums using the bounded
-classifier, but do not infer limits. A 429 still stops enrichment and establishes shared
-server backoff.
+never creates or replays a consumption event. When period metadata is unavailable with
+the same failure signature at both collection boundaries, retain provisional exact
+family sums using the current fallback classifier. Opt-in inferred limits may use
+primary summary percentages when coverage, reconciliation, source matching, precision
+and spillover checks pass. A 429 still stops enrichment and establishes shared server
+backoff.
 
 For a verified personal token-based paid scope, presence of a valid pool field
 establishes split capability for the accepted account/cycle/product scope; a companion

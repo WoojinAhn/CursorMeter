@@ -85,7 +85,8 @@ Do not use `requestsCosts`, `tokenUsage.totalCents`, product IDs or `isHeadless`
 which model pool was charged. None was verified as a charged-pool identifier.
 
 Normalize a model using ASCII lowercase and outer whitespace trimming only; do not
-rewrite separators. Version-1 bounded correction matches full strings:
+rewrite separators. The version-2 classifier retains these bounded correction
+patterns, matching full strings:
 
 ```text
 ^(?:cursor-)?grok-4\.(?:5|6|7)(?:-[a-z0-9]+)*$
@@ -93,15 +94,21 @@ rewrite separators. Version-1 bounded correction matches full strings:
 ```
 
 This includes observed version families and suffix grammar, not arbitrary future
-versions. Reject `grok-4.8`, `composer-3`, `not-cursor-grok-4.7` and substring matches.
+versions. `grok-4.8`, `composer-3`, `not-cursor-grok-4.7` and substring matches do
+not receive Cursor classification through the correction table alone.
 Recognize explicit `grok-bot-` before the server list or correction. Exact normalized
 server membership (including opaque aliases such as default/vega) is stronger family
-evidence than provisional corrections; neither is proof of charge routing. When the
-server list is absent, bounded families may still be provisional family amounts, but
-inferred pool limits are unavailable until coherent metadata is available.
+evidence than provisional corrections; neither is proof of charge routing. Every
+remaining nonblank name is provisionally Other (`nonCursorRemainder`), including
+unrecognized aliases and bare provider names. Blank names remain unresolved. There
+is no Other-provider allowlist. Discard version-1 snapshots and recollect them.
 
-Known third-party provider prefixes: `claude-`, `gpt-`, `gemini-` with a nonempty suffix.
-They are family evidence only. Unrecognized aliases and bare provider names are Unknown.
+An absent/empty server list does not independently block inferred limits. Validated
+fallback attribution may support opt-in estimates when coverage, reconciliation,
+source matching, percentage precision and spillover guards all pass. A missing or
+lagging catalog can misattribute an unrecognized Cursor alias to Other; inferred
+limits remain provisional. The [design contract](2026-09-26-issue-121-split-usage-design.md#classification-version-2)
+is the current authority for this policy.
 
 Included allowlist initially: `USAGE_EVENT_KIND_INCLUDED_IN_ULTRA`,
 `USAGE_EVENT_KIND_INCLUDED_IN_BUSINESS`, `USAGE_EVENT_KIND_FREE_CREDIT`.

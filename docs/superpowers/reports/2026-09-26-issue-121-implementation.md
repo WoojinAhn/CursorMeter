@@ -1,6 +1,13 @@
 # CursorMeter split usage implementation report
 
-**Status: development, requested review checkpoints and automated validation complete. Native installation and live verification remain the owner’s next-morning handoff.**
+**Historical checkpoint: the first implementation handoff on 2026-09-26.**
+
+This report preserves that checkpoint's behavior, tests and uninstalled candidate.
+Later owner feedback replaced Summary with Recent-only Usage, revised the popover
+and settings, and authorized local installation. For current behavior and validation,
+see the [design contract](../specs/2026-09-26-issue-121-split-usage-design.md),
+[usability review](../reviews/2026-09-26-issue-121-usability-review.md) and
+[whole-branch review](../reviews/2026-09-27-issue-121-full-branch.md).
 
 CursorMeter now represents Cursor Models and Other Models independently in its menu bar, hover details, popover, settings and alerts. The legacy included-dollar limit no longer defines a combined split-plan percentage. Dollar activity is retained with source time, coverage and conditional estimates. Included-dollar jump messages remain aggregate; per-pool dollar attribution for individual polling intervals is deferred.
 
