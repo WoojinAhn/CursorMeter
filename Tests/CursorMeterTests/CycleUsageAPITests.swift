@@ -18,6 +18,47 @@ final class CycleUsageAPITests: XCTestCase, @unchecked Sendable {
         let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [MockURLProtocol.self]
         return CursorAPIClient(configuration: config)
     }
+    func testCycleSummaryDecodesSameSummaryAsPrimaryEndpoint() async throws {
+        MockURLProtocol.requestHandler = { request in
+            XCTAssertEqual(request.url?.path, "/api/usage-summary")
+            XCTAssertEqual(request.httpMethod, "GET")
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"membershipType":"ultra","individualUsage":{"plan":{"used":123,"limit":1000,"autoPercentUsed":12.3}}}"#.utf8))
+        }
+        let api = client()
+        let enrichment = try await api.fetchUsageSummaryForCycleValidation(cookieHeader: "test")
+        let primary = try await api.fetchUsageSummary(cookieHeader: "test")
+        XCTAssertEqual(enrichment.membershipType, primary.membershipType)
+        XCTAssertEqual(enrichment.individualUsage?.plan?.used, 123)
+        XCTAssertEqual(enrichment.individualUsage?.plan?.autoPercentUsed, primary.individualUsage?.plan?.autoPercentUsed)
+    }
+    func testCycleSummaryAuthenticationErrorsStaySeparateFromPrimaryErrors() async throws {
+        for status in [204, 401, 403] {
+            MockURLProtocol.requestHandler = { request in
+                (HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!, Data())
+            }
+            let api = client()
+            do { _ = try await api.fetchUsageSummaryForCycleValidation(cookieHeader: "test"); XCTFail("Expected enrichment failure") }
+            catch { XCTAssertTrue(error is CycleEnrichmentError); XCTAssertFalse(error is APIError) }
+            do { _ = try await api.fetchUsageSummary(cookieHeader: "test"); XCTFail("Expected primary authentication failure") }
+            catch APIError.unauthorized { XCTAssertNotEqual(status, 403) }
+            catch APIError.forbidden { XCTAssertEqual(status, 403) }
+            catch { XCTFail("Unexpected primary error: \(error)") }
+        }
+    }
+    @MainActor
+    func testCancelledCycleSummaryDoesNotStartRequestOrBecomeTransportFailure() async throws {
+        MockURLProtocol.requestHandler = { _ in
+            XCTFail("Cancelled validation must not send a request")
+            throw URLError(.cancelled)
+        }
+        let api = client()
+        let task = Task { try await api.fetchUsageSummaryForCycleValidation(cookieHeader: "test") }
+        task.cancel()
+        do { _ = try await task.value; XCTFail("Expected cancellation") }
+        catch is CancellationError { }
+        catch { XCTFail("Unexpected cancellation mapping: \(error)") }
+    }
     func testPeriodPostsEmptyPersonalBodyAndOrigin() async throws {
         MockURLProtocol.requestHandler = { request in
             XCTAssertEqual(request.url?.path, "/api/dashboard/get-current-period-usage")

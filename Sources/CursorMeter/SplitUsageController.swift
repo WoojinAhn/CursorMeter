@@ -53,7 +53,7 @@ final class SplitUsageController {
             self.collect = { snapshot, summary, cookie, allowance, supplement in
                 let collector = CycleUsageCollector(budget: .init(maxPages: allowance), fetchPage: { page, bytes in
                     try await apiClient.fetchCycleUsagePage(cookieHeader: cookie, teamId: 0, userId: nil, page: page, maximumBytes: bytes)
-                }, fetchSummary: { try await apiClient.fetchUsageSummary(cookieHeader: cookie) }, fetchPeriod: {
+                }, fetchSummary: { try await apiClient.fetchUsageSummaryForCycleValidation(cookieHeader: cookie) }, fetchPeriod: {
                     try await apiClient.fetchCurrentPeriodUsage(cookieHeader: cookie)
                 }, onSupplement: supplement)
                 return await collector.collect(snapshot: snapshot, summary: summary)

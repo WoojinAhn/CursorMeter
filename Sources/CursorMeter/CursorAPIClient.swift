@@ -132,6 +132,13 @@ actor CursorAPIClient {
         return try JSONDecoder().decode(HardLimitResponse.self, from: data)
     }
 
+    /// Monthly revalidation preserves retry metadata without owning primary authentication.
+    func fetchUsageSummaryForCycleValidation(cookieHeader: String) async throws -> UsageSummaryResponse {
+        let data = try await performEnrichmentRequest(url: Self.usageSummaryURL,
+            cookieHeader: cookieHeader, method: "GET", body: nil, maximumBytes: Int.max)
+        return try JSONDecoder().decode(UsageSummaryResponse.self, from: data)
+    }
+
     func fetchCurrentPeriodUsage(cookieHeader: String) async throws -> CurrentPeriodUsageResponse {
         let data = try await performEnrichmentRequest(
             url: URL(string: "https://cursor.com/api/dashboard/get-current-period-usage")!,
@@ -148,15 +155,17 @@ actor CursorAPIClient {
     }
 
     // Enrichment must never become an authentication authority for primary refresh.
-    private func performEnrichmentRequest(url: URL, cookieHeader: String, body: Data, maximumBytes: Int) async throws -> Data {
+    private func performEnrichmentRequest(url: URL, cookieHeader: String, method: String = "POST", body: Data?, maximumBytes: Int) async throws -> Data {
         try Task.checkCancellation()
         var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.httpBody = body
+        request.httpMethod = method
         request.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
         request.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
-        request.setValue("https://cursor.com", forHTTPHeaderField: "Origin")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if method == "POST" { request.setValue("https://cursor.com", forHTTPHeaderField: "Origin") }
+        if let body {
+            request.httpBody = body
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
         let data: Data
         let response: URLResponse
         do { (data, response) = try await session.data(for: request) }
