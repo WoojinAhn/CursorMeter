@@ -12,6 +12,19 @@ final class SplitUsageAlertsTests: XCTestCase {
             paidCents: paid, paidCapCents: cap, paidEnabled: enabled, continuityReset: reset)
     }
 
+    func testReadablePercentagesDoNotRoundThresholdDecisions() {
+        var engine = SplitUsageAlertEngine()
+        var policy = SplitAlertPolicy()
+        policy.targets = [.cursor]
+        policy.thresholdsByScope = [.cursor: .init(warning: 95, critical: 100)]
+        let below = engine.accept(sample(1, cursor: 99.99), policy: policy)
+        XCTAssertEqual(below.thresholds.first?.level, .warning)
+        XCTAssertTrue(below.thresholds.first?.body.contains("<100% used") == true)
+        let above = engine.accept(sample(2, cursor: 100.01), policy: policy)
+        XCTAssertEqual(above.thresholds.first?.level, .critical)
+        XCTAssertTrue(above.thresholds.first?.body.contains(">100% used") == true)
+    }
+
     func testCredentialRenewalPreservesCycleHighWater() {
         var engine = SplitUsageAlertEngine()
         _ = engine.accept(sample(1, cursor: 50), policy: .init())
@@ -41,8 +54,8 @@ final class SplitUsageAlertsTests: XCTestCase {
         XCTAssertEqual(Set(batch.thresholds.map(\.scope)), [.cursor, .onDemand])
         XCTAssertEqual(batch.thresholds.first { $0.scope == .cursor }?.level, .critical)
         XCTAssertEqual(batch.thresholds.first { $0.scope == .onDemand }?.level, .warning)
-        XCTAssertTrue(batch.thresholds.first { $0.scope == .cursor }?.body.contains("Current 75.00%") == true)
-        XCTAssertTrue(batch.thresholds.first { $0.scope == .cursor }?.body.contains("threshold 70%") == true)
+        XCTAssertTrue(batch.thresholds.first { $0.scope == .cursor }?.body.contains("75% used") == true)
+        XCTAssertTrue(batch.thresholds.first { $0.scope == .cursor }?.body.contains("alert at 70%") == true)
     }
 
     func testEffectiveThresholdComparisonIgnoresShadowedLegacyValues() {
@@ -107,7 +120,7 @@ final class SplitUsageAlertsTests: XCTestCase {
         XCTAssertEqual(jump?.deltas[.included], 40)
         XCTAssertEqual(jump?.title, "Included usage increased")
         XCTAssertTrue(jump?.body.contains("+$0.40 since last refresh") == true)
-        XCTAssertTrue(jump?.body.contains("Cursor Models 1.00%, Other Models 1.00%") == true)
+        XCTAssertTrue(jump?.body.contains("Cursor Models 1%, Other Models 1%") == true)
         XCTAssertFalse(jump?.body.contains("allocation") == true)
     }
 
@@ -119,7 +132,7 @@ final class SplitUsageAlertsTests: XCTestCase {
         XCTAssertEqual(jump?.tier, 1)
         XCTAssertEqual(jump?.deltas[.cursor], 6)
         XCTAssertTrue(jump?.correctedScopes.contains(.cursor) == true)
-        XCTAssertTrue(jump?.body.contains("+6.00 pp above previous peak") == true)
+        XCTAssertTrue(jump?.body.contains("+6 percentage points above previous peak") == true)
         XCTAssertFalse(jump?.body.contains("since last refresh") == true)
     }
 
@@ -185,7 +198,7 @@ final class SplitUsageAlertsTests: XCTestCase {
         let cursor = batch.thresholds.first { $0.scope == .cursor }
         XCTAssertEqual(cursor?.level, .critical)
         XCTAssertEqual(cursor?.coveredIdentities.count, 2)
-        XCTAssertTrue(cursor?.body.contains("Current 95") == true)
+        XCTAssertTrue(cursor?.body.contains("95% used") == true)
         XCTAssertTrue(cursor?.body.contains("90%") == true)
     }
 

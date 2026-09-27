@@ -3,16 +3,40 @@ import XCTest
 @testable import CursorMeter
 
 final class SplitUsagePresentationTests: XCTestCase {
-    func testHealthyHoverKeepsNamedPlacementAndExactPercentWithoutDiagnostics() {
+    func testHealthyHoverKeepsNamedPlacementAndReadablePercentWithoutDiagnostics() {
         let current = snapshot(cursor: 135.25, other: 0)
         let result = SplitUsagePresentation.make(snapshot: current)
         XCTAssertEqual(result.pools.map(\.id), [.other, .cursor])
         XCTAssertTrue(result.tooltip.contains("Other Models (outer ring): 0%"))
-        XCTAssertTrue(result.tooltip.contains("Cursor Models (center pie): 135.25%"))
+        XCTAssertTrue(result.tooltip.contains("Cursor Models (center): 135.3%"))
         XCTAssertEqual(result.accessibilityValue, result.tooltip)
         for forbidden in ["Ready", "Percent refreshed", "Cycle:", "Coverage:", "residual", "private-account", "private-scope", "private-plan", "$400"] {
             XCTAssertFalse(result.tooltip.contains(forbidden), forbidden)
         }
+    }
+
+    func testReadablePercentagesPreserveZeroAndLimitBoundaries() {
+        let cases: [(Double?, String)] = [
+            (nil, "—"), (.nan, "—"), (.infinity, "—"), (-.infinity, "—"), (-1, "—"),
+            (-0.0, "0%"), (0, "0%"), (Double.leastNonzeroMagnitude, "<0.1%"),
+            (0.049, "<0.1%"), (0.0999, "<0.1%"), (0.1, "0.1%"),
+            (1.977667, "2%"), (26.734, "26.7%"), (2.5, "2.5%"),
+            (99.94, "99.9%"), (99.95, "<100%"), (99.99, "<100%"),
+            (100, "100%"), (100.01, ">100%"), (100.05, "100.1%"), (135.25, "135.3%"),
+        ]
+        for (value, expected) in cases {
+            let result = SplitUsagePresentation.make(snapshot: snapshot(cursor: value, other: 41))
+            XCTAssertEqual(result.pools.first { $0.id == .cursor }?.percentText, expected, "Input: \(String(describing: value))")
+        }
+    }
+
+    func testRoundedDisplayDoesNotMakeMismatchedEstimateCurrent() {
+        let current = snapshot(cursor: 10.001, other: 41)
+        let result = SplitUsagePresentation.make(snapshot: current, amounts: estimatedAmounts(for: current),
+                                                amountState: .ready, showEstimatedLimits: true)
+        let cursor = result.pools.first { $0.id == .cursor }
+        XCTAssertEqual(cursor?.percentText, "10%")
+        XCTAssertNil(cursor?.limitText)
     }
 
     func testDefaultHidesInferredLimitsButRetainsRecordedCosts() {
@@ -25,10 +49,10 @@ final class SplitUsagePresentationTests: XCTestCase {
 
     func testMissingValuesRemainUnavailableAndFailureRetainsPercent() {
         let result = SplitUsagePresentation.make(snapshot: snapshot(cursor: nil, other: 41), amountState: .failed, percentIsStale: true)
-        XCTAssertEqual(result.pools.first { $0.id == .cursor }?.percentText, "Unavailable")
+        XCTAssertEqual(result.pools.first { $0.id == .cursor }?.percentText, "—")
         XCTAssertTrue(result.tooltip.contains("41%"))
-        XCTAssertTrue(result.tooltip.contains("Cost refresh failed"))
-        XCTAssertTrue(result.tooltip.contains("Percentages are old"))
+        XCTAssertTrue(result.tooltip.contains("Couldn't update costs"))
+        XCTAssertTrue(result.tooltip.contains("Usage may be out of date"))
         XCTAssertTrue(result.pools.allSatisfy { $0.amountText == nil && $0.limitText == nil })
     }
 
@@ -39,7 +63,7 @@ final class SplitUsagePresentationTests: XCTestCase {
         XCTAssertEqual(cursor.amountText, "$10.00")
         XCTAssertNil(cursor.limitText)
         XCTAssertEqual(result.pools.first { $0.id == .other }?.limitText, "~$200")
-        XCTAssertTrue(result.tooltip.contains("Costs are old"))
+        XCTAssertTrue(result.tooltip.contains("Showing earlier costs"))
         XCTAssertFalse(result.tooltip.contains("snapshot"))
     }
 
@@ -49,15 +73,15 @@ final class SplitUsagePresentationTests: XCTestCase {
         amounts.isCached = false
         let unchanged = SplitUsagePresentation.make(snapshot: current, amounts: amounts, amountState: .ready,
             showEstimatedLimits: true)
-        XCTAssertFalse(unchanged.tooltip.contains("Costs are old"))
+        XCTAssertFalse(unchanged.tooltip.contains("Showing earlier costs"))
         XCTAssertEqual(unchanged.pools.first { $0.id == .cursor }?.limitText, "~$100")
         let changed = SplitUsagePresentation.make(snapshot: snapshot(cursor: 11, other: 41), amounts: amounts,
             amountState: .ready, showEstimatedLimits: true)
-        XCTAssertTrue(changed.tooltip.contains("Costs are old"))
+        XCTAssertTrue(changed.tooltip.contains("Showing earlier costs"))
         XCTAssertNil(changed.pools.first { $0.id == .cursor }?.limitText)
         amounts.sourceOtherPercent = nil
         let uncertain = SplitUsagePresentation.make(snapshot: current, amounts: amounts, amountState: .ready)
-        XCTAssertTrue(uncertain.tooltip.contains("Costs are old"))
+        XCTAssertTrue(uncertain.tooltip.contains("Showing earlier costs"))
     }
 
     func testHealthyCurrentCostsUseWholeDollarEstimateWithoutStatusParagraph() {
@@ -106,7 +130,7 @@ final class SplitUsagePresentationTests: XCTestCase {
             XCTAssertEqual(result.tooltip.contains("$10.00"), mode != .percent)
         }
         let missing = SplitUsagePresentation.make(snapshot: current, valueMode: .dollars)
-        XCTAssertTrue(missing.pools.allSatisfy { $0.readoutText == "Unavailable" })
+        XCTAssertTrue(missing.pools.allSatisfy { $0.readoutText == "—" })
     }
 
     func testPartialOrForeignAmountsNeverBecomePoolAmountsOrLimits() {
@@ -152,7 +176,7 @@ final class SplitUsagePresentationTests: XCTestCase {
         amounts.coverage.complete = true
         let old = SplitUsagePresentation.make(snapshot: current, amounts: amounts, amountState: .ready,
                                                showEstimatedLimits: true)
-        XCTAssertEqual(old.detailLines, ["Included total: $182.00", "Bot activity: $3.00", "Costs are old"])
+        XCTAssertEqual(old.detailLines, ["Included total: $182.00", "Bot activity: $3.00", "Showing earlier costs"])
     }
     private func snapshot(cursor: Double?, other: Double?) -> SplitUsageSnapshot {
         SplitUsageSnapshot(

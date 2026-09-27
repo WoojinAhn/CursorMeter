@@ -61,7 +61,7 @@ final class SettingsAppearanceTabViewController: NSViewController {
         weeklyChartSection = SettingsCardFactory.makeSection(
             header: "Weekly Chart", content: makeWeeklyChartCard())
         menuBarSection = SettingsCardFactory.makeSection(header: "Menu Bar", content: makeMenuBarCard())
-        popoverSection = SettingsCardFactory.makeSection(header: "Popover", content: makePopoverCard())
+        popoverSection = SettingsCardFactory.makeSection(header: "Usage display", content: makePopoverCard())
         content = SettingsCardFactory.makeTabRoot(sections: [
             menuBarSection,
             popoverSection,
@@ -198,11 +198,11 @@ final class SettingsAppearanceTabViewController: NSViewController {
         weeklyChartMetricPopUp.selectItem(at: viewModel.effectiveWeeklyChartMetric == .amount ? 0 : 1)
         weeklyChartMetricPopUp.isEnabled = viewModel.weeklyChartEnabled
         if !amountAvailable {
-            weeklyChartMetricCaption.stringValue = "Amount unavailable for this history; showing usage units."
+            weeklyChartMetricCaption.stringValue = "Showing usage units; costs unavailable."
         } else if viewModel.effectiveWeeklyChartMetric == .amount {
-            weeklyChartMetricCaption.stringValue = "Total usage value, including plan-covered usage."
+            weeklyChartMetricCaption.stringValue = "Includes plan-covered and paid usage."
         } else {
-            weeklyChartMetricCaption.stringValue = "Weighted activity, not the number of requests."
+            weeklyChartMetricCaption.stringValue = "Requests weighted by model."
         }
     }
 
@@ -224,7 +224,7 @@ final class SettingsAppearanceTabViewController: NSViewController {
         }
         menuBarDisplayPopUp.target = self
         menuBarDisplayPopUp.action = #selector(menuBarDisplayModeChanged)
-        menuBarDisplayPopUp.setAccessibilityLabel("Legacy usage text")
+        menuBarDisplayPopUp.setAccessibilityLabel("Menu bar usage text")
         outerPoolPopUp.addItems(withTitles: ["Other Models", "Cursor Models"])
         outerPoolPopUp.target = self
         outerPoolPopUp.action = #selector(outerPoolChanged)
@@ -281,7 +281,7 @@ final class SettingsAppearanceTabViewController: NSViewController {
             SettingsCardFactory.makeCardRow(title: "Show estimated limits", control: controls))
         valuePreview.setAccessibilityLabel("Popover values preview")
         return SettingsCardFactory.makeCard(units: [
-            SettingsCardFactory.makeCardRow(title: "Usage values", control: popoverValuesSegmented),
+            SettingsCardFactory.makeCardRow(title: "Show usage as", control: popoverValuesSegmented),
             SettingsCardFactory.makeFullWidthCardRow(valuePreview),
             estimatedLimitsRow,
         ])
@@ -377,7 +377,7 @@ final class SettingsAppearanceTabViewController: NSViewController {
         return SettingsCardFactory.makeCard(units: [
             SettingsCardFactory.makeCardRow(
                 title: "Show weekly chart",
-                caption: "Rolling 7-day usage.",
+                caption: "Last 7 days.",
                 control: weeklyChartToggle
             ),
             SettingsCardFactory.makeDividedUnit(metricUnit),

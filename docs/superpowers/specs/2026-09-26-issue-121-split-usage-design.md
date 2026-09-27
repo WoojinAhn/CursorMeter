@@ -296,7 +296,7 @@ fractional cents to manufacture agreement. Keep residual and coverage in interna
 
 An estimated effective limit is `attributable included cents / (poolPercent / 100)`.
 
-**User opt-in (2026-09-26 usability revision):** add the persisted Display > Popover
+**User opt-in (2026-09-26 usability revision):** add the persisted Display > Usage display
 preference **Show estimated limits**, default off, independent of Percentage / Dollars /
 Both. Off hides inferred denominators everywhere without hiding recorded costs or
 changing reported percentages, circle geometry, alert thresholds, or paid budget caps.
@@ -316,7 +316,7 @@ show permanent explanatory paragraphs. Help content:
 - Plan changes or usage spilling into another pool can require revalidation.
 - Circles and alerts use reported percentages.
 Keep the explanation out of the main usage popover. Enabled but ineligible inference
-may show one short Estimate not ready status. Disabled inference is an ordinary
+may show one short Limit estimate unavailable status. Disabled inference is an ordinary
 amount-only view. Preserve the preference while hiding controls on unsupported accounts.
 
 Require complete stable reconciled coverage, same scope/cycle/plan/revision values,
@@ -492,12 +492,23 @@ Do not request notification permission just by opening Settings. Unit tests must
 
 Usability revision, 2026-09-26: these requirements supersede the earlier Summary
 and diagnostic-heavy UI. The interactive proposal is `docs/mockup-121-usability.html`;
-native presentation changes are still pending implementation.
+The implemented surfaces also follow the readable-value polish in
+`docs/mockup-121-readable-usage.html` (2026-09-27).
 
 - **Icon:** clamp geometry to 0…100, retain source value in text. Zero has visible track;
   missing has a distinct dashed/neutral unavailable region, not an empty-zero fill.
   Independent regions remain legible in light/dark and without color. Existing
   70%/90% yellow/red boundaries stay independent of 80%/90% alert defaults.
+- **Readable values (2026-09-27):** split-pool percentage text uses at most one
+  decimal, with trailing zeroes removed. Positive values below 0.1% display `<0.1%`;
+  values immediately below/above 100% display `<100%`/`>100%` when normal rounding
+  would hide that distinction. Missing or invalid values display `—`, with
+  `Not available` in descriptive accessibility/hover text. Keep source precision
+  unchanged for geometry, thresholds, estimation and snapshot matching. Existing
+  whole-percent single-pool presentation remains unchanged. Notifications share this
+  formatter; increases spell out `percentage points`, and threshold messages use
+  `85.1% used (alert at 80%)`. Use short state copy such as `Showing earlier costs`
+  and `Couldn't update costs`; Recent labels its original snapshot time `Updated`.
 - **Hover/AX:** use native `NSStatusBarButton.toolTip` with structured multiline plain
   text and equivalent accessibility value. Hover never fetches or takes focus; opening
   the popover dismisses it. Include both named pools in saved spatial order. Describe
@@ -505,7 +516,7 @@ native presentation changes are still pending implementation.
 - **Popover:** use 300 pt width for split, existing width for legacy. Enlarge the same
   central-pie/outer-ring geometry used in the menu bar. The review mock proposes 112 px;
   verify native fitting rather than treating HTML pixels as exact AppKit parity. Do not
-  replace this visualization with two horizontal progress bars. Put exact pool readings
+  replace this visualization with two horizontal progress bars. Put readable pool readings
   beside the circle, identified by outer-outline and center-filled markers.
   Percentage mode shows both pool percentages. Dollars mode shows recorded family
   amounts and, only when opted in and eligible, each pool's estimated limit. Both mode
@@ -524,8 +535,8 @@ native presentation changes are still pending implementation.
 - **Display settings:** show a working outer-pool selector and preview for split plans.
   Hide irrelevant legacy text controls while preserving their saved preferences; show
   the working None/Ratio/Percent selector only for applicable single-pool plans. Hide
-  split placement controls on single-pool plans. A Popover section provides the saved
-  Usage values preference: % / $ / Both, default Both, using NSSegmentedControl. This control
+  split placement controls on single-pool plans. A Usage display section provides the saved
+  Show usage as preference: % / $ / Both, default Both, using NSSegmentedControl. This control
   belongs only in Settings, never in the popover. Its preview honors the same amount
   availability, estimate opt-in, and estimated-limit conditions as the popover. Add the
   default-off Show estimated limits switch and information popover specified in section 4

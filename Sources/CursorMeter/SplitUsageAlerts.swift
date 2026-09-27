@@ -222,7 +222,7 @@ struct SplitUsageAlertEngine {
                 batch.thresholds.append(SplitThresholdEvent(scope: scope, level: critical ? .critical : .warning,
                     identity: critical ? criticalID : warningID,
                     coveredIdentities: critical ? [warningID, criticalID] : [warningID],
-                    body: "\(scope.label): Current \(Self.number(percent))%, threshold \(critical ? thresholds.critical : thresholds.warning)%"))
+                    body: "\(scope.label): \(UsagePercentFormatter.percent(percent)) used (alert at \(critical ? thresholds.critical : thresholds.warning)%)."))
             }
         }
         return batch
@@ -236,19 +236,17 @@ struct SplitUsageAlertEngine {
         return value
     }
 
-    private static func number(_ value: Double) -> String { String(format: "%.2f", value) }
-
     private func makeJump(tier: Int, deltas: [SplitAlertScope: Double], corrected: Set<SplitAlertScope>, observation: SplitUsageObservation) -> SplitUsageJump {
         let lines = SplitAlertScope.allCases.compactMap { scope -> String? in
             guard let delta = deltas[scope] else { return nil }
-            let amount = scope == .cursor || scope == .other ? "+\(Self.number(delta)) pp" : String(format: "+$%.2f", delta / 100)
+            let amount = scope == .cursor || scope == .other ? UsagePercentFormatter.percentagePoints(delta) : String(format: "+$%.2f", delta / 100)
             let reference = corrected.contains(scope) ? "above previous peak" : "since last refresh"
             return "\(scope.label): \(amount) \(reference)"
         }
         var body = lines.joined(separator: "\n")
         if deltas[.included] != nil {
-            let cursor = Self.valid(observation.cursorPercent).map { Self.number($0) + "%" } ?? "Unavailable"
-            let other = Self.valid(observation.otherPercent).map { Self.number($0) + "%" } ?? "Unavailable"
+            let cursor = UsagePercentFormatter.percent(observation.cursorPercent)
+            let other = UsagePercentFormatter.percent(observation.otherPercent)
             body += "\nNow: Cursor Models \(cursor), Other Models \(other)."
         }
         return SplitUsageJump(tier: tier, deltas: deltas, correctedScopes: corrected,

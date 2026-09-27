@@ -29,7 +29,7 @@ final class UsabilityPopoverTests: XCTestCase {
             XCTAssertLessThanOrEqual(controller.testHook_contentFittingWidth(), 280)
             XCTAssertTrue((meter.accessibilityValue() as? String)?.contains("Other Models (outer ring): 41%") == true)
             let labels = visibleLabels(controller.view)
-            for label in ["Cursor Models", "Other Models", "135.25%", "41%"] { XCTAssertTrue(labels.contains(label), label) }
+            for label in ["Cursor Models", "Other Models", "135.3%", "41%"] { XCTAssertTrue(labels.contains(label), label) }
             for label in views(controller.view).compactMap({ $0 as? NSTextField })
                 .filter({ ["Cursor Models", "Other Models"].contains($0.stringValue) }) {
                 var parent: NSView? = label

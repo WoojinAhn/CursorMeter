@@ -39,7 +39,7 @@ final class UsabilitySettingsTests: XCTestCase {
         try publishSplit(to: vm)
         let vc = SettingsAppearanceTabViewController(viewModel: vm)
         _ = vc.view
-        let legacy = try XCTUnwrap(views(vc.view).first { $0.accessibilityLabel() == "Legacy usage text" })
+        let legacy = try XCTUnwrap(views(vc.view).first { $0.accessibilityLabel() == "Menu bar usage text" })
         XCTAssertTrue(legacy.isHiddenOrHasHiddenAncestor)
         XCTAssertFalse(visibleLabels(vc.view).contains("On hover"))
         let controls = views(vc.view).compactMap { $0 as? NSSegmentedControl }

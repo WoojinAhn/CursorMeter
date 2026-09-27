@@ -37,7 +37,7 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
         heading.setAccessibilityLabel("Recent usage")
         cachedLabel.font = .systemFont(ofSize: 10)
         cachedLabel.textColor = .tertiaryLabelColor
-        cachedLabel.setAccessibilityLabel("Cached at")
+        cachedLabel.setAccessibilityLabel("Last updated")
         countLabel.font = .systemFont(ofSize: 11)
         countLabel.textColor = .secondaryLabelColor
         zoneLabel.font = .systemFont(ofSize: 10)
@@ -108,7 +108,7 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
         let header = NSStackView(views: [titleStack, SettingsCardFactory.makeSpacer(), refreshButton])
         header.orientation = .horizontal
         header.alignment = .centerY
-        header.spacing = 6
+        header.spacing = 5
         header.edgeInsets = NSEdgeInsets(top: 12, left: 14, bottom: 6, right: 14)
 
         let countRow = NSStackView(views: [countLabel, SettingsCardFactory.makeSpacer(), zoneLabel, zoneControl])
@@ -176,7 +176,7 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
         zoneControl.toolTip = zoneIdentifier
         zoneControl.setAccessibilityHelp(zoneIdentifier)
         let cachedText = candidate.map {
-            "Cached \(RecentUsageFormatter.cachedTime($0.cachedAt, mode: mode)) \(RecentUsageFormatter.zoneLabel(mode: mode, at: $0.cachedAt))"
+            "Updated \(RecentUsageFormatter.cachedTime($0.cachedAt, mode: mode)) \(RecentUsageFormatter.zoneLabel(mode: mode, at: $0.cachedAt))"
         } ?? ""
         let cacheStatus = NSMutableAttributedString(string: cachedText, attributes: [
             .font: NSFont.systemFont(ofSize: 10), .foregroundColor: NSColor.tertiaryLabelColor,

@@ -39,7 +39,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         _ = dispatcher.accept(sample(2, percent: 85), policy: policy)
         await settle(dispatcher)
         XCTAssertEqual(bodies.count, 1)
-        XCTAssertTrue(bodies[0].contains("threshold 70%"))
+        XCTAssertTrue(bodies[0].contains("alert at 70%"))
         _ = dispatcher.accept(sample(3, percent: 85), policy: policy)
         await settle(dispatcher)
         XCTAssertEqual(bodies.count, 1)
@@ -77,7 +77,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         gate.release()
         await settle(dispatcher)
         XCTAssertEqual(bodies.count, 1)
-        XCTAssertFalse(bodies.first?.contains("threshold") == true)
+        XCTAssertFalse(bodies.first?.contains("alert at") == true)
         XCTAssertTrue(bodies.first?.contains("+$0.40") == true)
     }
 
@@ -132,7 +132,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         gate.release()
         await settle(dispatcher)
         XCTAssertEqual(bodies.count, 1)
-        XCTAssertTrue(bodies.first?.contains("Current 190.00%") == true)
+        XCTAssertTrue(bodies.first?.contains("190% used") == true)
     }
 
     func testCorrectionDuringDeliveryStillRecordsActuallyDeliveredThreshold() async {
@@ -198,8 +198,8 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         gate.release()
         await settle(dispatcher)
         XCTAssertEqual(bodies.count, 1)
-        XCTAssertTrue(bodies.first?.contains("Current 97.00%") == true)
-        XCTAssertFalse(bodies.first?.contains("Current 95.00%") == true)
+        XCTAssertTrue(bodies.first?.contains("97% used") == true)
+        XCTAssertFalse(bodies.first?.contains("95% used") == true)
     }
 
     func testEmptyNewestRevisionRetainsPendingJumpWithinOriginalContinuity() async {
@@ -240,8 +240,8 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         gate.release()
         await settle(dispatcher)
         XCTAssertEqual(bodies.count, 1)
-        XCTAssertTrue(bodies.first?.contains("threshold 90%") == true)
-        XCTAssertTrue(bodies.first?.contains("+15.00 pp") == true)
+        XCTAssertTrue(bodies.first?.contains("alert at 90%") == true)
+        XCTAssertTrue(bodies.first?.contains("+15 percentage points") == true)
     }
 
     func testRetainedPendingBoldExpiresAtOriginalTimestamp() async {
@@ -264,8 +264,8 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         gate.release()
         await settle(dispatcher)
         XCTAssertEqual(bodies.count, 1)
-        XCTAssertTrue(bodies.first?.contains("threshold 90%") == true)
-        XCTAssertFalse(bodies.first?.contains("+15.00 pp") == true)
+        XCTAssertTrue(bodies.first?.contains("alert at 90%") == true)
+        XCTAssertFalse(bodies.first?.contains("+15 percentage points") == true)
     }
 
     func testPendingBoldSurvivesThresholdEditButNotBoldDisable() async {
@@ -290,8 +290,8 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
             await settle(dispatcher)
             XCTAssertEqual(bodies.count, disableBold ? 0 : 1)
             if !disableBold {
-                XCTAssertTrue(bodies.first?.contains("+15.00 pp") == true)
-                XCTAssertFalse(bodies.first?.contains("threshold") == true)
+                XCTAssertTrue(bodies.first?.contains("+15 percentage points") == true)
+                XCTAssertFalse(bodies.first?.contains("alert at") == true)
             }
         }
     }
@@ -320,7 +320,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
             gate.release()
             await settle(dispatcher)
             XCTAssertEqual(bodies.count, 1, change)
-            XCTAssertFalse(bodies.first?.contains("+15.00 pp") == true, change)
+            XCTAssertFalse(bodies.first?.contains("+15 percentage points") == true, change)
         }
     }
 
@@ -343,8 +343,8 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         gate.release()
         await settle(dispatcher)
         XCTAssertEqual(bodies.count, 2)
-        XCTAssertTrue(bodies.last?.contains("+20.00 pp") == true)
-        XCTAssertFalse(bodies.last?.contains("+15.00 pp") == true)
+        XCTAssertTrue(bodies.last?.contains("+20 percentage points") == true)
+        XCTAssertFalse(bodies.last?.contains("+15 percentage points") == true)
     }
 
     func testContinuityResetRetiresAwaitingBoldAndRetainsCycleHighWater() async {
@@ -384,7 +384,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         gate.release()
         await settle(dispatcher)
         XCTAssertEqual(bodies.count, 1)
-        XCTAssertTrue(bodies.first?.contains("threshold") == true)
+        XCTAssertTrue(bodies.first?.contains("alert at") == true)
         XCTAssertFalse(bodies.first?.contains("+$0.40") == true)
     }
 
@@ -401,7 +401,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         _ = dispatcher.accept(sample(2, percent: 95, cents: 40), policy: policy)
         await settle(dispatcher)
         XCTAssertEqual(bodies.count, 1)
-        XCTAssertTrue(bodies.first?.contains("threshold 90%") == true)
+        XCTAssertTrue(bodies.first?.contains("alert at 90%") == true)
         XCTAssertTrue(bodies.first?.contains("+$0.40") == true)
         _ = dispatcher.accept(sample(3, percent: 85, cents: 40), policy: policy)
         await settle(dispatcher)
@@ -425,7 +425,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         gate.release()
         await settle(dispatcher)
         XCTAssertEqual(bodies.count, 1)
-        XCTAssertTrue(bodies.last?.contains("Current 95") == true)
+        XCTAssertTrue(bodies.last?.contains("95% used") == true)
     }
 
     func testThresholdPolicyEditRetainsBoldWhileAwaitingAuthorization() async {
@@ -441,7 +441,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         gate.release()
         await settle(dispatcher)
         XCTAssertEqual(bodies.count, 1)
-        XCTAssertFalse(bodies[0].contains("threshold"))
+        XCTAssertFalse(bodies[0].contains("alert at"))
         XCTAssertTrue(bodies[0].contains("+$0.40"))
     }
 
@@ -458,7 +458,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         gate.release()
         await settle(dispatcher)
         XCTAssertEqual(bodies.count, 1)
-        XCTAssertTrue(bodies[0].contains("threshold"))
+        XCTAssertTrue(bodies[0].contains("alert at"))
         XCTAssertFalse(bodies[0].contains("+$0.40"))
     }
 
@@ -528,6 +528,6 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         await settle(dispatcher)
         XCTAssertEqual(bodies.count, 1)
         XCTAssertFalse(bodies[0].contains("+$0.40"))
-        XCTAssertTrue(bodies[0].contains("threshold"))
+        XCTAssertTrue(bodies[0].contains("alert at"))
     }
 }

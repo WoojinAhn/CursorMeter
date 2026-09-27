@@ -23,7 +23,7 @@ struct SplitPaidPresentation: Sendable {
 struct SplitPoolPresentation: Sendable {
     enum Position: Sendable {
         case outer, center
-        var text: String { self == .outer ? "outer ring" : "center pie" }
+        var text: String { self == .outer ? "outer ring" : "center" }
     }
     let id: UsagePoolID
     let position: Position
@@ -41,7 +41,8 @@ struct SplitPoolPresentation: Sendable {
     }
 
     var line: String {
-        var result = "\(id.displayName) (\(position.text)): \(percentText)"
+        let percent = percentText == "—" ? "Not available" : percentText
+        var result = "\(id.displayName) (\(position.text)): \(percent)"
         if showsMoney, let moneyText { result += " · " + moneyText }
         return result
     }
@@ -79,17 +80,17 @@ struct SplitUsagePresentation: Sendable {
             let amountText = attributed.map { usd($0.amountCents(for: pool)) }
             let limitText = limit.map { "~" + wholeUSD($0) }
             let moneyText = amountText.map { amount in limitText.map { amount + " / " + $0 } ?? amount }
-            let percentText = percent(snapshot[pool])
+            let percentText = UsagePercentFormatter.percent(snapshot[pool])
             return SplitPoolPresentation(
                 id: pool, position: index == 0 ? .outer : .center,
                 percentText: percentText, amountText: amountText, limitText: limitText,
                 statusText: "", sourceText: nil,
-                readoutText: valueMode == .dollars ? amountText ?? "Unavailable" : percentText,
+                readoutText: valueMode == .dollars ? amountText ?? "—" : percentText,
                 detailText: valueMode == .both ? moneyText : (valueMode == .dollars ? limitText.map { "of " + $0 } : nil),
                 showsMoney: valueMode != .percent)
         }
         var details: [String] = []
-        if percentIsStale { details.append("Percentages are old") }
+        if percentIsStale { details.append("Usage may be out of date") }
         if valueMode != .percent {
             if let used = snapshot.includedUsedCents { details.append("Included total: \(usd(used))") }
             if let amounts = attributed, amounts.botCents > 0 {
@@ -105,29 +106,19 @@ struct SplitUsagePresentation: Sendable {
             } ?? false
             var costStatus: String?
             switch amountState {
-            case .failed: costStatus = costsAreOld ? "Costs are old · update failed" : "Cost refresh failed"
-            case .pending where attributed == nil: costStatus = "Costs pending"
+            case .failed: costStatus = costsAreOld ? "Earlier costs · update failed" : "Couldn't update costs"
+            case .pending where attributed == nil: costStatus = "Costs not available yet"
             case .refreshing where attributed == nil: costStatus = "Loading costs…"
             case .ready where attributed == nil, .unavailable where attributed == nil: costStatus = "Costs unavailable"
-            default: costStatus = costsAreOld ? "Costs are old" : nil
+            default: costStatus = costsAreOld ? "Showing earlier costs" : nil
             }
             if costStatus == nil, attributed != nil, showEstimatedLimits, pools.contains(where: { $0.limitText == nil }) {
-                costStatus = "Estimate not ready"
+                costStatus = "Limit estimate unavailable"
             }
             if let costStatus { details.append(costStatus) }
         }
         if let paid, let line = paidLine(paid) { details.append(line) }
         return Self(pools: pools, detailLines: details)
-    }
-
-    private static func percent(_ value: Double?) -> String {
-        guard let value = SplitUsageSnapshot.validPercent(value) else { return "Unavailable" }
-        let formatter = NumberFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.numberStyle = .decimal
-        formatter.usesGroupingSeparator = false
-        formatter.maximumFractionDigits = 6
-        return (formatter.string(from: NSNumber(value: value)) ?? String(value)) + "%"
     }
 
     private static func usd(_ cents: Decimal) -> String {

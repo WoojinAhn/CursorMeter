@@ -175,3 +175,17 @@ unchanged widths and retains OS preferences and fixed numeric columns. Both focu
   scrollbar fixes received an independent code review and both-architecture CI.
 - Draft PR #122 retained. Manual checks: actual menu-bar interaction, accessibility
   focus/dismissal, notification delivery and other-plan live cost kinds.
+
+
+## Readable values and copy, 2026-09-27
+
+The follow-up [plan](../plans/2026-09-27-issue-121-readable-usage.md) and
+[before/after mock](../../mockup-121-readable-usage.html) cover the owner's request
+to remove excessive percentage precision and internal terminology. Split percentages
+now use at most one decimal; source data, thresholds, estimation and freshness
+matching remain unchanged. Settings and help retain their controls while shortening
+copy, and Recent says Updated with its original snapshot time. New raw-value/boundary
+regressions and all 876 local tests pass. Independent review found no blocking issue;
+inspected synthetic native screenshots were refreshed in dark mode, with a light-mode
+capture check as well. Prior three-model review records above apply to the larger
+reform; this narrow polish received a separate local code review.

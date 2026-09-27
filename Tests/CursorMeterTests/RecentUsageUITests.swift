@@ -183,13 +183,13 @@ final class RecentUsageUITests: XCTestCase {
         vc.updateUI()
         XCTAssertTrue(labels(in: vc.view).contains("Loading recent usage…"))
         XCTAssertFalse(labels(in: vc.view).contains("0 requests"))
-        XCTAssertFalse(labels(in: vc.view).contains { $0.hasPrefix("Cached ") })
+        XCTAssertFalse(labels(in: vc.view).contains { $0.hasPrefix("Updated ") })
         let cachedAt = Date(timeIntervalSince1970: 1_700_000_000)
         _ = try publish([], to: vm, at: cachedAt)
         vc.updateUI()
         XCTAssertTrue(labels(in: vc.view).contains("No recent usage"))
         XCTAssertTrue(labels(in: vc.view).contains("0 requests"))
-        XCTAssertTrue(labels(in: vc.view).contains { $0.hasPrefix("Cached ") })
+        XCTAssertTrue(labels(in: vc.view).contains { $0.hasPrefix("Updated ") })
     }
 
     func testFailureRetainsRowsAndOriginalCacheTime() throws {
@@ -203,7 +203,7 @@ final class RecentUsageUITests: XCTestCase {
         let vc = SettingsUsageTabViewController(viewModel: vm)
         _ = vc.view
         vc.updateUI()
-        let originalCacheLabel = try XCTUnwrap(labels(in: vc.view).first { $0.hasPrefix("Cached ") })
+        let originalCacheLabel = try XCTUnwrap(labels(in: vc.view).first { $0.hasPrefix("Updated ") })
         XCTAssertEqual(table(in: vc.view)?.numberOfRows, 1)
         let retry = try XCTUnwrap(vm.recentUsage.selectCredential(
             cookieHeader: "WorkosCursorSessionToken=synthetic-ui", generation: 1, attemptID: 2))
@@ -316,7 +316,7 @@ final class RecentUsageUITests: XCTestCase {
         vc.updateUI()
         vc.view.layoutSubtreeIfNeeded()
         let cacheLabel = try XCTUnwrap(allViews(in: vc.view).compactMap { $0 as? NSTextField }
-            .first { $0.stringValue.hasPrefix("Cached ") })
+            .first { $0.stringValue.hasPrefix("Updated ") })
         let button = try XCTUnwrap(allViews(in: vc.view).compactMap { $0 as? RefreshFeedbackButton }.first)
         let cacheParent = try XCTUnwrap(cacheLabel.superview)
         let buttonParent = try XCTUnwrap(button.superview)
@@ -331,7 +331,7 @@ final class RecentUsageUITests: XCTestCase {
         assertHeaderDoesNotOverlap()
         XCTAssertTrue(cacheLabel.stringValue.hasSuffix(" · Update failed"))
         for zone in ["GMT+12:45", "GMT-09:30"] {
-            cacheLabel.stringValue = "Cached 2026-12-31 23:59 \(zone) · Update failed"
+            cacheLabel.stringValue = "Updated 2026-12-31 23:59 \(zone) · Update failed"
             vc.view.layoutSubtreeIfNeeded()
             XCTAssertGreaterThanOrEqual(cacheLabel.alignmentRect(forFrame: cacheLabel.frame).width + 0.01,
                                        cacheLabel.intrinsicContentSize.width,
@@ -365,7 +365,7 @@ final class RecentUsageUITests: XCTestCase {
         XCTAssertTrue(text.contains("Try again later."))
         XCTAssertFalse(text.contains("Couldn’t update. Try again later."))
         XCTAssertFalse(text.contains("0 requests"))
-        XCTAssertFalse(text.contains { $0.hasPrefix("Cached ") })
+        XCTAssertFalse(text.contains { $0.hasPrefix("Updated ") })
         _ = vm.refreshFeedback.begin(generation: 1)
         vc.updateUI()
         let retryText = labels(in: vc.view)

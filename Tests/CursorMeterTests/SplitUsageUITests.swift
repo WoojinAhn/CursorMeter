@@ -85,7 +85,7 @@ final class SplitUsageUITests: XCTestCase {
         let placement = try XCTUnwrap(popups.first { $0.accessibilityLabel() == "Outer ring" })
         XCTAssertTrue(placement.isEnabled)
         XCTAssertEqual(placement.titleOfSelectedItem, "Cursor Models")
-        let legacy = try XCTUnwrap(popups.first { $0.accessibilityLabel() == "Legacy usage text" })
+        let legacy = try XCTUnwrap(popups.first { $0.accessibilityLabel() == "Menu bar usage text" })
         XCTAssertTrue(legacy.isHiddenOrHasHiddenAncestor)
         XCTAssertEqual(legacy.selectedItem?.tag, 1)
         XCTAssertFalse(labels(vc.view).contains("On hover"))
@@ -100,8 +100,8 @@ final class SplitUsageUITests: XCTestCase {
         _ = vc.view
         vc.updateUI()
         XCTAssertEqual(vc.preferredContentSize.width, 300)
-        XCTAssertEqual(labels(vc.view).filter { $0 == "Unavailable" }.count, 2)
-        XCTAssertFalse(labels(vc.view).contains { $0.contains("Costs pending") || $0.contains("Estimate not ready") })
+        XCTAssertEqual(labels(vc.view).filter { $0 == "—" }.count, 2)
+        XCTAssertFalse(labels(vc.view).contains { $0.contains("Costs not available yet") || $0.contains("Limit estimate unavailable") })
         vm.splitUsage.reset()
         vc.updateUI()
         XCTAssertEqual(vc.preferredContentSize.width, 260)
@@ -291,7 +291,7 @@ final class SplitUsageUITests: XCTestCase {
             .first { $0.accessibilityLabel() == "Outer ring" })
         XCTAssertTrue(placement.isHiddenOrHasHiddenAncestor)
         let legacy = try XCTUnwrap(allViews(vc.view).compactMap { $0 as? NSPopUpButton }
-            .first { $0.accessibilityLabel() == "Legacy usage text" })
+            .first { $0.accessibilityLabel() == "Menu bar usage text" })
         XCTAssertTrue(legacy.isEnabled)
         XCTAssertEqual(legacy.selectedItem?.tag, 1)
         XCTAssertEqual(vm.menuBarDisplayMode, 1)
@@ -340,12 +340,12 @@ final class SplitUsageUITests: XCTestCase {
                 cursorCents: 10000, otherCents: 8200, botCents: 340, paidCents: 200,
                 unknownCents: 0, unknownCount: 0, residualCents: 0,
                 coverage: CycleCoverage(complete: true, pageCount: 2, eventCount: 180),
-                status: .estimatedAttribution, estimatedCursorLimitCents: 100000,
-                estimatedOtherLimitCents: 20000, sourceCursorPercent: 10, sourceOtherPercent: 41)
+                status: .estimatedAttribution, estimatedCursorLimitCents: 10000 / (10.123456 / 100),
+                estimatedOtherLimitCents: 20000, sourceCursorPercent: 10.123456, sourceOtherPercent: 41)
             return CycleCollectionResult(status: .complete, snapshot: amounts, pageCount: 2, byteCount: 100)
         })
         let vm = makeViewModel(splitUsage: controller)
-        let summary = try publishSplit(to: vm, cursorPercent: 10)
+        let summary = try publishSplit(to: vm, cursorPercent: 10.123456)
         controller.requestAmounts(summary: summary, cookieHeader: "synthetic")
         for _ in 0..<100 where controller.amountState == .refreshing {
             try await Task.sleep(for: .milliseconds(2))

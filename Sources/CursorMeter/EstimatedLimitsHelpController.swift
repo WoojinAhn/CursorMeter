@@ -24,9 +24,9 @@ final class EstimatedLimitsHelpController: NSViewController, NSPopoverDelegate {
         let heading = NSTextField(labelWithString: "About estimated limits")
         heading.font = .systemFont(ofSize: 13, weight: .semibold)
         let bullets = [
-            "Unofficial limits estimated from sufficient matching usage and cost history.",
-            "Plan changes or usage spilling into another pool can require revalidation.",
-            "Circles and alerts use reported percentages.",
+            "Estimated from usage history, not an official limit.",
+            "Estimates may change or become unavailable as your plan and usage change.",
+            "Circles and alerts use Cursor's reported percentages.",
         ].map { text in
             let label = NSTextField(wrappingLabelWithString: "• " + text)
             label.font = .systemFont(ofSize: 12)
