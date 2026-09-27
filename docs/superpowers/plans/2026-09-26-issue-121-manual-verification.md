@@ -1,17 +1,19 @@
 # Issue 121 native verification handoff
 
-The running app and its installed bundle are not changed during development. Automated
-results and build provenance are recorded in the final implementation report. The checks
+The owner authorized local replacement after the initial development handoff. Current
+source, installed-build identity and validation are recorded in
+[the whole-branch review](../reviews/2026-09-27-issue-121-full-branch.md), with earlier
+live checks in [the readable-usage plan](2026-09-27-issue-121-readable-usage.md). The checks
 below require the owner's native session and are deliberately **not marked passed by
 HTML screenshots or offscreen tests**. Use a development build, whose Settings version
 row includes a commit marker and whose automatic release checking is disabled.
 
 ## First launch and comparison
 
-- [ ] Use `output/builds/121-usability-efdf60c/CursorMeter.app` and confirm Settings General
-  shows `efdf60c-dirty`. The dirty suffix reflects preserved unrelated local files;
-  tracked app build inputs match the reviewed source commit. Earlier candidate
-  directories are superseded.
+- [ ] Use the installed or candidate build named in the current review record, and
+  confirm its matching development commit in Settings General. A dirty suffix can
+  reflect preserved unrelated local files; verify the recorded build provenance.
+  Do not use a superseded candidate from the original implementation report.
 - [ ] Compare both percentages with the same-cycle Cursor dashboard. Other is the outer
   ring and Cursor the center by default. The old included-dollar limit does not define
   either region.
@@ -34,10 +36,13 @@ row includes a commit marker and whose automatic release checking is disabled.
   Both modes. Select the mode in Display; the popover itself has no mode controls.
   There is no combined split-plan percentage or summed inferred allowance.
 - [ ] Keep Settings open while refreshing; current values and amount state update.
-- [ ] If a pool is supplied only by current-period enrichment, hover/AX qualifies that
-  condition briefly without collection timestamps. It does not cause a late jump or threshold notification.
+- [ ] A pool supplied only by coherent current-period enrichment uses the same concise
+  name/percentage in hover and VoiceOver, without source annotations. It does not cause
+  a late jump or threshold notification.
 - [ ] Check the largest popover: both pools, paid/Bot, weekly chart, stale/error and
   update rows. Scrollable content does not hide Dashboard/Settings/Log Out/Update/Quit.
+  With popover and Settings open, also change the system scrollbar preference and
+  check that controls remain reachable and labels do not clip.
 - [ ] Reset countdown refreshes when reopening and its tooltip has the local absolute
   reset date. Cmd+, opens Settings and closes the popover.
 
@@ -67,8 +72,10 @@ by synthetic automated fixtures; the owner can verify delivery during normal act
 - [ ] Bold still reports an eligible +$0.30 included total increase even when pool pp
   changes are small. A +$0.05 tier-1 effect does not imply a system banner.
 - [ ] With threshold alerts off and Bold on, an eligible tier-2 jump can still notify.
-- [ ] Unattributed aggregate dollars are called Included Usage, not assigned to whichever
+- [ ] Unattributed aggregate dollars are called Included usage, not assigned to whichever
   region is outside. There is no guessed Max-mode cause.
+- [ ] Paid threshold messages say Paid budget; paid dollar jumps say Paid spending.
+  Legacy alert settings use Usage for included, request-quota and on-demand modes.
 - [ ] Both glyph styles restore the latest C icon after 6/15 seconds. New values,
   placement and tooltip/AX remain current while the temporary glyph is showing.
 - [ ] Disabling effects while a glyph is active restores the current icon immediately.

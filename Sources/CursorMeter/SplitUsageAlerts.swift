@@ -40,10 +40,10 @@ enum SplitAlertScope: String, Sendable, Codable, CaseIterable {
     case included, cursor, other, onDemand
     var label: String {
         switch self {
-        case .included: "Included Usage"
+        case .included: "Included usage"
         case .cursor: "Cursor Models"
         case .other: "Other Models"
-        case .onDemand: "On-demand"
+        case .onDemand: "Paid spending"
         }
     }
 }
@@ -219,10 +219,11 @@ struct SplitUsageAlertEngine {
                 let budget = scope == .onDemand ? cap : nil
                 let warningID = observation.ownership.identity(scope: scope, level: "warning", value: thresholds.warning, budget: budget)
                 let criticalID = observation.ownership.identity(scope: scope, level: "critical", value: thresholds.critical, budget: budget)
+                let label = scope == .onDemand ? "Paid budget" : scope.label
                 batch.thresholds.append(SplitThresholdEvent(scope: scope, level: critical ? .critical : .warning,
                     identity: critical ? criticalID : warningID,
                     coveredIdentities: critical ? [warningID, criticalID] : [warningID],
-                    body: "\(scope.label): \(UsagePercentFormatter.percent(percent)) used (alert at \(critical ? thresholds.critical : thresholds.warning)%)."))
+                    body: "\(label): \(UsagePercentFormatter.percent(percent)) used (alert at \(critical ? thresholds.critical : thresholds.warning)%)."))
             }
         }
         return batch

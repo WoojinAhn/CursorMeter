@@ -54,6 +54,8 @@ final class SplitUsageAlertsTests: XCTestCase {
         XCTAssertEqual(Set(batch.thresholds.map(\.scope)), [.cursor, .onDemand])
         XCTAssertEqual(batch.thresholds.first { $0.scope == .cursor }?.level, .critical)
         XCTAssertEqual(batch.thresholds.first { $0.scope == .onDemand }?.level, .warning)
+        XCTAssertEqual(batch.thresholds.first { $0.scope == .onDemand }?.body,
+                       "Paid budget: 85.0% used (alert at 80%).")
         XCTAssertTrue(batch.thresholds.first { $0.scope == .cursor }?.body.contains("75.0% used") == true)
         XCTAssertTrue(batch.thresholds.first { $0.scope == .cursor }?.body.contains("alert at 70%") == true)
     }
@@ -119,7 +121,7 @@ final class SplitUsageAlertsTests: XCTestCase {
         XCTAssertEqual(jump?.tier, 2)
         XCTAssertEqual(jump?.deltas[.included], 40)
         XCTAssertEqual(jump?.title, "Included usage increased")
-        XCTAssertTrue(jump?.body.contains("+$0.40 since last refresh") == true)
+        XCTAssertTrue(jump?.body.contains("Included usage: +$0.40 since last refresh") == true)
         XCTAssertTrue(jump?.body.contains("Cursor Models 1.0%, Other Models 1.0%") == true)
         XCTAssertFalse(jump?.body.contains("allocation") == true)
     }
@@ -179,7 +181,9 @@ final class SplitUsageAlertsTests: XCTestCase {
     func testPaidZeroWithoutCapAndDisabledResidualAndCapTransition() {
         var engine = SplitUsageAlertEngine()
         _ = engine.accept(sample(1, paid: 0, enabled: true), policy: .init())
-        XCTAssertEqual(engine.accept(sample(2, paid: 30, enabled: true), policy: .init()).jump?.tier, 2)
+        let jump = engine.accept(sample(2, paid: 30, enabled: true), policy: .init()).jump
+        XCTAssertEqual(jump?.tier, 2)
+        XCTAssertEqual(jump?.body, "Paid spending: +$0.30 since last refresh")
         XCTAssertNil(engine.accept(sample(3, paid: 100, enabled: false), policy: .init()).jump)
         XCTAssertNil(engine.accept(sample(4, paid: 200, cap: 1000, enabled: true), policy: .init()).jump)
         XCTAssertNil(engine.accept(sample(5, paid: 230, cap: 2000, enabled: true), policy: .init()).jump)

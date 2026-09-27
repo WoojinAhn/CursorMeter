@@ -20,7 +20,7 @@ Unlike in-editor extensions, CursorMeter runs independently as a native macOS ap
 ## Features
 
 - **Split usage at a glance** — eligible personal paid plans show Cursor Models in the center pie and Other Models in the outer ring. Each region has its own percentage and color; choose the outer pool in Display settings. Missing data stays unavailable.
-- View billing usage, request counts, and reset date from the menu bar
+- View usage and the reset date from the menu bar; single-pool plans also show request counts when available
 - macOS notifications at customizable thresholds (default: 80%/90%), with independent switches and warning/critical thresholds for Cursor Models, Other Models, and eligible paid budgets.
 - **Usage-jump effect** — menu bar icon flashes ⚡ on a moderate jump and 🚀 on a large jump, so a sudden spike is hard to miss. Three intensity levels (Quiet / Normal / Bold) and a choice of glyph style (⚡/🚀 or 💲/💸); Bold also raises a macOS notification on tier-2 jumps, independently of usage-alert targets and their master switch. Split plans retain the $0.05/$0.30 included-usage sensitivity alongside +5/+15 percentage-point signals; the message names the measured scope without guessing the cause.
 - **Weekly usage chart** (all plans) — rolling 7-day bar graph with a choice of **Amount** (default) or **Usage units** in Settings → Display. Bar height, color, and hover tooltip use the same metric. Amount includes plan-covered and on-demand usage value, not just additional charges; if monetary data is missing, the chart uses weighted usage units (`requestsCosts`) instead. Configurable today-highlight (Outline / Dim others / Both).
@@ -111,8 +111,8 @@ Found a bug or have an idea? [Open an issue](https://github.com/WoojinAhn/Cursor
 ## Screenshots
 
 <p align="center">
-  <a href="docs/screenshots/menubar.png"><img src="docs/screenshots/menubar.png" alt="CursorMeter in the menu bar" height="28"></a><br>
-  Usage at a glance, right in your menu bar.
+  <a href="docs/screenshots/menubar.png"><img src="docs/screenshots/menubar.png" alt="CursorMeter menu bar for a single-pool plan" height="28"></a><br>
+  Menu-bar view for a single-pool plan. Split-plan views appear below.
 </p>
 
 <table>

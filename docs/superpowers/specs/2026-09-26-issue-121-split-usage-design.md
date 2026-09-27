@@ -1,17 +1,18 @@
 # CursorMeter split usage reform — issue 121
 
-Status: implemented and validated through Muse / Grok / Opus specification, core and
-integrated review gates, with final findings reconciled. Source commit `9287e0a`.
-Native installation and live verification remain the owner’s handoff.
+Status: implemented through specification, core and integration reviews, followed by
+the owner's usability revisions and authorized local verification. Current source,
+installation evidence and the ongoing whole-branch review are tracked in
+[the review record](../reviews/2026-09-27-issue-121-full-branch.md).
 Baseline: `origin/main` at `c0225f7`; branch: `feature/121-split-usage`.
 Issue: https://github.com/WoojinAhn/CursorMeter/issues/121
 
 The user authorized implementation, parallel development, repeated three-model review,
-and automated validation on 2026-09-26. Do not install, replace, launch, or alter the
-running CursorMeter app or its persisted preferences. Native interaction verification
-belongs to the user's next-morning handoff. Keep the task-owned sleep assertion until
-work is complete. No release, major version change, main merge, or issue closure is part
-of this work.
+and automated validation on 2026-09-26, initially reserving native installation for a
+next-morning handoff. Later explicit local-replacement requests authorized the recorded
+installation and live checks; that initial restriction is historical. Preserve user
+preferences and keep the task-owned sleep assertion until work is complete. No release,
+major version change, main merge, or issue closure is part of this work.
 
 This is the authoritative implementation contract. Earlier
 `design-121-settings-alerts.md` and `design-121-app-wide.md` are discussion drafts;

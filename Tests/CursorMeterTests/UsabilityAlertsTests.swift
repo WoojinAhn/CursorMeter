@@ -115,7 +115,7 @@ final class UsabilityAlertsTests: XCTestCase {
         vm.splitUsage.reset()
         let vc = SettingsNotificationsTabViewController(viewModel: vm)
         _ = vc.view
-        let gauge = try XCTUnwrap(slider("Included usage thresholds", in: vc.view))
+        let gauge = try XCTUnwrap(slider("Usage thresholds", in: vc.view))
         gauge.onChange?(55, 75)
         XCTAssertEqual(vm.warningThreshold, 55)
         XCTAssertEqual(vm.criticalThreshold, 75)

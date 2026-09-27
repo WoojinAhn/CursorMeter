@@ -153,6 +153,8 @@ final class SplitUsageUITests: XCTestCase {
         defer { for key in keys { if let value = saved[key] ?? nil { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) } } }
         let vm = try await makeRecordedViewModel(mode: .both, estimates: false)
         vm.notificationEnabled = true
+        let legacyVM = makeViewModel()
+        legacyVM.notificationEnabled = true
         let estimatedVM = try await makeRecordedViewModel(mode: .both, estimates: true)
         let dollarsVM = try await makeRecordedViewModel(mode: .dollars, estimates: true)
         let percentVM = try await makeRecordedViewModel(mode: .percent, estimates: false)
@@ -172,6 +174,7 @@ final class SplitUsageUITests: XCTestCase {
             ("display", SettingsAppearanceTabViewController(viewModel: vm)),
             ("display-short", SettingsAppearanceTabViewController(viewModel: vm, screenHeight: { 681 })),
             ("alerts", SettingsNotificationsTabViewController(viewModel: vm)),
+            ("alerts-legacy", SettingsNotificationsTabViewController(viewModel: legacyVM)),
             ("alerts-short", SettingsNotificationsTabViewController(viewModel: vm, screenHeight: { 600 })),
             ("estimate-help", EstimatedLimitsHelpController()),
             ("recent", SettingsUsageTabViewController(viewModel: vm)),

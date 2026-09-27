@@ -45,7 +45,7 @@ final class SettingsNotificationsTabViewController: NSViewController {
         let master = SettingsCardFactory.makeCard(units: [SettingsCardFactory.makeCardRow(
             title: "Usage alerts", control: notificationToggle)])
         var cards: [NSView] = [permissionCard, master]
-        let legacy = makeAlertCard(title: "Included usage", scope: nil)
+        let legacy = makeAlertCard(title: "Usage", scope: nil)
         legacyCard = legacy
         cards.append(legacy.view)
         for scope in [SplitAlertScope.cursor, .other, .onDemand] {
