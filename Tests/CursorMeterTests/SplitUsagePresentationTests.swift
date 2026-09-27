@@ -3,12 +3,12 @@ import XCTest
 @testable import CursorMeter
 
 final class SplitUsagePresentationTests: XCTestCase {
-    func testHealthyHoverKeepsNamedPlacementAndReadablePercentWithoutDiagnostics() {
+    func testHealthyHoverKeepsNamedPoolsAndReadablePercentWithoutDiagnostics() {
         let current = snapshot(cursor: 135.25, other: 0)
         let result = SplitUsagePresentation.make(snapshot: current)
         XCTAssertEqual(result.pools.map(\.id), [.other, .cursor])
-        XCTAssertTrue(result.tooltip.contains("Other Models (outer ring): 0%"))
-        XCTAssertTrue(result.tooltip.contains("Cursor Models (center): 135.3%"))
+        XCTAssertTrue(result.tooltip.contains("Other Models: 0.0%"))
+        XCTAssertTrue(result.tooltip.contains("Cursor Models: 135.3%"))
         XCTAssertEqual(result.accessibilityValue, result.tooltip)
         for forbidden in ["Ready", "Percent refreshed", "Cycle:", "Coverage:", "residual", "private-account", "private-scope", "private-plan", "$400"] {
             XCTAssertFalse(result.tooltip.contains(forbidden), forbidden)
@@ -18,11 +18,12 @@ final class SplitUsagePresentationTests: XCTestCase {
     func testReadablePercentagesPreserveZeroAndLimitBoundaries() {
         let cases: [(Double?, String)] = [
             (nil, "—"), (.nan, "—"), (.infinity, "—"), (-.infinity, "—"), (-1, "—"),
-            (-0.0, "0%"), (0, "0%"), (Double.leastNonzeroMagnitude, "<0.1%"),
+            (-0.0, "0.0%"), (0, "0.0%"), (Double.leastNonzeroMagnitude, "<0.1%"),
             (0.049, "<0.1%"), (0.0999, "<0.1%"), (0.1, "0.1%"),
-            (1.977667, "2%"), (26.734, "26.7%"), (2.5, "2.5%"),
-            (99.94, "99.9%"), (99.95, "<100%"), (99.99, "<100%"),
-            (100, "100%"), (100.01, ">100%"), (100.05, "100.1%"), (135.25, "135.3%"),
+            (29, "29.0%"), (23.1, "23.1%"), (29.04, "29.0%"),
+            (1.977667, "2.0%"), (26.734, "26.7%"), (2.5, "2.5%"),
+            (99.94, "99.9%"), (99.95, "<100.0%"), (99.99, "<100.0%"),
+            (100, "100.0%"), (100.01, ">100.0%"), (100.05, "100.1%"), (135.25, "135.3%"),
         ]
         for (value, expected) in cases {
             let result = SplitUsagePresentation.make(snapshot: snapshot(cursor: value, other: 41))
@@ -35,7 +36,7 @@ final class SplitUsagePresentationTests: XCTestCase {
         let result = SplitUsagePresentation.make(snapshot: current, amounts: estimatedAmounts(for: current),
                                                 amountState: .ready, showEstimatedLimits: true)
         let cursor = result.pools.first { $0.id == .cursor }
-        XCTAssertEqual(cursor?.percentText, "10%")
+        XCTAssertEqual(cursor?.percentText, "10.0%")
         XCTAssertNil(cursor?.limitText)
     }
 
@@ -50,7 +51,7 @@ final class SplitUsagePresentationTests: XCTestCase {
     func testMissingValuesRemainUnavailableAndFailureRetainsPercent() {
         let result = SplitUsagePresentation.make(snapshot: snapshot(cursor: nil, other: 41), amountState: .failed, percentIsStale: true)
         XCTAssertEqual(result.pools.first { $0.id == .cursor }?.percentText, "—")
-        XCTAssertTrue(result.tooltip.contains("41%"))
+        XCTAssertTrue(result.tooltip.contains("41.0%"))
         XCTAssertTrue(result.tooltip.contains("Couldn't update costs"))
         XCTAssertTrue(result.tooltip.contains("Usage may be out of date"))
         XCTAssertTrue(result.pools.allSatisfy { $0.amountText == nil && $0.limitText == nil })
@@ -122,11 +123,11 @@ final class SplitUsagePresentationTests: XCTestCase {
         for mode in PopoverValueMode.allCases {
             let result = SplitUsagePresentation.make(snapshot: current, amounts: estimatedAmounts(for: current), amountState: .ready, valueMode: mode)
             let cursor = result.pools.first { $0.id == .cursor }!
-            XCTAssertEqual(cursor.percentText, "10%")
+            XCTAssertEqual(cursor.percentText, "10.0%")
             XCTAssertEqual(cursor.amountText, "$10.00")
-            XCTAssertEqual(cursor.readoutText, mode == .dollars ? "$10.00" : "10%")
+            XCTAssertEqual(cursor.readoutText, mode == .dollars ? "$10.00" : "10.0%")
             XCTAssertEqual(cursor.detailText, mode == .both ? "$10.00" : nil)
-            XCTAssertTrue(result.tooltip.contains("10%"))
+            XCTAssertTrue(result.tooltip.contains("10.0%"))
             XCTAssertEqual(result.tooltip.contains("$10.00"), mode != .percent)
         }
         let missing = SplitUsagePresentation.make(snapshot: current, valueMode: .dollars)

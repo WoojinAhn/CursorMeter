@@ -499,9 +499,9 @@ The implemented surfaces also follow the readable-value polish in
   missing has a distinct dashed/neutral unavailable region, not an empty-zero fill.
   Independent regions remain legible in light/dark and without color. Existing
   70%/90% yellow/red boundaries stay independent of 80%/90% alert defaults.
-- **Readable values (2026-09-27):** split-pool percentage text uses at most one
-  decimal, with trailing zeroes removed. Positive values below 0.1% display `<0.1%`;
-  values immediately below/above 100% display `<100%`/`>100%` when normal rounding
+- **Readable values (2026-09-27):** split-pool percentage text uses exactly one
+  decimal, including a trailing zero (29.0%, 23.1%, 0.0%). Positive values below 0.1% display `<0.1%`;
+  values immediately below/above 100% display `<100.0%`/`>100.0%` when normal rounding
   would hide that distinction. Missing or invalid values display `—`, with
   `Not available` in descriptive accessibility/hover text. Keep source precision
   unchanged for geometry, thresholds, estimation and snapshot matching. Existing
@@ -511,7 +511,8 @@ The implemented surfaces also follow the readable-value polish in
   and `Couldn't update costs`; Recent labels its original snapshot time `Updated`.
 - **Hover/AX:** use native `NSStatusBarButton.toolTip` with structured multiline plain
   text and equivalent accessibility value. Hover never fetches or takes focus; opening
-  the popover dismisses it. Include both named pools in saved spatial order. Describe
+  the popover dismisses it. Include both named pools in saved spatial order, without
+  parenthesized position labels (`Other Models: 26.7%`, `Cursor Models: 2.0%`). Describe
   actual stale/pending/unavailable conditions briefly without dumping collection timestamps.
 - **Popover:** use 300 pt width for split, existing width for legacy. Enlarge the same
   central-pie/outer-ring geometry used in the menu bar. The review mock proposes 112 px;
@@ -549,7 +550,10 @@ The implemented surfaces also follow the readable-value polish in
   Explain Bold only beside its selected intensity in Display; omit cross-tab prose.
 - **Usage:** remove the Summary/Recent selector and the duplicate Summary view. Open
   recent individual usage directly, retaining all 30-row/timezone/cache/refresh/error
-  behavior and saved timezone. Do not replace this with another cycle overview.
+  behavior and saved timezone. Model and time labels have an 8 pt internal leading
+  inset so they do not touch the list background edge; numeric columns retain their
+  alignment and fit with both overlay and always-visible scrollbars. Do not replace
+  this with another cycle overview.
 - **General:** existing startup, refresh, update/version/dev provenance unchanged.
 - **Observation:** extend every relevant `withObservationTracking` re-arm block in
   app, popover and Settings. Separate image updates from title/tooltip/AX updates.

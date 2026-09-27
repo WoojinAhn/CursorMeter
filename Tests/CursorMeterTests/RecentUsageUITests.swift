@@ -238,7 +238,7 @@ final class RecentUsageUITests: XCTestCase {
         let vm = makeViewModel()
         let entries = (0..<30).map { offset in
             RecentUsageEntry(date: Date(timeIntervalSince1970: Double(1_700_000_000 - offset)),
-                             model: "example-model", kind: .included, tokens: 1_234_567, chargedCents: 12.34)
+                             model: "example-model", kind: .included, tokens: 1_234_567, chargedCents: 123456.78)
         }
         _ = try publish(entries, to: vm, at: Date(timeIntervalSince1970: 1_700_000_100))
         let vc = SettingsUsageTabViewController(viewModel: vm)
@@ -260,6 +260,23 @@ final class RecentUsageUITests: XCTestCase {
             XCTAssertEqual(table.tableColumns[1].width, 70, accuracy: 0.5)
             XCTAssertEqual(table.tableColumns[2].width, 79, accuracy: 0.5)
             XCTAssertFalse(scroll.hasHorizontalScroller)
+            let modelCell = try XCTUnwrap(table.view(atColumn: 0, row: 0, makeIfNecessary: true))
+            let modelLabels = modelCell.subviews.compactMap { $0 as? NSTextField }
+            let modelLabel = try XCTUnwrap(modelLabels.first)
+            let detailLabel = try XCTUnwrap(modelLabels.last)
+            modelCell.layoutSubtreeIfNeeded()
+            XCTAssertGreaterThan(modelLabel.frame.minX, modelCell.bounds.minX,
+                                 "Model text must have breathing room inside the table background")
+            XCTAssertEqual(detailLabel.frame.minX, modelLabel.frame.minX, accuracy: 0.5)
+            XCTAssertLessThanOrEqual(modelLabel.frame.maxX, modelCell.bounds.maxX)
+            XCTAssertLessThanOrEqual(detailLabel.frame.maxX, modelCell.bounds.maxX)
+            let amountCell = try XCTUnwrap(table.view(atColumn: 2, row: 0, makeIfNecessary: true))
+            let amountLabel = try XCTUnwrap(amountCell.subviews.first as? NSTextField)
+            amountCell.layoutSubtreeIfNeeded()
+            XCTAssertLessThan(amountLabel.frame.maxX, amountCell.bounds.maxX)
+            XCTAssertGreaterThanOrEqual(amountLabel.bounds.width, amountLabel.intrinsicContentSize.width)
+            XCTAssertLessThanOrEqual(amountLabel.convert(amountLabel.bounds, to: table).maxX,
+                                    table.visibleRect.maxX, "The complete cost must remain inside the viewport")
             if style == .legacy {
                 XCTAssertLessThan(viewportWidth, scroll.bounds.width)
             } else {

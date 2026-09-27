@@ -240,7 +240,8 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
         host.addSubview(primary)
         primary.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            primary.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+            primary.leadingAnchor.constraint(equalTo: host.leadingAnchor,
+                                             constant: tableColumn.identifier.rawValue == "model" ? 8 : 0),
             primary.trailingAnchor.constraint(equalTo: host.trailingAnchor, constant: -8),
         ])
         if let detail {
@@ -248,7 +249,7 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
             detail.translatesAutoresizingMaskIntoConstraints = false
             NSLayoutConstraint.activate([
                 primary.topAnchor.constraint(equalTo: host.topAnchor, constant: 7),
-                detail.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+                detail.leadingAnchor.constraint(equalTo: primary.leadingAnchor),
                 detail.trailingAnchor.constraint(equalTo: host.trailingAnchor, constant: -8),
                 detail.topAnchor.constraint(equalTo: primary.bottomAnchor, constant: 2),
             ])

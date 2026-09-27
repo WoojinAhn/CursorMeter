@@ -182,7 +182,7 @@ unchanged widths and retains OS preferences and fixed numeric columns. Both focu
 The follow-up [plan](../plans/2026-09-27-issue-121-readable-usage.md) and
 [before/after mock](../../mockup-121-readable-usage.html) cover the owner's request
 to remove excessive percentage precision and internal terminology. Split percentages
-now use at most one decimal; source data, thresholds, estimation and freshness
+now use exactly one decimal (including trailing zeroes, per owner follow-up); source data, thresholds, estimation and freshness
 matching remain unchanged. Settings and help retain their controls while shortening
 copy, and Recent says Updated with its original snapshot time. New raw-value/boundary
 regressions and all 876 local tests pass. Independent review found no blocking issue;

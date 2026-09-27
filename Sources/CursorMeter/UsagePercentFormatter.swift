@@ -6,7 +6,7 @@ enum UsagePercentFormatter {
         if value > 0 && value < 0.1 { return "<0.1%" }
         let rounded = number(value)
         // Rounding must not imply that a quota was reached or is still within its limit.
-        if rounded == "100", value != 100 { return value < 100 ? "<100%" : ">100%" }
+        if rounded == "100.0", value != 100 { return value < 100 ? "<100.0%" : ">100.0%" }
         return rounded + "%"
     }
 
@@ -20,6 +20,7 @@ enum UsagePercentFormatter {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.numberStyle = .decimal
         formatter.usesGroupingSeparator = false
+        formatter.minimumFractionDigits = 1
         formatter.maximumFractionDigits = 1
         formatter.roundingMode = .halfUp
         return formatter.string(from: NSNumber(value: value == 0 ? 0 : value)) ?? "—"

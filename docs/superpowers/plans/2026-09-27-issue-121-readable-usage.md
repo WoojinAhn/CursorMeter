@@ -2,7 +2,7 @@
 
 ## Scope
 
-Use at most one decimal for split-pool percentages and percentage-point jump text.
+Use exactly one decimal (including trailing zeroes) for split-pool percentages and percentage-point jump text.
 Keep small positive values and either side of 100 distinguishable, without rounding
 stored measurements, circle geometry, thresholds, estimation or freshness comparison.
 Existing whole-percent legacy presentation remains unchanged. Simplify new internal
@@ -17,7 +17,7 @@ Recent history says Updated with its original timestamp, not a new time after ca
 - [x] Update settings/help/Recent wording in parallel, retaining user preferences.
 - [x] Independent review, full tests, inspected native/HTML capture and ARM/Intel CI.
 - [x] Package and apply the authorized local update.
-- [ ] Complete live UI verification after the owner handles the macOS Keychain prompt; stop owned caffeine.
+- [ ] Apply the fixed-decimal follow-up requested during live verification; finish the native check and stop owned caffeine.
 
 ## Verification
 
@@ -42,3 +42,26 @@ Recent history says Updated with its original timestamp, not a new time after ca
   currently waiting for the owner to handle the macOS Keychain confirmation. Process
   sampling confirmed startup waits in `KeychainStore.loadCookieHeader` /
   `SecItemCopyMatching`; the security dialog is not automated.
+
+## Fixed-decimal follow-up
+
+The owner requested consistent decimal positions: `29.0%` and `23.1%`, including
+trailing zeroes. Split-pool values and percentage-point increases now use exactly
+one decimal. Tiny positive values remain `<0.1%`; quota boundaries use
+`<100.0%` / `>100.0%`. Raw calculations and legacy integer presentation stay intact.
+The owner handled the first updated bundle's Keychain prompt; live startup resumed.
+
+The owner also reported text against the Recent list edge. Add an internal leading
+inset to model/time rows while preserving existing column widths, amount alignment,
+scrolling and the fixed viewport. Check both scrollbar styles and refresh the native
+Recent capture alongside the percentage captures.
+
+Hover lines omit the parenthesized outer/center labels at the owner's request.
+Pool identity and saved order remain; settings still explains ring placement.
+
+Follow-up verification: fixed-decimal table failed before implementation (9 assertions),
+then all 876 tests passed. The existing Recent layout test checks model/time inset,
+legacy/overlay scrollers and a $1234.57 amount fitting the viewport. Independent
+review found and resolved two accidentally changed legacy expectations; a remaining
+AX selector was updated after removal of position labels. Native dark/light captures
+and the expanded HTML comparison were inspected; documented screenshots refreshed.

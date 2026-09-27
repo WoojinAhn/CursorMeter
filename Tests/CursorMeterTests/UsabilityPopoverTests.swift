@@ -22,14 +22,14 @@ final class UsabilityPopoverTests: XCTestCase {
             XCTAssertEqual(controller.preferredContentSize.width, 300)
             XCTAssertFalse(meter.isAccessibilityElement())
             let spokenPools = views(controller.view).filter {
-                $0.isAccessibilityElement() && ($0.accessibilityLabel()?.contains("Models (") == true)
+                $0.isAccessibilityElement() && ($0.accessibilityLabel()?.contains("Models:") == true)
             }
             XCTAssertEqual(spokenPools.count, 2)
             XCTAssertTrue(spokenPools.allSatisfy { ($0.accessibilityChildren() ?? []).isEmpty })
             XCTAssertLessThanOrEqual(controller.testHook_contentFittingWidth(), 280)
-            XCTAssertTrue((meter.accessibilityValue() as? String)?.contains("Other Models (outer ring): 41%") == true)
+            XCTAssertTrue((meter.accessibilityValue() as? String)?.contains("Other Models: 41.0%") == true)
             let labels = visibleLabels(controller.view)
-            for label in ["Cursor Models", "Other Models", "135.3%", "41%"] { XCTAssertTrue(labels.contains(label), label) }
+            for label in ["Cursor Models", "Other Models", "135.3%", "41.0%"] { XCTAssertTrue(labels.contains(label), label) }
             for label in views(controller.view).compactMap({ $0 as? NSTextField })
                 .filter({ ["Cursor Models", "Other Models"].contains($0.stringValue) }) {
                 var parent: NSView? = label

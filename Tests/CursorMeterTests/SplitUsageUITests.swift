@@ -14,7 +14,7 @@ final class SplitUsageUITests: XCTestCase {
         let text = labels(vc.view).joined(separator: "\n")
         XCTAssertTrue(text.contains("Cursor Models"))
         XCTAssertTrue(text.contains("Other Models"))
-        XCTAssertTrue(text.contains("135%"))
+        XCTAssertTrue(text.contains("135.0%"))
         XCTAssertTrue(text.contains("Paid spending: $2.00"))
         XCTAssertFalse(text.contains("$400.00"))
         let buttons = allViews(vc.view).compactMap { $0 as? NSButton }.map(\.title)
@@ -55,7 +55,7 @@ final class SplitUsageUITests: XCTestCase {
         _ = vc.view
         vc.updateUI()
         let text = labels(vc.view).joined(separator: "\n")
-        XCTAssertTrue(text.contains("41%"))
+        XCTAssertTrue(text.contains("41.0%"))
         XCTAssertFalse(text.contains("Primary summary refreshed:"))
         XCTAssertFalse(text.contains("Percent source:"))
     }

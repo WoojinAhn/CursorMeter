@@ -23,7 +23,6 @@ struct SplitPaidPresentation: Sendable {
 struct SplitPoolPresentation: Sendable {
     enum Position: Sendable {
         case outer, center
-        var text: String { self == .outer ? "outer ring" : "center" }
     }
     let id: UsagePoolID
     let position: Position
@@ -42,7 +41,7 @@ struct SplitPoolPresentation: Sendable {
 
     var line: String {
         let percent = percentText == "—" ? "Not available" : percentText
-        var result = "\(id.displayName) (\(position.text)): \(percent)"
+        var result = "\(id.displayName): \(percent)"
         if showsMoney, let moneyText { result += " · " + moneyText }
         return result
     }
