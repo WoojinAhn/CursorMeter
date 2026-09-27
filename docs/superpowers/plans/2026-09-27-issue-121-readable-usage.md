@@ -18,7 +18,7 @@ Recent history says Updated with its original timestamp, not a new time after ca
 - [x] Independent review, full tests, inspected native/HTML capture and ARM/Intel CI.
 - [x] Package and apply the authorized local update.
 - [x] Apply the fixed-decimal follow-up and verify the live native interface.
-- [ ] Stop owned caffeine after the subsequently requested whole-branch review finishes.
+- [x] Stop owned caffeine after the subsequently requested whole-branch review finishes.
 
 ## Verification
 
@@ -73,4 +73,6 @@ passed. Live menu-bar help/AX showed one fixed decimal and no positional parenth
 Display preview matched. The real Recent window was visually inspected with the
 new model/time inset and visible right-aligned amounts. No private capture is committed.
 The owner then requested a fresh whole-branch Muse/Grok/Opus review before further
-delivery; caffeine remains active for that follow-up.
+delivery. That round's findings, Muse failures and validated corrections are recorded
+in [the whole-branch review](../reviews/2026-09-27-issue-121-full-branch.md). The owned
+caffeine assertion was released and its process exit verified at the 2026-09-28 handoff.

@@ -19,16 +19,16 @@ fresh, read-only Cursor session. Requested configurations match the earlier revi
 | Muse | `muse-spark-1.3-max` | `job-mujvveu8-2t0u` | Failed: CLI exit code 1, no findings returned |
 | Grok | `grok-4.7-xhigh` | `job-mujvvwz9-iwn5` | Completed; findings triaged below |
 | Opus | `claude-opus-5-5-max` | `job-mujvwho0-6jxy` | Completed; findings triaged below |
-| Muse retry | `muse-spark-1.3-max` | `job-mujzxojt-tea2` | Running; same configuration, explicitly authorized |
+| Muse retry | `muse-spark-1.3-max` | `job-mujzxojt-tea2` | Failed: CLI exit code 1 after resource_exhausted; no final review |
 
 ## Tasks
 
 - [x] Fetch remote baseline and freeze review scope.
 - [x] Dispatch all three independent reviews.
-- [ ] Triage concrete findings against source and approved requirements.
-- [ ] Correct confirmed defects with appropriate regression evidence.
-- [ ] Complete validation and push changes to `feature/121-split-usage`; check CI.
-- [ ] Summarize final findings and stop the owned caffeine assertion.
+- [x] Triage concrete findings against source and approved requirements.
+- [x] Correct confirmed defects with appropriate regression evidence.
+- [x] Complete validation and push changes to `feature/121-split-usage`; check CI.
+- [x] Summarize final findings and stop the owned caffeine assertion.
 
 ## Existing evidence
 
@@ -42,8 +42,9 @@ for fixed decimals, concise pool labels and row inset. The installed dev build i
 
 The first Muse run did not return a review; its failed run is not a pass. The owner
 explicitly authorized a fresh retry with the same Muse configuration on 2026-09-28.
-The retry remains read-only and reviews pinned production source so concurrent fixes
-do not change its review target.
+The retry used read-only access to pinned production source so concurrent fixes did
+not change its review target. It also failed without a final review. This round has
+two completed model reviews, not three passes.
 
 ### Grok: collection verification consumes the traversal budget
 
@@ -149,6 +150,9 @@ documentation-only `14f923a` run; the draft PR triggers CI for branch pushes.
 - Complete `swift test`: 882 tests, 0 failures in 11.463 seconds.
 - `swift build -c release`: succeeded in 9.79 seconds; no compiler warnings in these logs.
 - Independent code review of the corrective diff: no further findings.
+- Corrective commits `5517746` and `bf92581` are pushed to `feature/121-split-usage`.
+  [ARM/Intel CI passed](https://github.com/WoojinAhn/CursorMeter/actions/runs/36331633192)
+  for `bf92581`.
 - Synthetic native legacy Alerts rendered and visually inspected in light/dark;
   neutral Usage label and the existing dual-thumb gauge fit. The corresponding HTML
   single-plan mock was checked with Playwright and matches the one master-toggle path.
@@ -156,5 +160,31 @@ documentation-only `14f923a` run; the draft PR triggers CI for branch pushes.
   changes are paired in English/Korean with matching section counts.
 
 The running installed app is still the previously verified `dfc0694-dirty` build.
-These review fixes have not replaced it. Muse's retry remains pending; final review
-completion and the caffeine release must not be inferred from passing local checks.
+These review fixes have not replaced it. Latest source `bf92581` is built and tested;
+native verification of the new corrections requires a matching later app build.
+
+## Muse failure and result-reader diagnosis
+
+Both failed Muse jobs contain the raw terminal error
+`RetriableError: [resource_exhausted] Error`, followed by `RESCUE_EXIT:1`.
+The retry has no `result` event; its eight public assistant messages are short progress
+updates, not a completed review. A successful earlier Muse log has a final assistant
+message, a successful string-valued result and exit 0, which the same parser reads.
+No completed review is recoverable from the local logs. They do not establish whether
+the server completed an answer that never reached the CLI. The logs demonstrate
+model/tool execution, but do not independently establish a billed amount or the
+specific exhausted resource.
+
+The result reader does have a separate diagnostic defect in Cursor plugin
+`0.2.0+codex.20260921155854`: `adapter.mjs:65` recognizes plaintext `Error:` but drops
+`RetriableError:`, and its nonzero-exit branch returns only a generic exit-code message.
+Two independent read-only checks, including a synthetic parser replay, confirmed the
+missing failure detail. No provider-specific final-result schema mismatch, truncated
+JSON line, result-file path mismatch or flush loss was found in these jobs.
+
+The plugin issue is recorded in private local follow-up notes; no plugin code, signer,
+certificate or Keychain configuration was changed. No additional paid retry was started.
+The owner separately deferred stable local signing to issue #123.
+
+The owned caffeine assertion was released at handoff on 2026-09-28; its exact process
+identity was checked before termination and process exit was confirmed.

@@ -14,6 +14,8 @@ row includes a commit marker and whose automatic release checking is disabled.
   confirm its matching development commit in Settings General. A dirty suffix can
   reflect preserved unrelated local files; verify the recorded build provenance.
   Do not use a superseded candidate from the original implementation report.
+  If the installed app lags the latest source, it cannot validate the newer corrections;
+  use a matching candidate when that installation is explicitly scheduled.
 - [ ] Compare both percentages with the same-cycle Cursor dashboard. Other is the outer
   ring and Cursor the center by default. The old included-dollar limit does not define
   either region.
