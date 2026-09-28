@@ -125,11 +125,14 @@ final class SplitUsageAlertDispatcher {
 
     private func components(_ queued: Queued, delivered: Set<String>) -> Components {
         guard isCurrent(queued) else { return Components(thresholds: [], bold: nil) }
-        // The same owner and policy can publish a correction or change the paid
-        // budget while authorization is open. Only currently eligible identities
-        // survive, with the newest value in their notification text.
+        // Revalidate eligibility after authorization, but leave newer thresholds
+        // with their own pending batch so their Bold details stay in one banner.
         let thresholds = queued.thresholdRevision == thresholdRevision
-            ? queued.batch.thresholds.compactMap { delivered.contains($0.identity) ? nil : latestThresholds[$0.identity] } : []
+            ? queued.batch.thresholds.compactMap { event -> SplitThresholdEvent? in
+                guard !delivered.contains(event.identity), let latest = latestThresholds[event.identity],
+                      latest.observationRevision == queued.batch.revision else { return nil }
+                return latest
+            } : []
         let bold = eligibleBold(queued)
         // A newer threshold may also replace the old identity (Warning -> Critical).
         // Retire its stale companion even if that new threshold is in the next batch.

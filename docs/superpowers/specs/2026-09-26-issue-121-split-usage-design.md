@@ -389,6 +389,11 @@ pending valid Bold event with its original occurrence time; a newer qualifying B
 replaces it. Revalidate ownership before asynchronous store writes
 so old completions cannot resurrect a logged-out ledger.
 
+The [#124 notification contract](2026-09-28-notification-ux-design.md) refines this
+retention rule: a newer undelivered threshold retires an older-revision Bold,
+and a newer threshold/Bold pair stays together in its own observation batch.
+Already-delivered thresholds do not retire an otherwise eligible pending Bold.
+
 Permission state for Settings is read through an injected async provider, wired only in
 production. Creating any Settings controller in tests never accesses the real notification
 center or requests authorization. Default test controllers are memory-only.

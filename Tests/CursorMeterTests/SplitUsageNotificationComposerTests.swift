@@ -130,6 +130,22 @@ final class SplitUsageNotificationComposerTests: XCTestCase {
                                              body: "Your warning level is 80%.\nLast refresh 60.0% → now 82.0%"))
     }
 
+    func testSameScopeIncreaseKeepsLabelAfterAnotherIncrease() {
+        var engine = SplitUsageAlertEngine()
+        _ = engine.accept(sample(1, cursor: 60, other: 10), policy: policy)
+        let batch = engine.accept(sample(2, cursor: 82, other: 25), policy: policy)
+        XCTAssertEqual(content(batch), .init(title: "Cursor Models 82.0% · Warning",
+                                             body: "Your warning level is 80%.\nOther Models: 10.0% → 25.0%\nCursor Models: 60.0% → 82.0%"))
+    }
+
+    func testSameScopeIncreaseKeepsLabelAfterAnotherThreshold() {
+        var engine = SplitUsageAlertEngine()
+        _ = engine.accept(sample(1, cursor: 75, other: 75), policy: policy)
+        let batch = engine.accept(sample(2, cursor: 95, other: 85), policy: policy)
+        XCTAssertEqual(content(batch), .init(title: "Cursor Models 95.0% · Critical",
+                                             body: "Your critical level is 90%.\nOther Models 85.0% · Warning\nCursor Models: 75.0% → 95.0%"))
+    }
+
     func testPaidRelativeOnlyTierTwoIsNotLostByAbsoluteFiltering() {
         var engine = SplitUsageAlertEngine()
         _ = engine.accept(sample(1, paid: 10, cap: 100, enabled: true), policy: policy)

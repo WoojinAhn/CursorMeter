@@ -78,8 +78,7 @@ final class JumpEffectCoordinator {
         guard let event = viewModel.lastJump, event != handledEvent else { return }
         handledEvent = event
 
-        let decision = Self.shouldFire(intensity: viewModel.jumpIntensity, tier: event.tier)
-        guard decision.fire else { return }
+        guard Self.shouldFire(intensity: viewModel.jumpIntensity, tier: event.tier) else { return }
 
         let (emoji, glow, durationMs) = Self.swapParams(for: event.tier, style: viewModel.jumpGlyphStyle)
         performSwap(emoji: emoji, glow: glow, durationMs: durationMs)
@@ -111,33 +110,26 @@ final class JumpEffectCoordinator {
 
     // MARK: - Intensity policy (pure, testable)
 
-    /// Decides whether a jump tier should trigger the icon swap and/or a system
-    /// notification under the given `JumpIntensity`. Pure function — no side effects.
+    /// Decides whether a jump tier should trigger the icon swap.
     ///
     /// Policy (per Issue #55 Final spec):
-    /// - `quiet`:  only `tier == .two` fires the swap. Tier 0/1 ignored. Never notifies.
-    /// - `normal`: tier 1 and tier 2 fire the swap. Never notifies.
-    /// - `bold`:   tier 1 and tier 2 fire the swap. Tier 2 additionally notifies.
+    /// - `quiet`:  only `tier == .two` fires the swap. Tier 0/1 ignored.
+    /// - `normal` and `bold`: tier 1 and tier 2 fire the swap.
     /// - `tier == .zero` is always a no-op regardless of intensity.
     nonisolated static func shouldFire(
         intensity: JumpIntensity,
         tier: JumpEvent.Tier
-    ) -> (fire: Bool, notify: Bool) {
+    ) -> Bool {
         switch tier {
         case .zero:
-            return (false, false)
+            return false
         case .one:
             switch intensity {
-            case .quiet:  return (false, false)
-            case .normal: return (true, false)
-            case .bold:   return (true, false)
+            case .quiet: return false
+            case .normal, .bold: return true
             }
         case .two:
-            switch intensity {
-            case .quiet:  return (true, false)
-            case .normal: return (true, false)
-            case .bold:   return (true, true)
-            }
+            return true
         }
     }
 

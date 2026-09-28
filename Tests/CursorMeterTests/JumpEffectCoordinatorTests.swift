@@ -12,8 +12,7 @@ final class JumpEffectCoordinatorTests: XCTestCase {
     func testTierZeroNeverFires() {
         for intensity in JumpIntensity.allCases {
             let result = JumpEffectCoordinator.shouldFire(intensity: intensity, tier: .zero)
-            XCTAssertFalse(result.fire, "tier 0 should never fire (intensity=\(intensity))")
-            XCTAssertFalse(result.notify, "tier 0 should never notify (intensity=\(intensity))")
+            XCTAssertFalse(result, "tier 0 should never fire (intensity=\(intensity))")
         }
     }
 
@@ -21,42 +20,36 @@ final class JumpEffectCoordinatorTests: XCTestCase {
 
     func testQuietIgnoresTierOne() {
         let result = JumpEffectCoordinator.shouldFire(intensity: .quiet, tier: .one)
-        XCTAssertFalse(result.fire)
-        XCTAssertFalse(result.notify)
+        XCTAssertFalse(result)
     }
 
-    func testQuietFiresOnTierTwoWithoutNotification() {
+    func testQuietFiresOnTierTwo() {
         let result = JumpEffectCoordinator.shouldFire(intensity: .quiet, tier: .two)
-        XCTAssertTrue(result.fire)
-        XCTAssertFalse(result.notify)
+        XCTAssertTrue(result)
     }
 
     // MARK: - Normal
 
-    func testNormalFiresOnTierOneNoNotification() {
+    func testNormalFiresOnTierOne() {
         let result = JumpEffectCoordinator.shouldFire(intensity: .normal, tier: .one)
-        XCTAssertTrue(result.fire)
-        XCTAssertFalse(result.notify)
+        XCTAssertTrue(result)
     }
 
-    func testNormalFiresOnTierTwoNoNotification() {
+    func testNormalFiresOnTierTwo() {
         let result = JumpEffectCoordinator.shouldFire(intensity: .normal, tier: .two)
-        XCTAssertTrue(result.fire)
-        XCTAssertFalse(result.notify)
+        XCTAssertTrue(result)
     }
 
     // MARK: - Bold
 
-    func testBoldFiresOnTierOneWithoutNotification() {
+    func testBoldFiresOnTierOne() {
         let result = JumpEffectCoordinator.shouldFire(intensity: .bold, tier: .one)
-        XCTAssertTrue(result.fire)
-        XCTAssertFalse(result.notify, "Bold should only notify at tier 2")
+        XCTAssertTrue(result)
     }
 
-    func testBoldFiresAndNotifiesOnTierTwo() {
+    func testBoldFiresOnTierTwo() {
         let result = JumpEffectCoordinator.shouldFire(intensity: .bold, tier: .two)
-        XCTAssertTrue(result.fire)
-        XCTAssertTrue(result.notify)
+        XCTAssertTrue(result)
     }
 
     // MARK: - Swap params

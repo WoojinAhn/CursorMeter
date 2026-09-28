@@ -19,6 +19,33 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
     }
     private func settle(_ dispatcher: SplitUsageAlertDispatcher) async { await dispatcher.waitUntilIdle() }
 
+    func testNewThresholdAndBoldStayTogetherWhenAuthorizationWaits() async {
+        let gate = Gate()
+        var payloads: [UsageNotificationContent] = []
+        var authorizations = 0
+        let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: {
+            authorizations += 1
+            if authorizations == 1 { await gate.pause() }
+            return true
+        }, deliver: { payloads.append(.init(title: $0.content.title, body: $0.content.body)) }))
+        let policy = SplitAlertPolicy(warning: 50, critical: 100, targets: [.cursor], bold: true)
+        func observation(_ revision: UInt64, percent: Double) -> SplitUsageObservation {
+            var value = sample(revision, percent: percent)
+            value.otherPercent = 0
+            return value
+        }
+        _ = dispatcher.accept(observation(1, percent: 40), policy: policy)
+        _ = dispatcher.accept(observation(2, percent: 55), policy: policy)
+        await gate.wait()
+        _ = dispatcher.accept(observation(3, percent: 70), policy: policy)
+        gate.release()
+        await settle(dispatcher)
+        _ = dispatcher.accept(observation(4, percent: 70), policy: policy)
+        await settle(dispatcher)
+        XCTAssertEqual(payloads, [.init(title: "Cursor Models 70.0% · Warning",
+                                       body: "Your warning level is 50%.\nLast refresh 55.0% → now 70.0%")])
+    }
+
     func testNewerThresholdOmitsOlderBoldWithoutReplayingIt() async {
         let gate = Gate()
         var payloads: [UsageNotificationContent] = []
@@ -484,10 +511,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         _ = dispatcher.accept(sample(1, percent: 50), policy: policy)
         _ = dispatcher.accept(sample(2, percent: 95, cents: 40), policy: policy)
         await settle(dispatcher)
-        XCTAssertEqual(bodies.count, 1)
-        XCTAssertTrue(bodies.first?.contains("level is 90%") == true)
-        XCTAssertTrue(bodies.first?.contains("Last refresh 50.0% → now 95.0%") == true)
-        XCTAssertFalse(bodies.first?.contains("+$0.40") == true)
+        XCTAssertEqual(bodies, ["Other Models 95.0% · Critical\nYour critical level is 90%.\nCursor Models 95.0% · Critical\nOther Models: 50.0% → 95.0%"])
         _ = dispatcher.accept(sample(3, percent: 85, cents: 40), policy: policy)
         await settle(dispatcher)
         XCTAssertEqual(bodies.count, 1)

@@ -17,7 +17,7 @@ enum SplitUsageNotificationComposer {
         // during authorization. Never mix captured values from those revisions.
         if let bold, ordered.allSatisfy({ $0.observationRevision == bold.observationRevision }) {
             for signal in orderedSignals(bold.signals, minimumTier: 2) where rows.count < bodyRowLimit {
-                rows.append(jumpRow(signal, primary: signal.scope == first.scope))
+                rows.append(jumpRow(signal, primary: signal.scope == first.scope && rows.count == 1))
             }
         }
         return UsageNotificationContent(title: thresholdTitle(first), body: rows.joined(separator: "\n"))

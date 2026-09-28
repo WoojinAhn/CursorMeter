@@ -89,8 +89,10 @@ visual lines in macOS. Long names, large values and font settings can wrap. Nati
 notification layout is owned by the OS; the HTML compact clamp is a review aid.
 
 Threshold rows are mandatory. After them, choose individually eligible increase
-rows in the stated order until the budget is full. A same-scope increase after a
-threshold title may omit the repeated scope label. Omitted increases are not
+rows in the stated order until the budget is full. A same-scope increase may omit
+the repeated scope label only when the sole preceding body row is that title's
+configured alert level. After any other threshold or increase, name the scope
+explicitly so values cannot appear to belong to the preceding scope. Omitted increases are not
 queued for another notification and are not represented as a recoverable event
 history. Do not say `+N more in popover`: clicking opens current usage, not the
 old notification's full payload. Do not fabricate a detail view to support copy.
@@ -101,6 +103,11 @@ show the latest threshold and omit that older Bold. Do not combine a title sayin
 86.0% with an old body saying `now 82.0%`, nor replay the omitted increase later.
 Legacy coalescing likewise requires the same completed refresh. Captured event
 references and values must stay immutable through authorization waits.
+
+When a newer observation contains the same undelivered threshold identity and a
+new qualifying Bold increase, let that observation deliver both together. An older
+active batch must not consume the newer threshold first and split the pair into
+two banners. Same-revision value replacement remains valid.
 
 This is intentionally a summary, not a complete refresh ledger. With three
 threshold events, the banner contains those three states and no Bold detail.
