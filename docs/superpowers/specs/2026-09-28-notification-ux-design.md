@@ -1,7 +1,8 @@
 # Notification UX specification
 
-Status: implementation candidate in #125, pending final model reviews and main
-integration. Source baseline: `5477ddb`. Date: 2026-09-28. Implementation: #124.
+Status: implemented in #125; four-model review and corrective verification complete.
+[Review outcome](../reviews/2026-09-29-issue-124-merge-review.md).
+Source baseline: `5477ddb`. Date: 2026-09-28. Implementation: #124.
 Related baseline: #121 / #122.
 
 Publishing this specification does not change the behavior shipped by #122.
