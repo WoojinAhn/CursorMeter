@@ -25,25 +25,66 @@ extension NotificationMode {
         String(format: "$%.2f", Double(cents) / 100.0)
     }
 
-    func body(forPercent percent: Int) -> String {
+    func thresholdBody(level: ThresholdLevel, at percent: Int) -> String {
+        if let fraction { return "\(fraction) · alert at \(percent)%" }
+        return "Your \(level == .critical ? "critical" : "warning") level is \(percent)%."
+    }
+
+    var fraction: String? {
         switch self {
         case let .requestQuota(used, limit):
-            return "월 요청 한도의 \(percent)%를 초과했습니다 (\(used) / \(limit))"
-        case let .creditPlan(used, limit):
-            return "월 플랜의 \(percent)%를 사용했습니다 (\(Self.formatUSD(used)) / \(Self.formatUSD(limit)))"
-        case let .onDemand(used, limit):
-            return "On-demand 청구의 \(percent)%를 사용했습니다 (\(Self.formatUSD(used)) / \(Self.formatUSD(limit)))"
-        case .percentOnly:
-            return "월 플랜의 \(percent)%를 사용했습니다"
+            return limit > 0 ? "\(used) of \(limit) requests" : nil
+        case let .creditPlan(used, limit), let .onDemand(used, limit):
+            return limit > 0 ? "\(Self.formatUSD(used)) of \(Self.formatUSD(limit))" : nil
+        case .percentOnly: return nil
         }
     }
 
-    var titleSuffix: String {
+    var scopeLabel: String {
         switch self {
-        case .requestQuota: return "Request Quota"
-        case .creditPlan:   return "Plan"
-        case .onDemand:     return "On-demand"
-        case .percentOnly:  return "Plan"
+        case .requestQuota: return "Request quota"
+        case .creditPlan, .percentOnly: return "Included usage"
+        case .onDemand: return "Paid budget"
+        }
+    }
+}
+
+/// Values from one completed refresh, retained across notification permission waits.
+struct LegacyUsageJumpSnapshot: Sendable, Equatable {
+    let mode: JumpEvent.Mode
+    let reference: Double
+    let current: Double
+    let limit: Double
+
+    var title: String {
+        switch mode {
+        case .credit, .percent: "Included usage increased"
+        case .onDemand: "Paid spending increased"
+        case .request: "Request usage increased"
+        }
+    }
+
+    var changeBody: String {
+        let delta = current - reference
+        switch mode {
+        case .credit, .onDemand:
+            return String(format: "+$%.2f since last refresh", delta / 100)
+        case .request:
+            return "\(Int(delta.rounded())) more requests since last refresh"
+        case .percent:
+            return "Last refresh \(UsagePercentFormatter.percent(reference)) → now \(UsagePercentFormatter.percent(current))"
+        }
+    }
+
+    var currentBody: String? {
+        guard limit > 0 else { return nil }
+        switch mode {
+        case .credit, .onDemand:
+            let fraction = String(format: "$%.2f of $%.2f", current / 100, limit / 100)
+            return "\(fraction)\(mode == .onDemand ? " budget" : "") used"
+        case .request:
+            return "\(Int(current)) of \(Int(limit)) requests used"
+        case .percent: return nil
         }
     }
 }
@@ -66,8 +107,14 @@ enum NotificationPermissionState: Sendable, Equatable {
 
 @MainActor
 final class NotificationManager {
+    private struct PendingLegacyBold {
+        let content: UsageNotificationContent
+        let revision: UInt64
+    }
     private(set) var notifiedThresholds: Set<Int> = []
     private var notificationRevision: UInt64 = 0
+    private var pendingLegacyBold: PendingLegacyBold?
+    private var legacyBoldWorker: Task<Void, Never>?
     private let requestAuthorization: @MainActor () async throws -> Bool
     private let deliver: @MainActor (UNNotificationRequest) async throws -> Void
     private let permissionStateProvider: @MainActor () async -> NotificationPermissionState
@@ -110,46 +157,75 @@ final class NotificationManager {
         warningThreshold: Int,
         criticalThreshold: Int,
         enabled: Bool,
-        mode: NotificationMode
+        mode: NotificationMode,
+        jump: LegacyUsageJumpSnapshot? = nil
     ) async {
-        guard enabled, !Task.isCancelled else { return }
+        guard !Task.isCancelled else { return }
         let revision = notificationRevision
 
-        let level = Self.evaluateThreshold(
+        let level = enabled ? Self.evaluateThreshold(
             percentUsed: percentUsed,
             warningThreshold: warningThreshold,
             criticalThreshold: criticalThreshold,
             notifiedThresholds: notifiedThresholds
-        )
+        ) : .none
 
-        switch level {
-        case .none:
-            break
-        case .warning:
-            await sendNotification(
-                title: "Cursor \(mode.titleSuffix) Warning",
-                body: mode.body(forPercent: warningThreshold),
-                identifier: "usage-threshold-\(UUID().uuidString)",
-                revision: revision
-            )
-            guard revision == notificationRevision, !Task.isCancelled else { return }
-            notifiedThresholds.insert(warningThreshold)
-        case .critical:
-            await sendNotification(
-                title: "Cursor \(mode.titleSuffix) Critical",
-                body: mode.body(forPercent: criticalThreshold),
-                identifier: "usage-threshold-\(UUID().uuidString)",
-                revision: revision
-            )
-            guard revision == notificationRevision, !Task.isCancelled else { return }
-            notifiedThresholds.insert(criticalThreshold)
+        let threshold = level == .critical ? criticalThreshold : warningThreshold
+        guard let content = Self.legacyUsageContent(percentUsed: percentUsed, level: level,
+                                                    threshold: threshold, mode: mode, jump: jump) else { return }
+        if level == .none {
+            scheduleLegacyBold(content, revision: revision)
+            return
         }
+        await sendNotification(title: content.title, body: content.body,
+                               identifier: "usage-threshold-\(UUID().uuidString)", revision: revision)
+        guard revision == notificationRevision, !Task.isCancelled else { return }
+        // Keep the legacy acknowledgement contract, including authorization denial
+        // and delivery failure; the persistent split ledger has a different policy.
+        if level != .none { notifiedThresholds.insert(threshold) }
+    }
+
+    nonisolated static func legacyUsageContent(
+        percentUsed: Double, level: ThresholdLevel, threshold: Int,
+        mode: NotificationMode, jump: LegacyUsageJumpSnapshot?
+    ) -> UsageNotificationContent? {
+        if level != .none {
+            let label = level == .critical ? "Critical" : "Warning"
+            let rows = [mode.thresholdBody(level: level, at: threshold)] + (jump.map { [$0.changeBody] } ?? [])
+            return UsageNotificationContent(title: "\(mode.scopeLabel) \(UsagePercentFormatter.percent(percentUsed)) · \(label)",
+                                            body: rows.joined(separator: "\n"))
+        }
+        guard let jump else { return nil }
+        return UsageNotificationContent(title: jump.title,
+            body: ([jump.changeBody] + (jump.currentBody.map { [$0] } ?? [])).joined(separator: "\n"))
     }
 
     func resetNotifications() {
         notificationRevision += 1
         notifiedThresholds.removeAll()
+        pendingLegacyBold = nil
     }
+
+    private func scheduleLegacyBold(_ content: UsageNotificationContent, revision: UInt64) {
+        // Keep at most the active send and the newest pending observation while
+        // macOS authorization waits; later refreshes must remain free to finish.
+        pendingLegacyBold = PendingLegacyBold(content: content, revision: revision)
+        if legacyBoldWorker == nil {
+            legacyBoldWorker = Task { await drainLegacyBold() }
+        }
+    }
+
+    private func drainLegacyBold() async {
+        while let pending = pendingLegacyBold {
+            pendingLegacyBold = nil
+            guard pending.revision == notificationRevision else { continue }
+            await sendNotification(title: pending.content.title, body: pending.content.body,
+                identifier: "\(Self.usageJumpIdentifierPrefix)-\(UUID().uuidString)", revision: pending.revision)
+        }
+        legacyBoldWorker = nil
+    }
+
+    func waitUntilUsageIdle() async { await legacyBoldWorker?.value }
 
     /// Test-only — overwrites the dedup set so oscillation/rollover tests can
     /// simulate post-notification state.
@@ -162,25 +238,6 @@ final class NotificationManager {
     /// Identifier prefix used for usage-jump notification requests, kept distinct
     /// from threshold notifications so callers/tests can disambiguate.
     nonisolated static let usageJumpIdentifierPrefix = "usage-jump"
-
-    /// Formats the body string for a usage-jump notification. Pure function so the
-    /// exact wording can be unit-tested without invoking UNUserNotificationCenter.
-    nonisolated static func makeUsageJumpBody(displayDelta: String, currentUsage: String) -> String {
-        "Used \(displayDelta) since last refresh. Now at \(currentUsage)."
-    }
-
-    /// Surfaces a system notification when a tier-2 usage jump is detected on Bold
-    /// intensity. Callers (the JumpEffectCoordinator) are responsible for gating
-    /// on intensity == .bold && tier == .two; this method is intensity-agnostic.
-    ///
-    func notifyUsageJump(displayDelta: String, currentUsage: String) async {
-        await sendNotification(
-            title: "Usage jumped",
-            body: Self.makeUsageJumpBody(displayDelta: displayDelta, currentUsage: currentUsage),
-            identifier: "\(Self.usageJumpIdentifierPrefix)-\(UUID().uuidString)",
-            revision: notificationRevision
-        )
-    }
 
     func permissionState() async -> NotificationPermissionState { await permissionStateProvider() }
 
@@ -250,7 +307,7 @@ final class NotificationManager {
     nonisolated static let sessionExpiredTitle = "Cursor session expired"
     // #90: routing-neutral copy — the click may open the popover guidance
     // instead of a login window depending on the browser-login opt-in.
-    nonisolated static let sessionExpiredBody = "Reconnect to keep monitoring your Cursor usage."
+    nonisolated static let sessionExpiredBody = "Reconnect to resume usage updates."
 
     func notifySessionExpired() async {
         await sendNotification(
@@ -270,15 +327,12 @@ final class NotificationManager {
     /// userInfo key carrying the GitHub release page URL as a String.
     nonisolated static let releaseURLUserInfoKey = "releaseURL"
 
-    /// Pure body formatter, unit-tested without UNUserNotificationCenter.
-    nonisolated static func makeUpdateAvailableBody(version: String) -> String {
-        "v\(version) is out — click to see what's new."
-    }
+    nonisolated static let updateAvailableBody = "See what’s new on GitHub."
 
     func notifyUpdateAvailable(version: String, releaseURL: String) async {
         await sendNotification(
-            title: "CursorMeter update available",
-            body: Self.makeUpdateAvailableBody(version: version),
+            title: "Update available: v\(version)",
+            body: Self.updateAvailableBody,
             identifier: Self.updateAvailableIdentifier,
             userInfo: [Self.releaseURLUserInfoKey: releaseURL]
         )
@@ -286,8 +340,8 @@ final class NotificationManager {
 
     func notifyRefreshFailing() async {
         await sendNotification(
-            title: "Cursor connection trouble",
-            body: "Usage refresh has failed \(UsageViewModel.staleThreshold) times in a row. Data may be stale.",
+            title: "Can’t refresh Cursor usage",
+            body: "\(UsageViewModel.staleThreshold) refreshes failed in a row.\nData may be out of date.",
             identifier: Self.refreshFailingIdentifier
         )
     }

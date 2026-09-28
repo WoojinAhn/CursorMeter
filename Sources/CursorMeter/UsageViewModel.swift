@@ -97,6 +97,7 @@ struct JumpEvent: Sendable, Equatable {
     let displayDelta: String
     let timestamp: Date
     var isSplitUsage: Bool = false
+    var legacySnapshot: LegacyUsageJumpSnapshot? = nil
 }
 
 /// User-selectable visual intensity for the jump effect.
@@ -1087,7 +1088,9 @@ final class UsageViewModel {
                 warningThreshold: warningThreshold,
                 criticalThreshold: criticalThreshold,
                 enabled: notificationEnabled,
-                mode: Self.notificationMode(for: data)
+                mode: Self.notificationMode(for: data),
+                jump: jumpEffectEnabled && jumpIntensity == .bold && lastJump?.tier == .two
+                    ? lastJump?.legacySnapshot : nil
             )
             try requireCurrent(context)
         }
@@ -2041,7 +2044,9 @@ final class UsageViewModel {
             mode: mode,
             delta: delta,
             limit: limit,
-            timestamp: Date()
+            timestamp: Date(),
+            reference: prev,
+            current: current
         )
         lastJump = event
     }
@@ -2120,7 +2125,9 @@ final class UsageViewModel {
         mode: JumpEvent.Mode,
         delta: Double,
         limit: Double,
-        timestamp: Date = Date()
+        timestamp: Date = Date(),
+        reference: Double? = nil,
+        current: Double? = nil
     ) -> JumpEvent {
         let tier = classifyTier(mode: mode, delta: delta, limit: limit)
         let deltaPct: Double = limit > 0 ? (delta / limit * 100.0) : 0
@@ -2130,7 +2137,10 @@ final class UsageViewModel {
             deltaPct: deltaPct,
             mode: mode,
             displayDelta: formatJumpDelta(delta, mode: mode),
-            timestamp: timestamp
+            timestamp: timestamp,
+            legacySnapshot: reference.flatMap { reference in
+                current.map { LegacyUsageJumpSnapshot(mode: mode, reference: reference, current: $0, limit: limit) }
+            }
         )
     }
 

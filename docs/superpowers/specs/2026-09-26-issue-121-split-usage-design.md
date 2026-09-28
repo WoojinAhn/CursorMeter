@@ -508,9 +508,11 @@ The implemented surfaces also follow the readable-value polish in
   would hide that distinction. Missing or invalid values display `—`, with
   `Not available` in descriptive accessibility/hover text. Keep source precision
   unchanged for geometry, thresholds, estimation and snapshot matching. Existing
-  whole-percent single-pool presentation remains unchanged. Notifications share this
-  formatter; increases spell out `percentage points`, and threshold messages use
-  `85.1% used (alert at 80%)`. Use short state copy such as `Showing earlier costs`
+  whole-percent single-pool presentation outside notifications remains unchanged.
+  Notifications share this formatter; their copy and composition follow the
+  [notification UX specification](2026-09-28-notification-ux-design.md) (#124),
+  with captured previous/current percentages and actual-usage threshold titles.
+  Use short state copy such as `Showing earlier costs`
   and `Couldn't update costs`; Recent labels its original snapshot time `Updated`.
 - **Hover/AX:** use native `NSStatusBarButton.toolTip` with structured multiline plain
   text and equivalent accessibility value. Hover never fetches or takes focus; opening

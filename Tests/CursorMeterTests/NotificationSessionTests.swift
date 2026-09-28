@@ -35,7 +35,10 @@ final class NotificationSessionTests: XCTestCase {
             deliveries += 1
             XCTAssertTrue(request.identifier.hasPrefix("usage-jump-"))
         })
-        await manager.notifyUsageJump(displayDelta: "+$0.30", currentUsage: "$1.00")
+        await manager.checkAndNotify(percentUsed: 5, warningThreshold: 80, criticalThreshold: 90,
+            enabled: false, mode: .creditPlan(usedCents: 100, limitCents: 2000),
+            jump: LegacyUsageJumpSnapshot(mode: .credit, reference: 70, current: 100, limit: 2000))
+        await manager.waitUntilUsageIdle()
         XCTAssertEqual(deliveries, 1)
     }
 

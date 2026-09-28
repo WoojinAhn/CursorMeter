@@ -1,21 +1,18 @@
 import AppKit
 import Observation
 
-/// Orchestrates the menu-bar icon swap (and optional system notification) when the
-/// `UsageViewModel` publishes a new `lastJump`. Lives outside the view model so that
-/// view-model code stays UI/notification free.
+/// Orchestrates the menu-bar icon swap when the view model publishes a new jump.
+/// Usage notifications are composed once by the refresh pipeline.
 ///
 /// - Observes `viewModel.lastJump` via Swift Observation tracking (re-arm pattern).
 /// - On a relevant tier (per `JumpIntensity` policy), swaps `statusItem.button.image`
 ///   to a fixed-size emoji glyph rendered by `CircularProgressIcon.makeEmojiImage`.
 /// - Schedules a `Timer` to restore the original ring image via the injected
 ///   `restoreImage` closure.
-/// - On `Bold + tier 2`, additionally fires `NotificationManager.notifyUsageJump`.
 @MainActor
 final class JumpEffectCoordinator {
     private let statusItem: NSStatusItem
     private let viewModel: UsageViewModel
-    private let notifier: NotificationManager
     private let restoreImage: () -> NSImage
 
     private var swapTimer: Timer?
@@ -30,12 +27,10 @@ final class JumpEffectCoordinator {
     init(
         statusItem: NSStatusItem,
         viewModel: UsageViewModel,
-        notifier: NotificationManager,
         restoreImage: @escaping () -> NSImage
     ) {
         self.statusItem = statusItem
         self.viewModel = viewModel
-        self.notifier = notifier
         self.restoreImage = restoreImage
     }
 
@@ -89,13 +84,6 @@ final class JumpEffectCoordinator {
         let (emoji, glow, durationMs) = Self.swapParams(for: event.tier, style: viewModel.jumpGlyphStyle)
         performSwap(emoji: emoji, glow: glow, durationMs: durationMs)
 
-        if decision.notify && !event.isSplitUsage {
-            let delta = event.displayDelta
-            let usage = viewModel.usageData?.usageText ?? ""
-            Task { @MainActor [notifier] in
-                await notifier.notifyUsageJump(displayDelta: delta, currentUsage: usage)
-            }
-        }
     }
 
     // MARK: - Image swap

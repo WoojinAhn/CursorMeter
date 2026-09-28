@@ -1,10 +1,11 @@
 # Notification UX specification
 
-Status: selected specification for follow-up implementation; not implemented in the
-native app. Source baseline: `5477ddb`. Date: 2026-09-28. Implementation: #124. Related baseline: #121 / #122.
+Status: implementation candidate in #125, pending final model reviews and main
+integration. Source baseline: `5477ddb`. Date: 2026-09-28. Implementation: #124.
+Related baseline: #121 / #122.
 
 Publishing this specification does not change the behavior shipped by #122.
-Implementation belongs in a separate follow-up issue and branch. HTML mockups,
+Implementation is tracked separately in #124 and `feature/124-notification-ux`. HTML mockups,
 screenshots and raw model-review transcripts remain local; this document is the
 versioned implementation contract and does not require them to interpret its rules.
 
@@ -156,7 +157,7 @@ No new historical event store, notification settings or estimated-limit logic.
   separate decision. Muse prefers keeping two banners; fewer simultaneous OS
   interruptions is the chosen tradeoff, requiring explicit implementation tests.
 
-## Acceptance for later implementation
+## Acceptance criteria
 
 - Cover each existing notification family: split thresholds and Bold, legacy
   request/included-dollar/paid-dollar/percent-only alerts and Bold, combined
