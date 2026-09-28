@@ -17,11 +17,15 @@
 
 에디터 내 확장과 달리, CursorMeter는 네이티브 macOS 앱으로 독립 실행됩니다. IDE를 열지 않아도 메뉴바에서 항상 확인 가능하며, Keychain 기반으로 재시작 후에도 로그인이 유지됩니다.
 
+Cursor는 [2026년 2월 11일 개인 요금제의 사용량 풀 분리를 공식 발표했습니다](https://cursor.com/blog/increased-agent-usage). CursorMeter도 Cursor가 제공하는 사용률에 맞춰 **Cursor Models**와 **Other Models**를 각각 보여줍니다.
+
+현재 분리 미터는 **중앙 원과 바깥 링으로 구성된 한 가지 표현 방식**을 제공합니다. 설정 → Display에서 안팎 배치와 팝오버의 퍼센트·달러·둘 다 표시를 선택할 수 있으며, 앞으로 시각적인 표현 방식도 늘려갈 예정입니다.
+
 ## 주요 기능
 
 - **분리 사용량을 한눈에** — 지원하는 개인 유료 플랜은 중앙 원에 Cursor Models, 바깥 링에 Other Models를 표시합니다. 두 영역은 사용률과 색상을 각각 표현하며, Display 설정에서 바깥 계열을 선택할 수 있습니다. 없는 값은 사용 불가로 남깁니다.
 - 메뉴바에서 사용량과 리셋 날짜 확인. 단일 풀 플랜은 제공되는 요청 횟수도 표시
-- 사용량 임계치 도달 시 macOS 알림(기본값: 80%/90%, 조정 가능). 분리 플랜은 Cursor Models·Other Models·지원되는 유료 예산의 스위치와 경고·위험 기준을 각각 설정할 수 있습니다.
+- **알아보기 쉬운 사용량 알림** — Cursor Models·Other Models·지원되는 유료 예산의 경고·위험 기준을 각각 설정합니다(기본값: 80%/90%). 알림에는 실제 사용량과 설정한 기준이 표시되며, 같은 갱신에서 경고와 큰 증가가 함께 발생하면 간결한 알림 하나로 합칩니다.
 - **사용량 점프 이펙트** — 사용량이 한 번에 크게 올라가면 메뉴바 아이콘에 ⚡(중간 점프) 또는 🚀(큰 점프)가 잠시 표시되어, 갑작스런 증가를 놓치지 않게 합니다. 강도 3단계(Quiet / Normal / Bold)와 글리프 스타일(⚡/🚀 또는 💲/💸) 선택 가능, Bold + 큰 점프 조합에서는 사용량 알림 대상 및 마스터 스위치와 독립적으로 macOS 알림을 띄웁니다. 분리 플랜도 포함 사용량 $0.05/$0.30 민감도를 유지하며 +5/+15%p 변화도 감지합니다. 알림은 측정된 범위를 표시하고 원인을 추측하지 않습니다.
 - **주간 사용량 차트** (모든 플랜) — 최근 7일 막대 그래프를 설정 → Display에서 **Amount**(기본값) 또는 **Usage units** 기준으로 선택할 수 있습니다. 막대 높이·색상·툴팁은 같은 지표를 사용합니다. 금액은 추가 청구액뿐 아니라 구독에 포함된 사용 가치까지 합산하며, 금액 데이터가 없으면 가중 사용량 단위(`requestsCosts`)로 표시합니다. 오늘 강조 스타일 3가지(Outline / Dim / Both) 선택 가능.
 - **주간 차트 갱신 상태** — 일시적 조회 실패 시 마지막 차트를 유지합니다. 두 번 연속 실패하면 마지막 갱신 날짜와 시각을 표시하고, 아직 이력을 받지 못했다면 작은 재시도 안내를 표시합니다. 기존 새로고침 일정으로 자동 재시도합니다.
@@ -110,35 +114,52 @@ swift test    # 전체 테스트 실행 (Xcode 필요)
 
 ## 스크린샷
 
-<p align="center">
-  <a href="docs/screenshots/menubar.png"><img src="docs/screenshots/menubar.png" alt="단일 풀 플랜의 CursorMeter 메뉴바" height="28"></a><br>
-  단일 풀 플랜의 메뉴바입니다. 아래에서 분리 플랜 화면을 볼 수 있습니다.
-</p>
-
 <table>
   <tr>
-    <th align="center">사용량 한눈에</th>
+    <th align="center">두 사용량 풀을 하나의 미터로</th>
+    <th align="center">표시 설정</th>
+  </tr>
+  <tr>
+    <td align="center" valign="top"><a href="docs/screenshots/popover-weekly.png"><img src="docs/screenshots/popover-weekly.png" alt="중앙 원의 Cursor Models와 바깥 링의 Other Models, 사용량 수치와 주간 차트" width="300"></a></td>
+    <td align="center" valign="top"><a href="docs/screenshots/settings-display.png"><img src="docs/screenshots/settings-display.png" alt="안팎 배치, 퍼센트와 달러, 선택적 추정 한도와 점프 이펙트 설정" width="300"></a></td>
+  </tr>
+  <tr>
+    <td align="center">두 계열의 사용량과 한 주의 흐름.</td>
+    <td align="center">표시 수치·배치·이펙트를 원하는 대로.</td>
+  </tr>
+  <tr>
+    <th align="center">계열별 알림</th>
     <th align="center">최근 사용 내역</th>
-    <th align="center">설정</th>
   </tr>
   <tr>
-    <td align="center" valign="top"><a href="docs/screenshots/popover-weekly.png"><img src="docs/screenshots/popover-weekly.png" alt="현재 사용량과 주간 차트" width="240"></a></td>
-    <td align="center" valign="top"><a href="docs/screenshots/settings-usage.png"><img src="docs/screenshots/settings-usage.png" alt="캐시 시각, 모델, 토큰, 금액을 표시하는 최근 사용 내역" width="240"></a></td>
-    <td align="center" valign="top"><a href="docs/screenshots/settings.png"><img src="docs/screenshots/settings.png" alt="일반 설정" width="240"></a></td>
+    <td align="center" valign="top"><a href="docs/screenshots/settings-alerts.png"><img src="docs/screenshots/settings-alerts.png" alt="모델 계열과 유료 예산마다 독립된 스위치와 경고·위험 게이지" width="300"></a></td>
+    <td align="center" valign="top"><a href="docs/screenshots/settings-usage.png"><img src="docs/screenshots/settings-usage.png" alt="모델, 시각, 사용 유형, 토큰, 금액을 표시하는 최근 요청" width="300"></a></td>
   </tr>
   <tr>
-    <td align="center">현재 사용량과<br>최근 7일의 흐름.</td>
-    <td align="center">저장 시각과 함께 보는<br>최근 30건.</td>
-    <td align="center">새로고침, 시작 동작,<br>앱 업데이트.</td>
+    <td align="center">각 계열에 맞는 경고·위험 기준.</td>
+    <td align="center">최근 최대 30건을 Local 또는 UTC로.</td>
   </tr>
 </table>
 
-<p align="center"><em>가상 분리 플랜 데이터로 네이티브 AppKit 뷰를 렌더링했습니다. 설치 앱의 실제 조작은 수동 확인 대상입니다. <a href="docs/mockup-121-usability.html">조작 가능한 전후 시안</a>도 확인할 수 있습니다. 이미지를 클릭하면 원본 크기로 볼 수 있습니다.</em></p>
+<p align="center"><em>현재 네이티브 AppKit 뷰에 데모 데이터를 표시했습니다. 모델명·금액·추정 한도는 예시이며 보장된 요금제 제공량이 아닙니다. 이미지를 클릭하면 원본 크기로 볼 수 있습니다.</em></p>
+
+<details>
+  <summary>퍼센트·달러·선택적 추정 한도</summary>
+  <table>
+    <tr><th>퍼센트</th><th>달러</th><th>둘 다 + 추정 한도</th></tr>
+    <tr>
+      <td valign="top"><a href="docs/screenshots/popover-percent.png"><img src="docs/screenshots/popover-percent.png" alt="두 계열의 사용률을 표시하는 팝오버" width="220"></a></td>
+      <td valign="top"><a href="docs/screenshots/popover-dollars.png"><img src="docs/screenshots/popover-dollars.png" alt="기록된 달러 사용량과 선택적 추정 한도를 표시하는 팝오버" width="220"></a></td>
+      <td valign="top"><a href="docs/screenshots/popover-estimated.png"><img src="docs/screenshots/popover-estimated.png" alt="퍼센트·기록된 달러 사용량·선택적 추정 한도를 함께 표시하는 팝오버" width="220"></a></td>
+    </tr>
+  </table>
+  <p>추정 한도는 기본적으로 꺼져 있으며, 일치하는 사용률과 비용 데이터가 충분할 때 표시됩니다. 원과 알림의 기준은 바뀌지 않습니다. <a href="docs/screenshots/estimated-limits-help.png">앱 내 설명 보기.</a></p>
+</details>
 
 <details>
   <summary>주간 차트를 끈 팝오버 보기</summary>
   <p align="center">
-    <a href="docs/screenshots/popover.png"><img src="docs/screenshots/popover.png" alt="주간 차트를 끈 팝오버 보기" width="240"></a>
+    <a href="docs/screenshots/popover.png"><img src="docs/screenshots/popover.png" alt="주간 차트를 끈 두 계열 미터 팝오버" width="300"></a>
   </p>
 </details>
 

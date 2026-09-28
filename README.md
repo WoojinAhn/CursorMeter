@@ -17,11 +17,15 @@ A lightweight macOS menu bar app for monitoring [Cursor](https://www.cursor.com/
 
 Unlike in-editor extensions, CursorMeter runs independently as a native macOS app: always visible in the menu bar whether the IDE is open or not, with persistent login via Keychain across restarts.
 
+Cursor [announced two usage pools for individual plans on February 11, 2026](https://cursor.com/blog/increased-agent-usage). CursorMeter now represents **Cursor Models** and **Other Models** separately, following Cursor’s reported usage percentages.
+
+The split meter currently has **one visual layout: a center pie and an outer ring**. In Settings → Display, you can swap their placement and choose whether the popover shows percentages, dollars, or both. More visual layouts are planned for future updates.
+
 ## Features
 
 - **Split usage at a glance** — eligible personal paid plans show Cursor Models in the center pie and Other Models in the outer ring. Each region has its own percentage and color; choose the outer pool in Display settings. Missing data stays unavailable.
 - View usage and the reset date from the menu bar; single-pool plans also show request counts when available
-- macOS notifications at customizable thresholds (default: 80%/90%), with independent switches and warning/critical thresholds for Cursor Models, Other Models, and eligible paid budgets.
+- **Clear usage alerts** — set independent warning/critical thresholds for Cursor Models, Other Models, and eligible paid budgets (default: 80%/90%). Notifications show the actual usage and configured level. A warning and a large increase from the same update share one concise notification.
 - **Usage-jump effect** — menu bar icon flashes ⚡ on a moderate jump and 🚀 on a large jump, so a sudden spike is hard to miss. Three intensity levels (Quiet / Normal / Bold) and a choice of glyph style (⚡/🚀 or 💲/💸); Bold also raises a macOS notification on tier-2 jumps, independently of usage-alert targets and their master switch. Split plans retain the $0.05/$0.30 included-usage sensitivity alongside +5/+15 percentage-point signals; the message names the measured scope without guessing the cause.
 - **Weekly usage chart** (all plans) — rolling 7-day bar graph with a choice of **Amount** (default) or **Usage units** in Settings → Display. Bar height, color, and hover tooltip use the same metric. Amount includes plan-covered and on-demand usage value, not just additional charges; if monetary data is missing, the chart uses weighted usage units (`requestsCosts`) instead. Configurable today-highlight (Outline / Dim others / Both).
 - **Weekly chart freshness** — temporary failures keep the last chart. After two consecutive failures, a dated last-update label appears; if no history has loaded yet, a small retrying message appears instead. The existing refresh schedule retries automatically.
@@ -110,35 +114,52 @@ Found a bug or have an idea? [Open an issue](https://github.com/WoojinAhn/Cursor
 
 ## Screenshots
 
-<p align="center">
-  <a href="docs/screenshots/menubar.png"><img src="docs/screenshots/menubar.png" alt="CursorMeter menu bar for a single-pool plan" height="28"></a><br>
-  Menu-bar view for a single-pool plan. Split-plan views appear below.
-</p>
-
 <table>
   <tr>
-    <th align="center">At a glance</th>
+    <th align="center">Two pools, one meter</th>
+    <th align="center">Display choices</th>
+  </tr>
+  <tr>
+    <td align="center" valign="top"><a href="docs/screenshots/popover-weekly.png"><img src="docs/screenshots/popover-weekly.png" alt="Center pie for Cursor Models, outer ring for Other Models, usage values and weekly chart" width="300"></a></td>
+    <td align="center" valign="top"><a href="docs/screenshots/settings-display.png"><img src="docs/screenshots/settings-display.png" alt="Display settings for ring placement, percentages or dollars, optional estimates and jump effects" width="300"></a></td>
+  </tr>
+  <tr>
+    <td align="center">Both allowances and the week’s activity.</td>
+    <td align="center">Choose values, placement and effects.</td>
+  </tr>
+  <tr>
+    <th align="center">Independent alerts</th>
     <th align="center">Recent requests</th>
-    <th align="center">Preferences</th>
   </tr>
   <tr>
-    <td align="center" valign="top"><a href="docs/screenshots/popover-weekly.png"><img src="docs/screenshots/popover-weekly.png" alt="Current usage and weekly chart" width="240"></a></td>
-    <td align="center" valign="top"><a href="docs/screenshots/settings-usage.png"><img src="docs/screenshots/settings-usage.png" alt="Recent usage with cached time, model, tokens, and amount" width="240"></a></td>
-    <td align="center" valign="top"><a href="docs/screenshots/settings.png"><img src="docs/screenshots/settings.png" alt="General settings" width="240"></a></td>
+    <td align="center" valign="top"><a href="docs/screenshots/settings-alerts.png"><img src="docs/screenshots/settings-alerts.png" alt="Separate switches and dual-thumb warning and critical gauges for each model pool and paid budget" width="300"></a></td>
+    <td align="center" valign="top"><a href="docs/screenshots/settings-usage.png"><img src="docs/screenshots/settings-usage.png" alt="Recent requests with model, time, usage type, tokens and amount" width="300"></a></td>
   </tr>
   <tr>
-    <td align="center">Plan usage and<br>the last seven days.</td>
-    <td align="center">Latest 30 requests,<br>with the saved time.</td>
-    <td align="center">Refresh, startup,<br>and app updates.</td>
+    <td align="center">A warning and critical level for each pool.</td>
+    <td align="center">Up to 30 requests, in local time or UTC.</td>
   </tr>
 </table>
 
-<p align="center"><em>Synthetic split-plan data rendered from the native AppKit views. Installed-app interaction remains a manual check. See the <a href="docs/mockup-121-usability.html">interactive before/after mock</a>. Click a screenshot for full size.</em></p>
+<p align="center"><em>Current native AppKit views with demo data. Model names, amounts and inferred limits are examples, not plan entitlements. Click an image for full size.</em></p>
+
+<details>
+  <summary>Percentages, dollars and optional estimated limits</summary>
+  <table>
+    <tr><th>Percentages</th><th>Dollars</th><th>Both with estimates</th></tr>
+    <tr>
+      <td valign="top"><a href="docs/screenshots/popover-percent.png"><img src="docs/screenshots/popover-percent.png" alt="Popover showing the two usage percentages" width="220"></a></td>
+      <td valign="top"><a href="docs/screenshots/popover-dollars.png"><img src="docs/screenshots/popover-dollars.png" alt="Popover showing recorded dollars with optional inferred limits" width="220"></a></td>
+      <td valign="top"><a href="docs/screenshots/popover-estimated.png"><img src="docs/screenshots/popover-estimated.png" alt="Popover showing percentages and recorded dollars with optional inferred limits" width="220"></a></td>
+    </tr>
+  </table>
+  <p>Estimates are off by default and appear only when matching usage and cost observations support them. They do not change the circles or alerts. <a href="docs/screenshots/estimated-limits-help.png">View the in-app explanation.</a></p>
+</details>
 
 <details>
   <summary>Popover with the weekly chart turned off</summary>
   <p align="center">
-    <a href="docs/screenshots/popover.png"><img src="docs/screenshots/popover.png" alt="Popover with the weekly chart turned off" width="240"></a>
+    <a href="docs/screenshots/popover.png"><img src="docs/screenshots/popover.png" alt="Dual-meter popover with the weekly chart turned off" width="300"></a>
   </p>
 </details>
 
