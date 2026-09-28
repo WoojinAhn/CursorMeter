@@ -19,6 +19,55 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
     }
     private func settle(_ dispatcher: SplitUsageAlertDispatcher) async { await dispatcher.waitUntilIdle() }
 
+    func testNewThresholdAndBoldStayTogetherWhenAuthorizationWaits() async {
+        let gate = Gate()
+        var payloads: [UsageNotificationContent] = []
+        var authorizations = 0
+        let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: {
+            authorizations += 1
+            if authorizations == 1 { await gate.pause() }
+            return true
+        }, deliver: { payloads.append(.init(title: $0.content.title, body: $0.content.body)) }))
+        let policy = SplitAlertPolicy(warning: 50, critical: 100, targets: [.cursor], bold: true)
+        func observation(_ revision: UInt64, percent: Double) -> SplitUsageObservation {
+            var value = sample(revision, percent: percent)
+            value.otherPercent = 0
+            return value
+        }
+        _ = dispatcher.accept(observation(1, percent: 40), policy: policy)
+        _ = dispatcher.accept(observation(2, percent: 55), policy: policy)
+        await gate.wait()
+        _ = dispatcher.accept(observation(3, percent: 70), policy: policy)
+        gate.release()
+        await settle(dispatcher)
+        _ = dispatcher.accept(observation(4, percent: 70), policy: policy)
+        await settle(dispatcher)
+        XCTAssertEqual(payloads, [.init(title: "Cursor Models 70.0% · Warning",
+                                       body: "Your warning level is 50%.\nLast refresh 55.0% → now 70.0%")])
+    }
+
+    func testNewerThresholdOmitsOlderBoldWithoutReplayingIt() async {
+        let gate = Gate()
+        var payloads: [UsageNotificationContent] = []
+        var authorizations = 0
+        let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: {
+            authorizations += 1
+            if authorizations == 1 { await gate.pause() }
+            return true
+        }, deliver: { payloads.append(.init(title: $0.content.title, body: $0.content.body)) }))
+        let policy = SplitAlertPolicy(targets: [.cursor], bold: true)
+        _ = dispatcher.accept(sample(1, percent: 65), policy: policy)
+        _ = dispatcher.accept(sample(2, percent: 82), policy: policy)
+        await gate.wait()
+        _ = dispatcher.accept(sample(3, percent: 86), policy: policy)
+        gate.release()
+        await settle(dispatcher)
+        _ = dispatcher.accept(sample(4, percent: 86), policy: policy)
+        await settle(dispatcher)
+        XCTAssertEqual(payloads, [.init(title: "Cursor Models 86.0% · Warning", body: "Your warning level is 80%.")])
+        XCTAssertFalse(payloads.contains { $0.body.contains("since last refresh") })
+    }
+
     func testScopeEditCancelsPendingThresholdUntilFreshObservation() async {
         let gate = Gate()
         var bodies: [String] = []
@@ -27,7 +76,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
             requests += 1
             if requests == 1 { await gate.pause() }
             return true
-        }, deliver: { bodies.append($0.content.body) }))
+        }, deliver: { bodies.append($0.content.title + "\n" + $0.content.body) }))
         var policy = SplitAlertPolicy(targets: [.cursor])
         _ = dispatcher.accept(sample(1, percent: 85), policy: policy)
         await gate.wait()
@@ -39,10 +88,72 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         _ = dispatcher.accept(sample(2, percent: 85), policy: policy)
         await settle(dispatcher)
         XCTAssertEqual(bodies.count, 1)
-        XCTAssertTrue(bodies[0].contains("alert at 70%"))
+        XCTAssertTrue(bodies[0].contains("level is 70%"))
         _ = dispatcher.accept(sample(3, percent: 85), policy: policy)
         await settle(dispatcher)
         XCTAssertEqual(bodies.count, 1)
+    }
+
+    func testCriticalPromotionRetiresOlderWarningCompanion() async {
+        let gate = Gate()
+        var payloads: [UsageNotificationContent] = []
+        var authorizations = 0
+        let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: {
+            authorizations += 1
+            if authorizations == 1 { await gate.pause() }
+            return true
+        }, deliver: { payloads.append(.init(title: $0.content.title, body: $0.content.body)) }))
+        let policy = SplitAlertPolicy(targets: [.cursor], bold: true)
+        _ = dispatcher.accept(sample(1, percent: 65), policy: policy)
+        _ = dispatcher.accept(sample(2, percent: 82), policy: policy)
+        await gate.wait()
+        _ = dispatcher.accept(sample(3, percent: 95), policy: policy)
+        gate.release()
+        await settle(dispatcher)
+        XCTAssertEqual(payloads, [.init(title: "Cursor Models 95.0% · Critical", body: "Your critical level is 90%.")])
+    }
+
+    func testFreshThresholdAfterPolicyEditRetiresOlderBold() async {
+        let gate = Gate()
+        var payloads: [UsageNotificationContent] = []
+        var authorizations = 0
+        let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: {
+            authorizations += 1
+            if authorizations == 1 { await gate.pause() }
+            return true
+        }, deliver: { payloads.append(.init(title: $0.content.title, body: $0.content.body)) }))
+        var policy = SplitAlertPolicy(targets: [.cursor], bold: true)
+        _ = dispatcher.accept(sample(1, percent: 65), policy: policy)
+        _ = dispatcher.accept(sample(2, percent: 82), policy: policy)
+        await gate.wait()
+        policy.thresholdsByScope[.cursor] = .init(warning: 75, critical: 95)
+        dispatcher.updatePolicy(policy)
+        _ = dispatcher.accept(sample(3, percent: 86), policy: policy)
+        gate.release()
+        await settle(dispatcher)
+        XCTAssertEqual(payloads, [.init(title: "Cursor Models 86.0% · Warning", body: "Your warning level is 75%.")])
+    }
+
+    func testAlreadyDeliveredThresholdDoesNotRetirePendingBold() async {
+        let gate = Gate()
+        var payloads: [UsageNotificationContent] = []
+        var authorizations = 0
+        let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: {
+            authorizations += 1
+            if authorizations == 2 { await gate.pause() }
+            return true
+        }, deliver: { payloads.append(.init(title: $0.content.title, body: $0.content.body)) }))
+        let policy = SplitAlertPolicy(warning: 20, critical: 100, targets: [.cursor], bold: true)
+        _ = dispatcher.accept(sample(1, percent: 30), policy: policy)
+        await settle(dispatcher)
+        _ = dispatcher.accept(sample(2, percent: 45), policy: policy)
+        await gate.wait()
+        _ = dispatcher.accept(sample(3, percent: 60), policy: policy)
+        _ = dispatcher.accept(sample(4, percent: 60), policy: policy)
+        gate.release()
+        await settle(dispatcher)
+        XCTAssertEqual(payloads.count, 3)
+        XCTAssertTrue(payloads.last?.body.contains("45.0% → now 60.0%") == true)
     }
 
     func testMaterializingSamePairDoesNotCancelPendingThreshold() async {
@@ -51,7 +162,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: {
             await gate.pause()
             return true
-        }, deliver: { bodies.append($0.content.body) }))
+        }, deliver: { bodies.append($0.content.title + "\n" + $0.content.body) }))
         var policy = SplitAlertPolicy(targets: [.cursor])
         _ = dispatcher.accept(sample(1, percent: 85), policy: policy)
         await gate.wait()
@@ -68,7 +179,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: {
             await gate.pause()
             return true
-        }, deliver: { bodies.append($0.content.body) }))
+        }, deliver: { bodies.append($0.content.title + "\n" + $0.content.body) }))
         let policy = SplitAlertPolicy(bold: true)
         _ = dispatcher.accept(sample(1, percent: 50), policy: policy)
         _ = dispatcher.accept(sample(2, percent: 95, cents: 40), policy: policy)
@@ -77,7 +188,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         gate.release()
         await settle(dispatcher)
         XCTAssertEqual(bodies.count, 1)
-        XCTAssertFalse(bodies.first?.contains("alert at") == true)
+        XCTAssertFalse(bodies.first?.contains("level is") == true)
         XCTAssertTrue(bodies.first?.contains("+$0.40") == true)
     }
 
@@ -90,7 +201,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
                 authorizations += 1
                 if authorizations == 1 { await gate.pause() }
                 return true
-            }, deliver: { bodies.append($0.content.body) }))
+            }, deliver: { bodies.append($0.content.title + "\n" + $0.content.body) }))
             var observation = sample(1, percent: 0)
             observation.paidCents = 95
             observation.paidCapCents = 100
@@ -119,7 +230,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
             authorizations += 1
             if authorizations == 1 { await gate.pause() }
             return true
-        }, deliver: { bodies.append($0.content.body) }))
+        }, deliver: { bodies.append($0.content.title + "\n" + $0.content.body) }))
         var observation = sample(1, percent: 0)
         observation.paidCents = 95
         observation.paidCapCents = 100
@@ -132,7 +243,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         gate.release()
         await settle(dispatcher)
         XCTAssertEqual(bodies.count, 1)
-        XCTAssertTrue(bodies.first?.contains("190.0% used") == true)
+        XCTAssertTrue(bodies.first?.contains("190.0% ·") == true)
     }
 
     func testCorrectionDuringDeliveryStillRecordsActuallyDeliveredThreshold() async {
@@ -166,7 +277,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
             if authorizations == 1 { await authorizationGate.pause() }
             return true
         }, deliver: {
-            bodies.append($0.content.body)
+            bodies.append($0.content.title + "\n" + $0.content.body)
             if bodies.count == 1 { await deliveryGate.pause() }
         }))
         var policy = SplitAlertPolicy()
@@ -191,15 +302,15 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
             authorizations += 1
             if authorizations == 1 { await gate.pause() }
             return true
-        }, deliver: { bodies.append($0.content.body) }))
+        }, deliver: { bodies.append($0.content.title + "\n" + $0.content.body) }))
         _ = dispatcher.accept(sample(1, percent: 95), policy: .init())
         await gate.wait()
         _ = dispatcher.accept(sample(2, percent: 97), policy: .init())
         gate.release()
         await settle(dispatcher)
         XCTAssertEqual(bodies.count, 1)
-        XCTAssertTrue(bodies.first?.contains("97.0% used") == true)
-        XCTAssertFalse(bodies.first?.contains("95.0% used") == true)
+        XCTAssertTrue(bodies.first?.contains("97.0% ·") == true)
+        XCTAssertFalse(bodies.first?.contains("95.0% ·") == true)
     }
 
     func testEmptyNewestRevisionRetainsPendingJumpWithinOriginalContinuity() async {
@@ -210,7 +321,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
             requests += 1
             if requests == 1 { await gate.pause() }
             return true
-        }, deliver: { bodies.append($0.content.body) }))
+        }, deliver: { bodies.append($0.content.title + "\n" + $0.content.body) }))
         let policy = SplitAlertPolicy(thresholdsEnabled: false, bold: true)
         _ = dispatcher.accept(sample(1, percent: 0), policy: policy)
         _ = dispatcher.accept(sample(2, percent: 15), policy: policy)
@@ -223,7 +334,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         XCTAssertEqual(bodies.count, 2)
     }
 
-    func testEqualObservationRetainsPendingBoldWithLatestThresholds() async {
+    func testEqualObservationOmitsPendingBoldFromAnOlderRevision() async {
         let gate = Gate()
         var bodies: [String] = []
         var requests = 0
@@ -231,7 +342,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
             requests += 1
             if requests == 1 { await gate.pause() }
             return true
-        }, deliver: { bodies.append($0.content.body) }))
+        }, deliver: { bodies.append($0.content.title + "\n" + $0.content.body) }))
         let policy = SplitAlertPolicy(bold: true)
         _ = dispatcher.accept(sample(1, percent: 81), policy: policy)
         await gate.wait()
@@ -240,8 +351,8 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         gate.release()
         await settle(dispatcher)
         XCTAssertEqual(bodies.count, 1)
-        XCTAssertTrue(bodies.first?.contains("alert at 90%") == true)
-        XCTAssertTrue(bodies.first?.contains("+15.0 percentage points") == true)
+        XCTAssertTrue(bodies.first?.contains("level is 90%") == true)
+        XCTAssertFalse(bodies.first?.contains("→") == true)
     }
 
     func testRetainedPendingBoldExpiresAtOriginalTimestamp() async {
@@ -254,18 +365,17 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
             if requests == 1 { await gate.pause() }
             return true
         }, deliver: { bodies.append($0.content.body) }), now: { time })
-        let policy = SplitAlertPolicy(bold: true)
-        _ = dispatcher.accept(sample(1, percent: 81, time: time), policy: policy)
+        let policy = SplitAlertPolicy(thresholdsEnabled: false, bold: true)
+        _ = dispatcher.accept(sample(1, percent: 0, time: time), policy: policy)
+        _ = dispatcher.accept(sample(2, percent: 15, time: time), policy: policy)
         await gate.wait()
-        _ = dispatcher.accept(sample(2, percent: 96, time: time), policy: policy)
+        _ = dispatcher.accept(sample(3, percent: 30, time: time), policy: policy)
         time = time.addingTimeInterval(100)
-        _ = dispatcher.accept(sample(3, percent: 96, time: time), policy: policy)
+        _ = dispatcher.accept(sample(4, percent: 30, time: time), policy: policy)
         time = time.addingTimeInterval(21)
         gate.release()
         await settle(dispatcher)
-        XCTAssertEqual(bodies.count, 1)
-        XCTAssertTrue(bodies.first?.contains("alert at 90%") == true)
-        XCTAssertFalse(bodies.first?.contains("+15.0 percentage points") == true)
+        XCTAssertTrue(bodies.isEmpty)
     }
 
     func testPendingBoldSurvivesThresholdEditButNotBoldDisable() async {
@@ -277,7 +387,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
                 requests += 1
                 if requests == 1 { await gate.pause() }
                 return true
-            }, deliver: { bodies.append($0.content.body) }))
+            }, deliver: { bodies.append($0.content.title + "\n" + $0.content.body) }))
             var policy = SplitAlertPolicy(bold: true)
             _ = dispatcher.accept(sample(1, percent: 81), policy: policy)
             await gate.wait()
@@ -290,8 +400,8 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
             await settle(dispatcher)
             XCTAssertEqual(bodies.count, disableBold ? 0 : 1)
             if !disableBold {
-                XCTAssertTrue(bodies.first?.contains("+15.0 percentage points") == true)
-                XCTAssertFalse(bodies.first?.contains("alert at") == true)
+                XCTAssertTrue(bodies.first?.contains("81.0% → now 96.0%") == true)
+                XCTAssertFalse(bodies.first?.contains("level is") == true)
             }
         }
     }
@@ -305,7 +415,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
                 requests += 1
                 if requests == 1 { await gate.pause() }
                 return true
-            }, deliver: { bodies.append($0.content.body) }))
+            }, deliver: { bodies.append($0.content.title + "\n" + $0.content.body) }))
             let policy = SplitAlertPolicy(bold: true)
             _ = dispatcher.accept(sample(1, percent: 81), policy: policy)
             await gate.wait()
@@ -320,7 +430,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
             gate.release()
             await settle(dispatcher)
             XCTAssertEqual(bodies.count, 1, change)
-            XCTAssertFalse(bodies.first?.contains("+15.0 percentage points") == true, change)
+            XCTAssertFalse(bodies.first?.contains("→") == true, change)
         }
     }
 
@@ -332,7 +442,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
             requests += 1
             if requests == 1 { await gate.pause() }
             return true
-        }, deliver: { bodies.append($0.content.body) }))
+        }, deliver: { bodies.append($0.content.title + "\n" + $0.content.body) }))
         let policy = SplitAlertPolicy(thresholdsEnabled: false, bold: true)
         _ = dispatcher.accept(sample(1, percent: 0), policy: policy)
         _ = dispatcher.accept(sample(2, percent: 15), policy: policy)
@@ -343,8 +453,8 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         gate.release()
         await settle(dispatcher)
         XCTAssertEqual(bodies.count, 2)
-        XCTAssertTrue(bodies.last?.contains("+20.0 percentage points") == true)
-        XCTAssertFalse(bodies.last?.contains("+15.0 percentage points") == true)
+        XCTAssertTrue(bodies.last?.contains("30.0% → now 50.0%") == true)
+        XCTAssertFalse(bodies.last?.contains("15.0% → now 30.0%") == true)
     }
 
     func testContinuityResetRetiresAwaitingBoldAndRetainsCycleHighWater() async {
@@ -353,7 +463,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: {
             await gate.pause()
             return true
-        }, deliver: { bodies.append($0.content.body) }))
+        }, deliver: { bodies.append($0.content.title + "\n" + $0.content.body) }))
         let policy = SplitAlertPolicy(thresholdsEnabled: false, bold: true)
         _ = dispatcher.accept(sample(1, percent: 35), policy: policy)
         XCTAssertEqual(dispatcher.accept(sample(2, percent: 50), policy: policy)?.tier, 2)
@@ -375,7 +485,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: {
             await gate.pause()
             return true
-        }, deliver: { bodies.append($0.content.body) }))
+        }, deliver: { bodies.append($0.content.title + "\n" + $0.content.body) }))
         let policy = SplitAlertPolicy(bold: true)
         _ = dispatcher.accept(sample(1, percent: 50), policy: policy)
         _ = dispatcher.accept(sample(2, percent: 95, cents: 40), policy: policy)
@@ -384,8 +494,9 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         gate.release()
         await settle(dispatcher)
         XCTAssertEqual(bodies.count, 1)
-        XCTAssertTrue(bodies.first?.contains("alert at") == true)
+        XCTAssertTrue(bodies.first?.contains("level is") == true)
         XCTAssertFalse(bodies.first?.contains("+$0.40") == true)
+        XCTAssertFalse(bodies.first?.contains("→") == true)
     }
 
     func testDefaultPermissionQueryIsMemoryOnly() async {
@@ -395,14 +506,12 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
 
     func testGroupedThresholdsAndBoldAreOneSubmissionAndCriticalCoversWarning() async {
         var bodies: [String] = []
-        let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: { true }, deliver: { bodies.append($0.content.body) }))
+        let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: { true }, deliver: { bodies.append($0.content.title + "\n" + $0.content.body) }))
         let policy = SplitAlertPolicy(bold: true)
         _ = dispatcher.accept(sample(1, percent: 50), policy: policy)
         _ = dispatcher.accept(sample(2, percent: 95, cents: 40), policy: policy)
         await settle(dispatcher)
-        XCTAssertEqual(bodies.count, 1)
-        XCTAssertTrue(bodies.first?.contains("alert at 90%") == true)
-        XCTAssertTrue(bodies.first?.contains("+$0.40") == true)
+        XCTAssertEqual(bodies, ["Other Models 95.0% · Critical\nYour critical level is 90%.\nCursor Models 95.0% · Critical\nOther Models: 50.0% → 95.0%"])
         _ = dispatcher.accept(sample(3, percent: 85, cents: 40), policy: policy)
         await settle(dispatcher)
         XCTAssertEqual(bodies.count, 1)
@@ -416,7 +525,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
             authorizationCount += 1
             if authorizationCount == 1 { await gate.pause() }
             return true
-        }, deliver: { bodies.append($0.content.body) }))
+        }, deliver: { bodies.append($0.content.title + "\n" + $0.content.body) }))
         _ = dispatcher.accept(sample(1, percent: 81), policy: .init())
         await gate.wait()
         _ = dispatcher.accept(sample(2, percent: 86), policy: .init())
@@ -425,13 +534,13 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         gate.release()
         await settle(dispatcher)
         XCTAssertEqual(bodies.count, 1)
-        XCTAssertTrue(bodies.last?.contains("95.0% used") == true)
+        XCTAssertTrue(bodies.last?.contains("95.0% ·") == true)
     }
 
     func testThresholdPolicyEditRetainsBoldWhileAwaitingAuthorization() async {
         let gate = Gate()
         var bodies: [String] = []
-        let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: { await gate.pause(); return true }, deliver: { bodies.append($0.content.body) }))
+        let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: { await gate.pause(); return true }, deliver: { bodies.append($0.content.title + "\n" + $0.content.body) }))
         var policy = SplitAlertPolicy(bold: true)
         _ = dispatcher.accept(sample(1, percent: 50), policy: policy)
         _ = dispatcher.accept(sample(2, percent: 95, cents: 40), policy: policy)
@@ -441,14 +550,14 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         gate.release()
         await settle(dispatcher)
         XCTAssertEqual(bodies.count, 1)
-        XCTAssertFalse(bodies[0].contains("alert at"))
+        XCTAssertFalse(bodies[0].contains("level is"))
         XCTAssertTrue(bodies[0].contains("+$0.40"))
     }
 
     func testBoldEditRetainsThresholdWhileAwaitingAuthorization() async {
         let gate = Gate()
         var bodies: [String] = []
-        let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: { await gate.pause(); return true }, deliver: { bodies.append($0.content.body) }))
+        let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: { await gate.pause(); return true }, deliver: { bodies.append($0.content.title + "\n" + $0.content.body) }))
         var policy = SplitAlertPolicy(bold: true)
         _ = dispatcher.accept(sample(1, percent: 50), policy: policy)
         _ = dispatcher.accept(sample(2, percent: 95, cents: 40), policy: policy)
@@ -458,8 +567,9 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         gate.release()
         await settle(dispatcher)
         XCTAssertEqual(bodies.count, 1)
-        XCTAssertTrue(bodies[0].contains("alert at"))
+        XCTAssertTrue(bodies[0].contains("level is"))
         XCTAssertFalse(bodies[0].contains("+$0.40"))
+        XCTAssertFalse(bodies[0].contains("→"))
     }
 
     func testFailedDeliveryAndDeniedAuthorizationRetryOnNextFreshRevision() async {
@@ -518,7 +628,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         let gate = Gate()
         var time = Date()
         var bodies: [String] = []
-        let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: { await gate.pause(); return true }, deliver: { bodies.append($0.content.body) }), now: { time })
+        let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: { await gate.pause(); return true }, deliver: { bodies.append($0.content.title + "\n" + $0.content.body) }), now: { time })
         let policy = SplitAlertPolicy(bold: true)
         _ = dispatcher.accept(sample(1, percent: 50, time: time), policy: policy)
         _ = dispatcher.accept(sample(2, percent: 95, cents: 40, time: time), policy: policy)
@@ -528,6 +638,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         await settle(dispatcher)
         XCTAssertEqual(bodies.count, 1)
         XCTAssertFalse(bodies[0].contains("+$0.40"))
-        XCTAssertTrue(bodies[0].contains("alert at"))
+        XCTAssertFalse(bodies[0].contains("→"))
+        XCTAssertTrue(bodies[0].contains("level is"))
     }
 }

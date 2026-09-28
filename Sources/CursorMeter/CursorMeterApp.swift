@@ -380,7 +380,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         let coordinator = JumpEffectCoordinator(
             statusItem: statusItem,
             viewModel: viewModel,
-            notifier: notificationManager,
             restoreImage: { [weak self] in
                 self?.currentRingImage() ?? CircularProgressIcon.idleImage()
             }

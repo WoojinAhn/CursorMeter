@@ -140,6 +140,34 @@ final class UsageViewModelJumpTests: XCTestCase {
         XCTAssertEqual(event.tier, .one)
     }
 
+    @MainActor
+    func testLegacyJumpCapturesExactReferenceAndCurrentBeforeLaterRefreshes() {
+        let vm = UsageViewModel()
+        vm.updateCheckRunner = { .upToDate }
+        vm.testHook_updateJumpState(from: makeFixture(serverPercentUsed: 26.123))
+        vm.testHook_updateJumpState(from: makeFixture(serverPercentUsed: 41.234))
+        let captured = vm.lastJump?.legacySnapshot
+        vm.testHook_updateJumpState(from: makeFixture(serverPercentUsed: 70))
+        XCTAssertEqual(captured?.reference, 26.123)
+        XCTAssertEqual(captured?.current, 41.234)
+        XCTAssertEqual(captured?.limit, 100)
+        XCTAssertEqual(captured?.changeBody, "Last refresh 26.1% → now 41.2%")
+        XCTAssertEqual(vm.lastJump?.legacySnapshot?.current, 70)
+    }
+
+    @MainActor
+    func testLegacyCorrectionKeepsExistingLastRefreshComparison() {
+        let vm = UsageViewModel()
+        vm.updateCheckRunner = { .upToDate }
+        vm.testHook_updateJumpState(from: makeFixture(serverPercentUsed: 50))
+        vm.testHook_updateJumpState(from: makeFixture(serverPercentUsed: 40))
+        XCTAssertNil(vm.lastJump)
+        vm.testHook_updateJumpState(from: makeFixture(serverPercentUsed: 56))
+        XCTAssertEqual(vm.lastJump?.tier, .two)
+        XCTAssertEqual(vm.lastJump?.legacySnapshot?.reference, 40)
+        XCTAssertEqual(vm.lastJump?.legacySnapshot?.changeBody, "Last refresh 40.0% → now 56.0%")
+    }
+
     // MARK: - Settings persistence + setters
 
     @MainActor

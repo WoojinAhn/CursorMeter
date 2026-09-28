@@ -10,11 +10,6 @@ enum UsagePercentFormatter {
         return rounded + "%"
     }
 
-    static func percentagePoints(_ value: Double) -> String {
-        if value > 0 && value < 0.1 { return "<0.1 percentage points" }
-        return "+\(number(value)) percentage points"
-    }
-
     private static func number(_ value: Double) -> String {
         let formatter = NumberFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")

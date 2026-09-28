@@ -138,65 +138,55 @@ final class NotificationManagerTests: XCTestCase {
 
     // MARK: - Usage Jump Notification
 
-    func testUsageJumpBodyFormatIncludesDeltaAndCurrent() {
-        let body = NotificationManager.makeUsageJumpBody(
-            displayDelta: "+$0.30",
-            currentUsage: "$2.10"
-        )
-        XCTAssertTrue(body.contains("+$0.30"))
-        XCTAssertTrue(body.contains("$2.10"))
-        XCTAssertFalse(body.contains("Max mode"))
+    func testUsageJumpRetainsCapturedDollarFraction() {
+        let jump = LegacyUsageJumpSnapshot(mode: .credit, reference: 180, current: 210, limit: 2000)
+        let content = NotificationManager.legacyUsageContent(percentUsed: 10.5, level: .none,
+            threshold: 80, mode: .creditPlan(usedCents: 210, limitCents: 2000), jump: jump)
+        XCTAssertEqual(content?.title, "Included usage increased")
+        XCTAssertEqual(content?.body, "+$0.30 since last refresh\n$2.10 of $20.00 used")
     }
 
-    func testUsageJumpBodyFormatExactWording() {
-        let body = NotificationManager.makeUsageJumpBody(
-            displayDelta: "+30 / 50",
-            currentUsage: "45 / 50"
-        )
-        XCTAssertEqual(
-            body,
-            "Used +30 / 50 since last refresh. Now at 45 / 50."
-        )
+    func testUsageJumpRequestCopyUsesRequests() {
+        let jump = LegacyUsageJumpSnapshot(mode: .request, reference: 15, current: 45, limit: 50)
+        XCTAssertEqual(jump.changeBody, "30 more requests since last refresh")
+        XCTAssertEqual(jump.currentBody, "45 of 50 requests used")
     }
 
-    func testUsageJumpBodyHandlesPercentDelta() {
-        let body = NotificationManager.makeUsageJumpBody(
-            displayDelta: "+15.0%",
-            currentUsage: "78.0%"
-        )
-        XCTAssertTrue(body.contains("+15.0%"))
-        XCTAssertTrue(body.contains("78.0%"))
+    func testUsageJumpPercentUsesCapturedReadings() {
+        let jump = LegacyUsageJumpSnapshot(mode: .percent, reference: 63, current: 78, limit: 100)
+        XCTAssertEqual(jump.changeBody, "Last refresh 63.0% → now 78.0%")
+        XCTAssertNil(jump.currentBody)
     }
 
-    // MARK: - NotificationMode body / titleSuffix
+    // MARK: - NotificationMode fraction / scope
 
-    func test_body_requestQuota_isKorean() {
-        let s = NotificationMode.requestQuota(used: 757, limit: 500).body(forPercent: 80)
-        XCTAssertEqual(s, "월 요청 한도의 80%를 초과했습니다 (757 / 500)")
+    func test_body_requestQuota_includesRequestFraction() {
+        let s = NotificationMode.requestQuota(used: 757, limit: 500).thresholdBody(level: .warning, at: 80)
+        XCTAssertEqual(s, "757 of 500 requests · alert at 80%")
     }
 
     func test_body_creditPlan_includesUSD() {
-        let s = NotificationMode.creditPlan(usedCents: 1600, limitCents: 2000).body(forPercent: 80)
-        XCTAssertEqual(s, "월 플랜의 80%를 사용했습니다 ($16.00 / $20.00)")
+        let s = NotificationMode.creditPlan(usedCents: 1600, limitCents: 2000).thresholdBody(level: .warning, at: 80)
+        XCTAssertEqual(s, "$16.00 of $20.00 · alert at 80%")
     }
 
     func test_body_onDemand_includesUSD() {
-        let s = NotificationMode.onDemand(usedCents: 3200, limitCents: 4000).body(forPercent: 80)
-        XCTAssertEqual(s, "On-demand 청구의 80%를 사용했습니다 ($32.00 / $40.00)")
+        let s = NotificationMode.onDemand(usedCents: 3200, limitCents: 4000).thresholdBody(level: .warning, at: 80)
+        XCTAssertEqual(s, "$32.00 of $40.00 · alert at 80%")
     }
 
-    func test_titleSuffix_eachMode() {
-        XCTAssertEqual(NotificationMode.requestQuota(used: 0, limit: 0).titleSuffix, "Request Quota")
-        XCTAssertEqual(NotificationMode.creditPlan(usedCents: 0, limitCents: 0).titleSuffix, "Plan")
-        XCTAssertEqual(NotificationMode.onDemand(usedCents: 0, limitCents: 0).titleSuffix, "On-demand")
-        XCTAssertEqual(NotificationMode.percentOnly.titleSuffix, "Plan")
+    func test_scopeLabel_eachMode() {
+        XCTAssertEqual(NotificationMode.requestQuota(used: 0, limit: 0).scopeLabel, "Request quota")
+        XCTAssertEqual(NotificationMode.creditPlan(usedCents: 0, limitCents: 0).scopeLabel, "Included usage")
+        XCTAssertEqual(NotificationMode.onDemand(usedCents: 0, limitCents: 0).scopeLabel, "Paid budget")
+        XCTAssertEqual(NotificationMode.percentOnly.scopeLabel, "Included usage")
     }
 
     // MARK: - #104 percent-only plans (free): no meaningless "0 / 0" fraction
 
     func test_body_percentOnly_hasNoFraction() {
-        let s = NotificationMode.percentOnly.body(forPercent: 80)
-        XCTAssertEqual(s, "월 플랜의 80%를 사용했습니다")
+        let s = NotificationMode.percentOnly.thresholdBody(level: .warning, at: 80)
+        XCTAssertEqual(s, "Your warning level is 80%.")
         XCTAssertFalse(s.contains("(0 / 0)"))
     }
 
@@ -341,10 +331,10 @@ final class NotificationManagerTests: XCTestCase {
 
     // MARK: - Update-available body (#83)
 
-    func testMakeUpdateAvailableBody() {
+    func testUpdateAvailableBody() {
         XCTAssertEqual(
-            NotificationManager.makeUpdateAvailableBody(version: "0.8.0"),
-            "v0.8.0 is out — click to see what's new."
+            NotificationManager.updateAvailableBody,
+            "See what’s new on GitHub."
         )
     }
 }

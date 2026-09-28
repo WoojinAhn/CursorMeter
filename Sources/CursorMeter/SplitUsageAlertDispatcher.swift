@@ -14,13 +14,11 @@ final class SplitUsageAlertDispatcher {
     private struct Components {
         var thresholds: [SplitThresholdEvent]
         var bold: SplitUsageJump?
-        var isEmpty: Bool { thresholds.isEmpty && bold == nil }
-        var body: String {
-            (thresholds.map(\.body) + (bold.map { [$0.body] } ?? [])).joined(separator: "\n")
+        var omittedBoldRevision: UInt64? = nil
+        var content: UsageNotificationContent? {
+            SplitUsageNotificationComposer.compose(thresholds: thresholds, bold: bold)
         }
-        var title: String {
-            thresholds.isEmpty ? bold?.title ?? "Usage update" : bold == nil ? "Usage alert" : "Usage alert and increase"
-        }
+        var isEmpty: Bool { content == nil }
     }
     private let manager: NotificationManager
     private let store: SplitUsageAlertStore
@@ -30,10 +28,12 @@ final class SplitUsageAlertDispatcher {
     private var ownership: SplitAlertOwnership?
     private var latestRevision: UInt64?
     private var latestThresholds: [String: SplitThresholdEvent] = [:]
+    private var latestThresholdPolicyRevision: UInt64?
     private var knownSubjects: [String: String] = [:]
     private var ownershipRevision: UInt64 = 0
     private var thresholdRevision: UInt64 = 0
     private var boldRevision: UInt64 = 0
+    private var retiredBoldRevision: UInt64?
     private var pending: Queued?
     private var worker: Task<Void, Never>?
     private var cleanup: Task<Void, Never>?
@@ -53,6 +53,7 @@ final class SplitUsageAlertDispatcher {
             pending = nil
             ownership = observation.ownership
             latestRevision = nil
+            retiredBoldRevision = nil
         }
         if let subject = observation.ownership.persistentSubjectDigest {
             knownSubjects[observation.ownership.accountDigest] = subject
@@ -63,9 +64,10 @@ final class SplitUsageAlertDispatcher {
         pending = nil
         var batch = engine.accept(observation, policy: policy)
         latestThresholds = Dictionary(uniqueKeysWithValues: batch.thresholds.map { ($0.identity, $0) })
+        latestThresholdPolicyRevision = thresholdRevision
         var continuityCeiling = policy.continuityCeiling
         if batch.boldJump == nil, let previousPending,
-           let retained = components(previousPending, delivered: []).bold {
+           let retained = eligibleBold(previousPending) {
             batch.boldJump = retained
             batch.timestamp = previousPending.batch.timestamp
             continuityCeiling = previousPending.continuityCeiling
@@ -89,7 +91,9 @@ final class SplitUsageAlertDispatcher {
         ownershipRevision &+= 1
         ownership = nil
         latestRevision = nil
+        retiredBoldRevision = nil
         latestThresholds = [:]
+        latestThresholdPolicyRevision = nil
         pending = nil
         engine.reset()
     }
@@ -121,15 +125,36 @@ final class SplitUsageAlertDispatcher {
 
     private func components(_ queued: Queued, delivered: Set<String>) -> Components {
         guard isCurrent(queued) else { return Components(thresholds: [], bold: nil) }
-        // The same owner and policy can publish a correction or change the paid
-        // budget while authorization is open. Only currently eligible identities
-        // survive, with the newest value in their notification text.
+        // Revalidate eligibility after authorization, but leave newer thresholds
+        // with their own pending batch so their Bold details stay in one banner.
         let thresholds = queued.thresholdRevision == thresholdRevision
-            ? queued.batch.thresholds.compactMap { delivered.contains($0.identity) ? nil : latestThresholds[$0.identity] } : []
-        let age = now().timeIntervalSince(queued.batch.timestamp)
-        let bold = queued.boldRevision == boldRevision && age >= 0 && age <= queued.continuityCeiling
-            ? queued.batch.boldJump : nil
+            ? queued.batch.thresholds.compactMap { event -> SplitThresholdEvent? in
+                guard !delivered.contains(event.identity), let latest = latestThresholds[event.identity],
+                      latest.observationRevision == queued.batch.revision else { return nil }
+                return latest
+            } : []
+        let bold = eligibleBold(queued)
+        // A newer threshold may also replace the old identity (Warning -> Critical).
+        // Retire its stale companion even if that new threshold is in the next batch.
+        if latestThresholdPolicyRevision == thresholdRevision, let bold,
+           latestThresholds.values.contains(where: {
+               !delivered.contains($0.identity) && $0.observationRevision != bold.observationRevision
+           }) {
+            return Components(thresholds: thresholds, bold: nil, omittedBoldRevision: bold.observationRevision)
+        }
         return Components(thresholds: thresholds, bold: bold)
+    }
+
+    private func eligibleBold(_ queued: Queued) -> SplitUsageJump? {
+        guard isCurrent(queued), let bold = queued.batch.boldJump,
+              retiredBoldRevision.map({ bold.observationRevision > $0 }) ?? true else { return nil }
+        let age = now().timeIntervalSince(queued.batch.timestamp)
+        return queued.boldRevision == boldRevision && age >= 0 && age <= queued.continuityCeiling ? bold : nil
+    }
+
+    private func retireOmittedBold(_ components: Components) {
+        guard let revision = components.omittedBoldRevision else { return }
+        retiredBoldRevision = max(retiredBoldRevision ?? revision, revision)
     }
 
     private func drain() async {
@@ -138,12 +163,15 @@ final class SplitUsageAlertDispatcher {
             await cleanup?.value
             guard isCurrent(queued) else { continue }
             let state = await store.load(for: queued.batch.ownership, now: now())
-            guard !components(queued, delivered: state.identities).isEmpty else { continue }
+            let initial = components(queued, delivered: state.identities)
+            retireOmittedBold(initial)
+            guard !initial.isEmpty else { continue }
             let authorized = await manager.authorizeUsageNotifications()
             guard authorized else { continue }
             let submitting = components(queued, delivered: state.identities)
-            guard !submitting.isEmpty else { continue }
-            let delivered = await manager.submitUsageNotification(title: submitting.title, body: submitting.body,
+            retireOmittedBold(submitting)
+            guard let content = submitting.content else { continue }
+            let delivered = await manager.submitUsageNotification(title: content.title, body: content.body,
                 identifier: "usage-split-\(UUID().uuidString)")
             guard delivered, isCurrent(queued) else { continue }
             // Successful submission cannot be retracted by a later policy edit

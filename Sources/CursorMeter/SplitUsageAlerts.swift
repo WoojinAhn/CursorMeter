@@ -103,20 +103,41 @@ struct SplitAlertPolicy: Sendable, Equatable {
     func hasSameBold(as other: Self) -> Bool { jumpEnabled == other.jumpEnabled && bold == other.bold }
 }
 
+struct SplitUsageJumpSignal: Sendable, Equatable {
+    let scope: SplitAlertScope
+    let tier: Int
+    let delta: Double
+    let referenceValue: Double
+    let currentValue: Double
+    let corrected: Bool
+}
+
 struct SplitUsageJump: Sendable {
-    var tier: Int
-    var deltas: [SplitAlertScope: Double]
-    var correctedScopes: Set<SplitAlertScope>
-    var title: String
-    var body: String
+    let tier: Int
+    let deltas: [SplitAlertScope: Double]
+    let correctedScopes: Set<SplitAlertScope>
+    let observationRevision: UInt64
+    let signals: [SplitUsageJumpSignal]
+
+    var title: String { content?.title ?? "Usage increased" }
+    var body: String { content?.body ?? "" }
+    private var content: UsageNotificationContent? {
+        SplitUsageNotificationComposer.jumpContent(signals: signals, minimumTier: tier)
+    }
 }
 
 struct SplitThresholdEvent: Sendable {
-    var scope: SplitAlertScope
-    var level: ThresholdLevel
-    var identity: String
-    var coveredIdentities: Set<String>
-    var body: String
+    let scope: SplitAlertScope
+    let level: ThresholdLevel
+    let identity: String
+    let coveredIdentities: Set<String>
+    let observationRevision: UInt64
+    let percent: Double
+    let configuredPercent: Int
+    let usedCents: Double?
+    let limitCents: Double?
+
+    var body: String { SplitUsageNotificationComposer.thresholdBody(self) }
 }
 
 struct SplitUsageEventBatch: Sendable {
@@ -133,14 +154,14 @@ struct SplitUsageAlertEngine {
         var previous: Double?
         var highWater: Double?
 
-        mutating func observe(_ value: Double?, comparable: Bool) -> (delta: Double, corrected: Bool) {
-            guard let value, value.isFinite, value >= 0 else { previous = nil; return (0, false) }
+        mutating func observe(_ value: Double?, comparable: Bool) -> (delta: Double, reference: Double?, current: Double?, corrected: Bool) {
+            guard let value, value.isFinite, value >= 0 else { previous = nil; return (0, nil, nil, false) }
             let reference = max(previous ?? value, highWater ?? value)
             let corrected = previous.map { $0 < (highWater ?? $0) } ?? false
             let delta = comparable && previous != nil ? max(0, value - reference) : 0
             previous = value
             highWater = max(highWater ?? value, value)
-            return (delta, corrected)
+            return (delta, reference, value, corrected)
         }
     }
 
@@ -175,6 +196,7 @@ struct SplitUsageAlertEngine {
         ]
         var deltas: [SplitAlertScope: Double] = [:]
         var corrected: Set<SplitAlertScope> = []
+        var jumpSignals: [SplitUsageJumpSignal] = []
         var tier = 0
         for scope in SplitAlertScope.allCases {
             var signal = signals[scope] ?? Signal()
@@ -195,6 +217,10 @@ struct SplitUsageAlertEngine {
                 signalTier = max(signalTier, relative >= 15 ? 2 : relative >= 5 ? 1 : 0)
             }
             tier = max(tier, signalTier)
+            if let reference = change.reference, let current = change.current {
+                jumpSignals.append(SplitUsageJumpSignal(scope: scope, tier: signalTier, delta: delta,
+                    referenceValue: reference, currentValue: current, corrected: change.corrected))
+            }
         }
         revision = observation.revision
         timestamp = observation.timestamp
@@ -203,7 +229,8 @@ struct SplitUsageAlertEngine {
         needsBaseline = false
 
         if tier > 0, policy.jumpEnabled {
-            let jump = makeJump(tier: tier, deltas: deltas, corrected: corrected, observation: observation)
+            let jump = SplitUsageJump(tier: tier, deltas: deltas, correctedScopes: corrected,
+                observationRevision: observation.revision, signals: jumpSignals)
             batch.jump = jump
             if policy.bold && tier == 2 { batch.boldJump = jump }
         }
@@ -219,11 +246,13 @@ struct SplitUsageAlertEngine {
                 let budget = scope == .onDemand ? cap : nil
                 let warningID = observation.ownership.identity(scope: scope, level: "warning", value: thresholds.warning, budget: budget)
                 let criticalID = observation.ownership.identity(scope: scope, level: "critical", value: thresholds.critical, budget: budget)
-                let label = scope == .onDemand ? "Paid budget" : scope.label
                 batch.thresholds.append(SplitThresholdEvent(scope: scope, level: critical ? .critical : .warning,
                     identity: critical ? criticalID : warningID,
                     coveredIdentities: critical ? [warningID, criticalID] : [warningID],
-                    body: "\(label): \(UsagePercentFormatter.percent(percent)) used (alert at \(critical ? thresholds.critical : thresholds.warning)%)."))
+                    observationRevision: observation.revision, percent: percent,
+                    configuredPercent: critical ? thresholds.critical : thresholds.warning,
+                    usedCents: scope == .onDemand ? Self.valid(observation.paidCents) : nil,
+                    limitCents: budget))
             }
         }
         return batch
@@ -237,20 +266,4 @@ struct SplitUsageAlertEngine {
         return value
     }
 
-    private func makeJump(tier: Int, deltas: [SplitAlertScope: Double], corrected: Set<SplitAlertScope>, observation: SplitUsageObservation) -> SplitUsageJump {
-        let lines = SplitAlertScope.allCases.compactMap { scope -> String? in
-            guard let delta = deltas[scope] else { return nil }
-            let amount = scope == .cursor || scope == .other ? UsagePercentFormatter.percentagePoints(delta) : String(format: "+$%.2f", delta / 100)
-            let reference = corrected.contains(scope) ? "above previous peak" : "since last refresh"
-            return "\(scope.label): \(amount) \(reference)"
-        }
-        var body = lines.joined(separator: "\n")
-        if deltas[.included] != nil {
-            let cursor = UsagePercentFormatter.percent(observation.cursorPercent)
-            let other = UsagePercentFormatter.percent(observation.otherPercent)
-            body += "\nNow: Cursor Models \(cursor), Other Models \(other)."
-        }
-        return SplitUsageJump(tier: tier, deltas: deltas, correctedScopes: corrected,
-            title: deltas[.included] != nil ? "Included usage increased" : "Usage increased", body: body)
-    }
 }

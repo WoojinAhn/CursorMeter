@@ -1,21 +1,18 @@
 import AppKit
 import Observation
 
-/// Orchestrates the menu-bar icon swap (and optional system notification) when the
-/// `UsageViewModel` publishes a new `lastJump`. Lives outside the view model so that
-/// view-model code stays UI/notification free.
+/// Orchestrates the menu-bar icon swap when the view model publishes a new jump.
+/// Usage notifications are composed once by the refresh pipeline.
 ///
 /// - Observes `viewModel.lastJump` via Swift Observation tracking (re-arm pattern).
 /// - On a relevant tier (per `JumpIntensity` policy), swaps `statusItem.button.image`
 ///   to a fixed-size emoji glyph rendered by `CircularProgressIcon.makeEmojiImage`.
 /// - Schedules a `Timer` to restore the original ring image via the injected
 ///   `restoreImage` closure.
-/// - On `Bold + tier 2`, additionally fires `NotificationManager.notifyUsageJump`.
 @MainActor
 final class JumpEffectCoordinator {
     private let statusItem: NSStatusItem
     private let viewModel: UsageViewModel
-    private let notifier: NotificationManager
     private let restoreImage: () -> NSImage
 
     private var swapTimer: Timer?
@@ -30,12 +27,10 @@ final class JumpEffectCoordinator {
     init(
         statusItem: NSStatusItem,
         viewModel: UsageViewModel,
-        notifier: NotificationManager,
         restoreImage: @escaping () -> NSImage
     ) {
         self.statusItem = statusItem
         self.viewModel = viewModel
-        self.notifier = notifier
         self.restoreImage = restoreImage
     }
 
@@ -83,19 +78,11 @@ final class JumpEffectCoordinator {
         guard let event = viewModel.lastJump, event != handledEvent else { return }
         handledEvent = event
 
-        let decision = Self.shouldFire(intensity: viewModel.jumpIntensity, tier: event.tier)
-        guard decision.fire else { return }
+        guard Self.shouldFire(intensity: viewModel.jumpIntensity, tier: event.tier) else { return }
 
         let (emoji, glow, durationMs) = Self.swapParams(for: event.tier, style: viewModel.jumpGlyphStyle)
         performSwap(emoji: emoji, glow: glow, durationMs: durationMs)
 
-        if decision.notify && !event.isSplitUsage {
-            let delta = event.displayDelta
-            let usage = viewModel.usageData?.usageText ?? ""
-            Task { @MainActor [notifier] in
-                await notifier.notifyUsageJump(displayDelta: delta, currentUsage: usage)
-            }
-        }
     }
 
     // MARK: - Image swap
@@ -123,33 +110,26 @@ final class JumpEffectCoordinator {
 
     // MARK: - Intensity policy (pure, testable)
 
-    /// Decides whether a jump tier should trigger the icon swap and/or a system
-    /// notification under the given `JumpIntensity`. Pure function — no side effects.
+    /// Decides whether a jump tier should trigger the icon swap.
     ///
     /// Policy (per Issue #55 Final spec):
-    /// - `quiet`:  only `tier == .two` fires the swap. Tier 0/1 ignored. Never notifies.
-    /// - `normal`: tier 1 and tier 2 fire the swap. Never notifies.
-    /// - `bold`:   tier 1 and tier 2 fire the swap. Tier 2 additionally notifies.
+    /// - `quiet`:  only `tier == .two` fires the swap. Tier 0/1 ignored.
+    /// - `normal` and `bold`: tier 1 and tier 2 fire the swap.
     /// - `tier == .zero` is always a no-op regardless of intensity.
     nonisolated static func shouldFire(
         intensity: JumpIntensity,
         tier: JumpEvent.Tier
-    ) -> (fire: Bool, notify: Bool) {
+    ) -> Bool {
         switch tier {
         case .zero:
-            return (false, false)
+            return false
         case .one:
             switch intensity {
-            case .quiet:  return (false, false)
-            case .normal: return (true, false)
-            case .bold:   return (true, false)
+            case .quiet: return false
+            case .normal, .bold: return true
             }
         case .two:
-            switch intensity {
-            case .quiet:  return (true, false)
-            case .normal: return (true, false)
-            case .bold:   return (true, true)
-            }
+            return true
         }
     }
 

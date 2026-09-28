@@ -389,6 +389,11 @@ pending valid Bold event with its original occurrence time; a newer qualifying B
 replaces it. Revalidate ownership before asynchronous store writes
 so old completions cannot resurrect a logged-out ledger.
 
+The [#124 notification contract](2026-09-28-notification-ux-design.md) refines this
+retention rule: a newer undelivered threshold retires an older-revision Bold,
+and a newer threshold/Bold pair stays together in its own observation batch.
+Already-delivered thresholds do not retire an otherwise eligible pending Bold.
+
 Permission state for Settings is read through an injected async provider, wired only in
 production. Creating any Settings controller in tests never accesses the real notification
 center or requests authorization. Default test controllers are memory-only.
@@ -508,9 +513,11 @@ The implemented surfaces also follow the readable-value polish in
   would hide that distinction. Missing or invalid values display `—`, with
   `Not available` in descriptive accessibility/hover text. Keep source precision
   unchanged for geometry, thresholds, estimation and snapshot matching. Existing
-  whole-percent single-pool presentation remains unchanged. Notifications share this
-  formatter; increases spell out `percentage points`, and threshold messages use
-  `85.1% used (alert at 80%)`. Use short state copy such as `Showing earlier costs`
+  whole-percent single-pool presentation outside notifications remains unchanged.
+  Notifications share this formatter; their copy and composition follow the
+  [notification UX specification](2026-09-28-notification-ux-design.md) (#124),
+  with captured previous/current percentages and actual-usage threshold titles.
+  Use short state copy such as `Showing earlier costs`
   and `Couldn't update costs`; Recent labels its original snapshot time `Updated`.
 - **Hover/AX:** use native `NSStatusBarButton.toolTip` with structured multiline plain
   text and equivalent accessibility value. Hover never fetches or takes focus; opening
