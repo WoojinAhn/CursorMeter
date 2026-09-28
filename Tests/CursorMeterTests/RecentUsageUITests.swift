@@ -183,13 +183,13 @@ final class RecentUsageUITests: XCTestCase {
         vc.updateUI()
         XCTAssertTrue(labels(in: vc.view).contains("Loading recent usage…"))
         XCTAssertFalse(labels(in: vc.view).contains("0 requests"))
-        XCTAssertFalse(labels(in: vc.view).contains { $0.hasPrefix("Cached ") })
+        XCTAssertFalse(labels(in: vc.view).contains { $0.hasPrefix("Updated ") })
         let cachedAt = Date(timeIntervalSince1970: 1_700_000_000)
         _ = try publish([], to: vm, at: cachedAt)
         vc.updateUI()
         XCTAssertTrue(labels(in: vc.view).contains("No recent usage"))
         XCTAssertTrue(labels(in: vc.view).contains("0 requests"))
-        XCTAssertTrue(labels(in: vc.view).contains { $0.hasPrefix("Cached ") })
+        XCTAssertTrue(labels(in: vc.view).contains { $0.hasPrefix("Updated ") })
     }
 
     func testFailureRetainsRowsAndOriginalCacheTime() throws {
@@ -203,7 +203,7 @@ final class RecentUsageUITests: XCTestCase {
         let vc = SettingsUsageTabViewController(viewModel: vm)
         _ = vc.view
         vc.updateUI()
-        let originalCacheLabel = try XCTUnwrap(labels(in: vc.view).first { $0.hasPrefix("Cached ") })
+        let originalCacheLabel = try XCTUnwrap(labels(in: vc.view).first { $0.hasPrefix("Updated ") })
         XCTAssertEqual(table(in: vc.view)?.numberOfRows, 1)
         let retry = try XCTUnwrap(vm.recentUsage.selectCredential(
             cookieHeader: "WorkosCursorSessionToken=synthetic-ui", generation: 1, attemptID: 2))
@@ -234,6 +234,57 @@ final class RecentUsageUITests: XCTestCase {
         XCTAssertEqual(table(in: vc.view)?.numberOfRows, 1)
     }
 
+    func testColumnsFitContentViewportWithLegacyAndOverlayScrollers() throws {
+        let vm = makeViewModel()
+        let entries = (0..<30).map { offset in
+            RecentUsageEntry(date: Date(timeIntervalSince1970: Double(1_700_000_000 - offset)),
+                             model: "example-model", kind: .included, tokens: 1_234_567, chargedCents: 123456.78)
+        }
+        _ = try publish(entries, to: vm, at: Date(timeIntervalSince1970: 1_700_000_100))
+        let vc = SettingsUsageTabViewController(viewModel: vm)
+        let table = try XCTUnwrap(table(in: vc.view))
+        let scroll = try XCTUnwrap(table.enclosingScrollView)
+        scroll.scrollerStyle = .legacy
+        let window = NSWindow(contentViewController: vc)
+        window.isReleasedWhenClosed = false
+        window.setContentSize(vc.view.fittingSize)
+        defer { window.contentViewController = nil; window.close() }
+        for style in [NSScroller.Style.legacy, .overlay, .legacy] {
+            scroll.scrollerStyle = style
+            vc.view.layoutSubtreeIfNeeded()
+            let viewportWidth = scroll.contentView.bounds.width
+            XCTAssertEqual(table.numberOfRows, 30)
+            XCTAssertEqual(scroll.frame.height, 264, accuracy: 1)
+            XCTAssertLessThanOrEqual(table.rect(ofColumn: 2).maxX, viewportWidth,
+                                    "USD must fit the actual content width for scroller style \(style.rawValue)")
+            XCTAssertEqual(table.tableColumns[1].width, 70, accuracy: 0.5)
+            XCTAssertEqual(table.tableColumns[2].width, 79, accuracy: 0.5)
+            XCTAssertFalse(scroll.hasHorizontalScroller)
+            let modelCell = try XCTUnwrap(table.view(atColumn: 0, row: 0, makeIfNecessary: true))
+            let modelLabels = modelCell.subviews.compactMap { $0 as? NSTextField }
+            let modelLabel = try XCTUnwrap(modelLabels.first)
+            let detailLabel = try XCTUnwrap(modelLabels.last)
+            modelCell.layoutSubtreeIfNeeded()
+            XCTAssertGreaterThan(modelLabel.frame.minX, modelCell.bounds.minX,
+                                 "Model text must have breathing room inside the table background")
+            XCTAssertEqual(detailLabel.frame.minX, modelLabel.frame.minX, accuracy: 0.5)
+            XCTAssertLessThanOrEqual(modelLabel.frame.maxX, modelCell.bounds.maxX)
+            XCTAssertLessThanOrEqual(detailLabel.frame.maxX, modelCell.bounds.maxX)
+            let amountCell = try XCTUnwrap(table.view(atColumn: 2, row: 0, makeIfNecessary: true))
+            let amountLabel = try XCTUnwrap(amountCell.subviews.first as? NSTextField)
+            amountCell.layoutSubtreeIfNeeded()
+            XCTAssertLessThan(amountLabel.frame.maxX, amountCell.bounds.maxX)
+            XCTAssertGreaterThanOrEqual(amountLabel.bounds.width, amountLabel.intrinsicContentSize.width)
+            XCTAssertLessThanOrEqual(amountLabel.convert(amountLabel.bounds, to: table).maxX,
+                                    table.visibleRect.maxX, "The complete cost must remain inside the viewport")
+            if style == .legacy {
+                XCTAssertLessThan(viewportWidth, scroll.bounds.width)
+            } else {
+                XCTAssertEqual(viewportWidth, scroll.bounds.width, accuracy: 0.5)
+            }
+        }
+    }
+
     func testRowsKeepFixedViewportAndExposeFullModelAndTokens() throws {
         _ = NSApplication.shared
         let vm = makeViewModel()
@@ -246,6 +297,9 @@ final class RecentUsageUITests: XCTestCase {
         let vc = SettingsUsageTabViewController(viewModel: vm)
         _ = vc.view
         vc.updateUI()
+        let table = try XCTUnwrap(table(in: vc.view))
+        let scroll = try XCTUnwrap(table.enclosingScrollView)
+        scroll.scrollerStyle = .legacy
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: vc.view.fittingSize),
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -253,11 +307,11 @@ final class RecentUsageUITests: XCTestCase {
         window.setContentSize(vc.view.fittingSize)
         vc.view.layoutSubtreeIfNeeded()
         defer { window.contentViewController = nil; window.close() }
-        let table = try XCTUnwrap(table(in: vc.view))
-        let scroll = try XCTUnwrap(table.enclosingScrollView)
         XCTAssertEqual(table.numberOfRows, 30)
         XCTAssertEqual(table.rowHeight, 44)
         XCTAssertEqual(scroll.frame.height, 264, accuracy: 1)
+        XCTAssertLessThanOrEqual(table.rect(ofColumn: 2).maxX, table.visibleRect.maxX,
+                                 "The entire USD column must remain visible without horizontal scrolling")
         XCTAssertEqual(vc.view.fittingSize.width, 440, accuracy: 1)
         let modelCell = try XCTUnwrap(vc.tableView(table, viewFor: table.tableColumns[0], row: 0))
         let tokenCell = try XCTUnwrap(vc.tableView(table, viewFor: table.tableColumns[1], row: 0))
@@ -279,7 +333,7 @@ final class RecentUsageUITests: XCTestCase {
         vc.updateUI()
         vc.view.layoutSubtreeIfNeeded()
         let cacheLabel = try XCTUnwrap(allViews(in: vc.view).compactMap { $0 as? NSTextField }
-            .first { $0.stringValue.hasPrefix("Cached ") })
+            .first { $0.stringValue.hasPrefix("Updated ") })
         let button = try XCTUnwrap(allViews(in: vc.view).compactMap { $0 as? RefreshFeedbackButton }.first)
         let cacheParent = try XCTUnwrap(cacheLabel.superview)
         let buttonParent = try XCTUnwrap(button.superview)
@@ -294,7 +348,7 @@ final class RecentUsageUITests: XCTestCase {
         assertHeaderDoesNotOverlap()
         XCTAssertTrue(cacheLabel.stringValue.hasSuffix(" · Update failed"))
         for zone in ["GMT+12:45", "GMT-09:30"] {
-            cacheLabel.stringValue = "Cached 2026-12-31 23:59 \(zone) · Update failed"
+            cacheLabel.stringValue = "Updated 2026-12-31 23:59 \(zone) · Update failed"
             vc.view.layoutSubtreeIfNeeded()
             XCTAssertGreaterThanOrEqual(cacheLabel.alignmentRect(forFrame: cacheLabel.frame).width + 0.01,
                                        cacheLabel.intrinsicContentSize.width,
@@ -328,7 +382,7 @@ final class RecentUsageUITests: XCTestCase {
         XCTAssertTrue(text.contains("Try again later."))
         XCTAssertFalse(text.contains("Couldn’t update. Try again later."))
         XCTAssertFalse(text.contains("0 requests"))
-        XCTAssertFalse(text.contains { $0.hasPrefix("Cached ") })
+        XCTAssertFalse(text.contains { $0.hasPrefix("Updated ") })
         _ = vm.refreshFeedback.begin(generation: 1)
         vc.updateUI()
         let retryText = labels(in: vc.view)

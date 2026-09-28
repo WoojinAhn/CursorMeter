@@ -17,7 +17,7 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
     private let zoneControl = NSSegmentedControl(labels: ["Local", "UTC"], trackingMode: .selectOne,
                                                  target: nil, action: nil)
     private let tableView = NSTableView()
-    private let scrollView = NSScrollView()
+    private let scrollView = RecentUsageScrollView()
     private var rows: [RecentUsageEntry] = []
     private var renderedCandidate: RecentUsageCandidate?
     private var renderedTimeZone: RecentUsageTimeZone?
@@ -37,7 +37,7 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
         heading.setAccessibilityLabel("Recent usage")
         cachedLabel.font = .systemFont(ofSize: 10)
         cachedLabel.textColor = .tertiaryLabelColor
-        cachedLabel.setAccessibilityLabel("Cached at")
+        cachedLabel.setAccessibilityLabel("Last updated")
         countLabel.font = .systemFont(ofSize: 11)
         countLabel.textColor = .secondaryLabelColor
         zoneLabel.font = .systemFont(ofSize: 10)
@@ -50,6 +50,7 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
         refreshButton.action = #selector(refreshTapped)
 
         tableView.headerView = nil
+        tableView.style = .plain
         tableView.rowHeight = 44
         tableView.intercellSpacing = .zero
         tableView.columnAutoresizingStyle = .firstColumnOnlyAutoresizingStyle
@@ -107,7 +108,7 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
         let header = NSStackView(views: [titleStack, SettingsCardFactory.makeSpacer(), refreshButton])
         header.orientation = .horizontal
         header.alignment = .centerY
-        header.spacing = 6
+        header.spacing = 5
         header.edgeInsets = NSEdgeInsets(top: 12, left: 14, bottom: 6, right: 14)
 
         let countRow = NSStackView(views: [countLabel, SettingsCardFactory.makeSpacer(), zoneLabel, zoneControl])
@@ -131,12 +132,12 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
         footer.alignment = .centerY
         footer.edgeInsets = NSEdgeInsets(top: 9, left: 14, bottom: 9, right: 14)
 
-        let card = SettingsCardFactory.makeCard(units: [
+        let recentCard = SettingsCardFactory.makeCard(units: [
             header, SettingsCardFactory.makeDividedUnit(tableHost),
             SettingsCardFactory.makeDividedUnit(countRow), captionHost,
             SettingsCardFactory.makeDividedUnit(footer),
         ])
-        view = SettingsCardFactory.makeTabRoot(sections: [card], width: 440)
+        view = SettingsCardFactory.makeTabRoot(sections: [recentCard], width: 440)
         view.setAccessibilityLabel("Usage")
     }
 
@@ -175,7 +176,7 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
         zoneControl.toolTip = zoneIdentifier
         zoneControl.setAccessibilityHelp(zoneIdentifier)
         let cachedText = candidate.map {
-            "Cached \(RecentUsageFormatter.cachedTime($0.cachedAt, mode: mode)) \(RecentUsageFormatter.zoneLabel(mode: mode, at: $0.cachedAt))"
+            "Updated \(RecentUsageFormatter.cachedTime($0.cachedAt, mode: mode)) \(RecentUsageFormatter.zoneLabel(mode: mode, at: $0.cachedAt))"
         } ?? ""
         let cacheStatus = NSMutableAttributedString(string: cachedText, attributes: [
             .font: NSFont.systemFont(ofSize: 10), .foregroundColor: NSColor.tertiaryLabelColor,
@@ -239,7 +240,8 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
         host.addSubview(primary)
         primary.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            primary.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+            primary.leadingAnchor.constraint(equalTo: host.leadingAnchor,
+                                             constant: tableColumn.identifier.rawValue == "model" ? 8 : 0),
             primary.trailingAnchor.constraint(equalTo: host.trailingAnchor, constant: -8),
         ])
         if let detail {
@@ -247,7 +249,7 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
             detail.translatesAutoresizingMaskIntoConstraints = false
             NSLayoutConstraint.activate([
                 primary.topAnchor.constraint(equalTo: host.topAnchor, constant: 7),
-                detail.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+                detail.leadingAnchor.constraint(equalTo: primary.leadingAnchor),
                 detail.trailingAnchor.constraint(equalTo: host.trailingAnchor, constant: -8),
                 detail.topAnchor.constraint(equalTo: primary.bottomAnchor, constant: 2),
             ])
@@ -270,10 +272,23 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
     }
 
     @objc private func refreshTapped() {
-        Task { await viewModel.refresh() }
+        Task { await viewModel.refreshFromUser() }
     }
 
     @objc private func openCursor() {
         NSWorkspace.shared.open(URL(string: "https://www.cursor.com/dashboard?tab=usage")!)
+    }
+}
+
+private final class RecentUsageScrollView: NSScrollView {
+    override func tile() {
+        super.tile()
+        // Legacy scrollers can shrink the clip view after the controller layout pass.
+        guard let table = documentView as? NSTableView else { return }
+        let width = contentView.bounds.width
+        let columnsWidth = table.tableColumns.reduce(0) { $0 + $1.width }
+        guard width > 0, table.frame.width != width || columnsWidth != width else { return }
+        table.setFrameSize(NSSize(width: width, height: table.frame.height))
+        table.sizeToFit()
     }
 }

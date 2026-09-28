@@ -58,6 +58,10 @@ enum NotificationClickAction: Sendable, Equatable {
     case none
 }
 
+enum NotificationPermissionState: Sendable, Equatable {
+    case unknown, notDetermined, denied, authorized, provisional
+}
+
 // MARK: - Notification Manager
 
 @MainActor
@@ -66,6 +70,7 @@ final class NotificationManager {
     private var notificationRevision: UInt64 = 0
     private let requestAuthorization: @MainActor () async throws -> Bool
     private let deliver: @MainActor (UNNotificationRequest) async throws -> Void
+    private let permissionStateProvider: @MainActor () async -> NotificationPermissionState
 
     init(
         requestAuthorization: @escaping @MainActor () async throws -> Bool = {
@@ -73,10 +78,12 @@ final class NotificationManager {
         },
         deliver: @escaping @MainActor (UNNotificationRequest) async throws -> Void = {
             try await UNUserNotificationCenter.current().add($0)
-        }
+        },
+        permissionStateProvider: @escaping @MainActor () async -> NotificationPermissionState = { .unknown }
     ) {
         self.requestAuthorization = requestAuthorization
         self.deliver = deliver
+        self.permissionStateProvider = permissionStateProvider
     }
 
     nonisolated static func evaluateThreshold(
@@ -122,6 +129,7 @@ final class NotificationManager {
             await sendNotification(
                 title: "Cursor \(mode.titleSuffix) Warning",
                 body: mode.body(forPercent: warningThreshold),
+                identifier: "usage-threshold-\(UUID().uuidString)",
                 revision: revision
             )
             guard revision == notificationRevision, !Task.isCancelled else { return }
@@ -130,6 +138,7 @@ final class NotificationManager {
             await sendNotification(
                 title: "Cursor \(mode.titleSuffix) Critical",
                 body: mode.body(forPercent: criticalThreshold),
+                identifier: "usage-threshold-\(UUID().uuidString)",
                 revision: revision
             )
             guard revision == notificationRevision, !Task.isCancelled else { return }
@@ -157,58 +166,48 @@ final class NotificationManager {
     /// Formats the body string for a usage-jump notification. Pure function so the
     /// exact wording can be unit-tested without invoking UNUserNotificationCenter.
     nonisolated static func makeUsageJumpBody(displayDelta: String, currentUsage: String) -> String {
-        "Used \(displayDelta) since last refresh — possible Max mode query. Now at \(currentUsage)."
+        "Used \(displayDelta) since last refresh. Now at \(currentUsage)."
     }
 
     /// Surfaces a system notification when a tier-2 usage jump is detected on Bold
     /// intensity. Callers (the JumpEffectCoordinator) are responsible for gating
     /// on intensity == .bold && tier == .two; this method is intensity-agnostic.
     ///
-    /// On the first call with `.notDetermined` status (user has never seen a
-    /// threshold notification yet), we prompt for authorization here so that
-    /// opting into Bold intensity actually surfaces something. If denied or
-    /// already-denied, this is a silent no-op.
     func notifyUsageJump(displayDelta: String, currentUsage: String) async {
-        let center = UNUserNotificationCenter.current()
-        let settings = await center.notificationSettings()
-        switch settings.authorizationStatus {
-        case .authorized, .provisional:
-            break
-        case .notDetermined:
-            do {
-                let granted = try await center.requestAuthorization(options: [.alert, .sound])
-                guard granted else {
-                    Log.info("Usage jump notification skipped: user denied authorization")
-                    return
-                }
-            } catch {
-                Log.error("Usage jump notification authorization failed: \(error)")
-                return
-            }
-        default:
-            Log.info("Usage jump notification skipped: not authorized")
-            return
-        }
-
-        let content = UNMutableNotificationContent()
-        content.title = "Usage jumped"
-        content.body = Self.makeUsageJumpBody(
-            displayDelta: displayDelta,
-            currentUsage: currentUsage
-        )
-        content.sound = .default
-
-        let request = UNNotificationRequest(
+        await sendNotification(
+            title: "Usage jumped",
+            body: Self.makeUsageJumpBody(displayDelta: displayDelta, currentUsage: currentUsage),
             identifier: "\(Self.usageJumpIdentifierPrefix)-\(UUID().uuidString)",
-            content: content,
-            trigger: nil
+            revision: notificationRevision
         )
-        do {
-            try await center.add(request)
-            Log.info("Usage jump notification sent")
-        } catch {
-            Log.error("Usage jump notification failed: \(error)")
+    }
+
+    func permissionState() async -> NotificationPermissionState { await permissionStateProvider() }
+
+    static func systemPermissionState() async -> NotificationPermissionState {
+        switch await UNUserNotificationCenter.current().notificationSettings().authorizationStatus {
+        case .notDetermined: .notDetermined
+        case .denied: .denied
+        case .authorized: .authorized
+        case .provisional: .provisional
+        default: .unknown
         }
+    }
+
+    func authorizeUsageNotifications() async -> Bool {
+        do { return try await requestAuthorization() }
+        catch { return false }
+    }
+
+    func submitUsageNotification(title: String, body: String, identifier: String) async -> Bool {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .default
+        do {
+            try await deliver(UNNotificationRequest(identifier: identifier, content: content, trigger: nil))
+            return true
+        } catch { return false }
     }
 
     private func sendNotification(
@@ -304,12 +303,15 @@ final class NotificationManager {
     // MARK: - Notification Click Routing (#79, #83)
 
     /// Pure routing decision for a clicked notification, including userInfo
-    /// parsing so malformed payloads are unit-testable. Threshold and
-    /// usage-jump notifications keep the default (no-op) click behavior.
+    /// parsing so malformed payloads are unit-testable. Usage notifications open
+    /// the current popover without carrying a historical account snapshot.
     nonisolated static func clickAction(
         forNotificationIdentifier id: String,
         userInfo: [AnyHashable: Any]
     ) -> NotificationClickAction {
+        if ["usage-jump-", "usage-threshold-", "usage-split-"].contains(where: id.hasPrefix) {
+            return .openPopover
+        }
         switch id {
         case sessionExpiredIdentifier:
             return .openLoginWindow

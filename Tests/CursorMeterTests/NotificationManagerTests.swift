@@ -145,7 +145,7 @@ final class NotificationManagerTests: XCTestCase {
         )
         XCTAssertTrue(body.contains("+$0.30"))
         XCTAssertTrue(body.contains("$2.10"))
-        XCTAssertTrue(body.contains("Max mode"))
+        XCTAssertFalse(body.contains("Max mode"))
     }
 
     func testUsageJumpBodyFormatExactWording() {
@@ -155,7 +155,7 @@ final class NotificationManagerTests: XCTestCase {
         )
         XCTAssertEqual(
             body,
-            "Used +30 / 50 since last refresh — possible Max mode query. Now at 45 / 50."
+            "Used +30 / 50 since last refresh. Now at 45 / 50."
         )
     }
 
@@ -265,11 +265,7 @@ final class NotificationManagerTests: XCTestCase {
         XCTAssertEqual(NotificationManager.usageJumpIdentifierPrefix, "usage-jump")
     }
 
-    // Note: a runtime test for `notifyUsageJump` is intentionally omitted —
-    // `UNUserNotificationCenter.current()` aborts when invoked outside an
-    // app bundle (the swift-test host has no bundle identifier). The body and
-    // identifier-prefix tests above exercise the user-visible contract; the
-    // remaining authorization/dispatch path is covered by manual smoke testing.
+    // Injected authorization and submission are exercised by NotificationSessionTests.
 
     // MARK: - Notification Click Routing (#79, #83)
 
@@ -283,8 +279,14 @@ final class NotificationManagerTests: XCTestCase {
         )
     }
 
+    func testUsageIdentifiersOpenCurrentPopover() {
+        for id in ["usage-jump-ABC", "usage-threshold-ABC", "usage-split-ABC"] {
+            XCTAssertEqual(NotificationManager.clickAction(forNotificationIdentifier: id, userInfo: [:]), .openPopover)
+        }
+    }
+
     func testClickActionLegacyIdentifiersAreNoOps() {
-        for id in ["\(NotificationManager.usageJumpIdentifierPrefix)-ABC", UUID().uuidString, ""] {
+        for id in [UUID().uuidString, ""] {
             XCTAssertEqual(
                 NotificationManager.clickAction(forNotificationIdentifier: id, userInfo: [:]),
                 .none

@@ -50,6 +50,11 @@ final class SettingsTabViewController: NSTabViewController {
         usageVC.updateUI()
     }
 
+    func showRecentUsage() {
+        guard let index = tabViewItems.firstIndex(where: { $0.viewController === usageVC }) else { return }
+        selectedTabViewItemIndex = index
+    }
+
     // MARK: - Helpers
 
     private func addTab(_ viewController: NSViewController, symbol: String) {
