@@ -67,6 +67,29 @@ struct UsageSummaryResponse: Codable, Sendable {
     let autoModelSelectedDisplayMessage: String?
     let individualUsage: IndividualUsage?
     let teamUsage: TeamUsage?
+
+    func profile404Measurement(usage: UsageResponse?, enterpriseScope: Bool) -> Profile404UsageMeasurement? {
+        if SplitUsageEligibility.evaluate(summary: self, usage: usage, enterpriseScope: enterpriseScope) == .eligible {
+            return .split
+        }
+        let plan = individualUsage?.plan
+        let overall = individualUsage?.overall
+        let used = plan?.used ?? overall?.used
+        let limit = plan?.limit ?? overall?.limit
+        if let limit, limit > 0 {
+            guard let used, used >= 0 else { return nil }
+            return .credit(used: used, limit: limit)
+        }
+        guard let percent = SplitUsageSnapshot.validPercent(plan?.totalPercentUsed)
+            ?? SplitUsageSnapshot.validPercent(UsageDisplayData.percent(from: autoModelSelectedDisplayMessage)) else { return nil }
+        return .percent(percent)
+    }
+}
+
+enum Profile404UsageMeasurement: Sendable, Equatable {
+    case split
+    case credit(used: Int, limit: Int)
+    case percent(Double)
 }
 
 struct IndividualUsage: Codable, Sendable {
@@ -411,7 +434,7 @@ struct UsageDisplayData: Sendable {
     /// no `N%` token is present. Lets token-based enterprise plans — which
     /// expose included usage only as this sentence — render via percent-only
     /// mode instead of a meaningless `0 / 0`.
-    private static func percent(from message: String?) -> Double? {
+    fileprivate static func percent(from message: String?) -> Double? {
         guard let message,
               let match = message.range(of: #"\d+%"#, options: .regularExpression)
         else { return nil }
@@ -425,10 +448,11 @@ struct UsageDisplayData: Sendable {
         usage: UsageResponse?,
         userInfo: UserInfoResponse,
         perUserMonthlyLimitDollars: Int? = nil,
-        perUserOnDemandLimitDollars: Int? = nil
+        perUserOnDemandLimitDollars: Int? = nil,
+        profile404Measurement: Profile404UsageMeasurement? = nil
     ) -> UsageDisplayData {
         let model = usage?.primaryModel
-        let isRequestBased = model?.maxRequestUsage != nil
+        let isRequestBased = profile404Measurement == nil && model?.maxRequestUsage != nil
         let resetDate = parseDate(summary.billingCycleEnd)
         let plan = summary.individualUsage?.plan
 
@@ -440,10 +464,25 @@ struct UsageDisplayData: Sendable {
         // path intact — a real `plan` always wins.
         let overall = summary.individualUsage?.overall
         let isTokenBased = plan == nil && overall != nil
-        let planUsedCents = plan?.used ?? overall?.used
-        let planLimitCents = plan?.limit
-            ?? overall?.limit
-            ?? perUserMonthlyLimitDollars.map { $0 * 100 }
+        let planUsedCents: Int?
+        let planLimitCents: Int?
+        let serverPercentUsed: Double?
+        switch profile404Measurement {
+        case let .credit(used, limit):
+            planUsedCents = used
+            planLimitCents = limit
+            serverPercentUsed = plan?.totalPercentUsed
+        case let .percent(percent):
+            planUsedCents = nil
+            planLimitCents = nil
+            serverPercentUsed = percent
+        case .split, nil:
+            planUsedCents = plan?.used ?? overall?.used
+            planLimitCents = plan?.limit ?? overall?.limit
+                ?? perUserMonthlyLimitDollars.map { $0 * 100 }
+            serverPercentUsed = plan?.totalPercentUsed
+                ?? Self.percent(from: summary.autoModelSelectedDisplayMessage)
+        }
 
         // On-demand. Non-token plans use the API's on-demand block (team-wide on
         // enterprise). Token-based members instead get a PERSONAL view: spend
@@ -479,8 +518,7 @@ struct UsageDisplayData: Sendable {
             membershipType: summary.membershipType,
             planUsedCents: isRequestBased ? nil : planUsedCents,
             planLimitCents: isRequestBased ? nil : planLimitCents,
-            serverPercentUsed: plan?.totalPercentUsed
-                ?? Self.percent(from: summary.autoModelSelectedDisplayMessage),
+            serverPercentUsed: serverPercentUsed,
             requestsUsed: isRequestBased ? requestCount(model) : 0,
             requestsLimit: isRequestBased ? (model?.maxRequestUsage ?? 0) : 0,
             onDemandUsedCents: onDemandUsedCents,

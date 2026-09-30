@@ -600,6 +600,12 @@ final class UsageViewModel {
     /// Identity of the account behind the last successful refresh (#54).
     @ObservationIgnored private var lastAccountEmail: String?
     @ObservationIgnored private var lastAccountSubject: String?
+    private enum CredentialOwner: Equatable {
+        case exact(String)
+        case unbound
+    }
+    @ObservationIgnored private var credentialOwner: CredentialOwner?
+    @ObservationIgnored private var retainedProfile: (credentialDigest: String, profile: UserInfoResponse)?
 
     /// Returns true when a switch was detected — callers must then discard
     /// any in-flight work that captured the previous account's cached ids.
@@ -645,6 +651,7 @@ final class UsageViewModel {
     }
 
     private func startSession() {
+        retainedProfile = nil
         invalidateRefreshSession(revokePersisted: false)
         lastRefreshAttempt = nil
         notificationManager.resetNotifications()
@@ -719,13 +726,14 @@ final class UsageViewModel {
     }
 
     /// Authenticated primary responses remain valid; only old-scope work is retired.
-    private func adoptSession(_ context: RefreshContext, cookieHeader: String) throws -> RefreshContext {
+    private func adoptSession(_ context: RefreshContext, cookieHeader: String,
+                              revokePersisted: Bool = true) throws -> RefreshContext {
         try requireCurrent(context)
         let wasPolling = refreshTask != nil
         cancelOptimisticTasks()
         sessionGeneration += 1
         cancelDeferredRefreshes()
-        recentUsage.invalidate(generation: sessionGeneration, revokePersisted: true)
+        recentUsage.invalidate(generation: sessionGeneration, revokePersisted: revokePersisted)
         refreshFeedback.invalidate()
         let feedback = refreshFeedback.begin(generation: sessionGeneration)!
         let adopted = RefreshContext(networkID: context.networkID, generation: sessionGeneration, recent: nil)
@@ -808,7 +816,7 @@ final class UsageViewModel {
             if let ide = ideCredential {
                 do {
                     context = try selectCredential(ide.cookieHeader, context: context)
-                    try await runRefreshAttempt(cookieHeader: ide.cookieHeader, context: context)
+                    try await runRefreshAttempt(cookieHeader: ide.cookieHeader, source: .cursorIDE, context: context)
                     guard currentContext(networkID: networkID) != nil else { return }
                     authState = .loggedIn
                     activeAuthSource = .cursorIDE
@@ -841,7 +849,7 @@ final class UsageViewModel {
         }
         do {
             context = try selectCredential(cookieHeader, context: context)
-            try await runRefreshAttempt(cookieHeader: cookieHeader, context: context)
+            try await runRefreshAttempt(cookieHeader: cookieHeader, source: .browserLogin, context: context)
             guard currentContext(networkID: networkID) != nil else { return }
             authState = .loggedIn
             activeAuthSource = .browserLogin
@@ -860,9 +868,13 @@ final class UsageViewModel {
     /// One credential's full refresh batch (#54): fetch, decode, apply state,
     /// and success-path side effects. Throws instead of handling errors so the
     /// credential chain in refresh() can decide fallback vs terminal handling.
-    private func runRefreshAttempt(cookieHeader: String, context initialContext: RefreshContext) async throws {
+    private func runRefreshAttempt(cookieHeader: String, source: AuthSource,
+                                   context initialContext: RefreshContext) async throws {
         var context = initialContext
         try requireCurrent(context)
+        let credentialDigest = RecentUsageBinding.credentialDigest(cookieHeader: cookieHeader)
+        let selectedOwner = credentialDigest.map(CredentialOwner.exact)
+        let ownsOptimisticScope = selectedOwner != nil && credentialOwner == selectedOwner
         let apiClient = self.apiClient
         // `async let` (not unstructured `Task {}`) keeps the three calls
         // tied to refresh()'s cancellation lifecycle; `capture` turns each
@@ -879,12 +891,12 @@ final class UsageViewModel {
         // path inside `refreshWeeklyChart`.
         let optimisticMode = cachedWeeklyMode
         let optimisticWeekly: Task<UsageEventCollection, Never>? =
-            makeOptimisticWeeklyTask(cookieHeader: cookieHeader)
+            ownsOptimisticScope ? makeOptimisticWeeklyTask(cookieHeader: cookieHeader) : nil
 
         // Optimistic hard-limit fetch — same prior-refresh teamId gating as
         // the weekly task. Runs in parallel once a teamId is cached.
         let optimisticHardLimit: Task<HardLimitResponse?, Never>? =
-            makeOptimisticHardLimitTask(cookieHeader: cookieHeader)
+            ownsOptimisticScope ? makeOptimisticHardLimitTask(cookieHeader: cookieHeader) : nil
         activeRefresh?.optimisticWeekly = optimisticWeekly
         activeRefresh?.optimisticHardLimit = optimisticHardLimit
 
@@ -909,17 +921,8 @@ final class UsageViewModel {
             throw APIError.unauthorized
         }
 
-        let userInfo = try userInfoRes.get()
         let summary = try? summaryRes.get()
         let usage = try? usageRes.get()
-
-        // The IDE credential can silently belong to a different account than
-        // the previous refresh (#54) — reset per-account state BEFORE applying
-        // the new account's data so no cross-account deltas or caches leak.
-        // The optimistic tasks above captured the OLD account's cached
-        // team/user ids before this check could run — on a switch their
-        // results must be discarded, not merely the caches reset.
-        let accountSwitched = resetIfAccountSwitched(newEmail: userInfo.email, newSubject: userInfo.sub)
         // A rejected history request drops its optimization cache, but the last
         // verified scope must still retire before publishing a different plan.
         let previousRequestMode: WeeklyMode? = lastRequestScope.map {
@@ -930,9 +933,48 @@ final class UsageViewModel {
         }
         let modeContradicted = Self.weeklyModeContradicts(optimisticMode ?? previousRequestMode,
             membershipType: summary?.membershipType)
+        let changedCredential = credentialOwner != nil && credentialOwner != selectedOwner
+        let cachedEnterpriseScope = lastRequestScope.map {
+            if case .enterprise = $0 { return true }
+            return false
+        } == true || (cachedWeeklyMode?.teamID ?? 0) > 0
+        let freshProfile: UserInfoResponse?
+        let profile404Measurement: Profile404UsageMeasurement?
+        switch userInfoRes {
+        case let .success(profile):
+            freshProfile = profile
+            profile404Measurement = nil
+        case let .failure(error):
+            guard source == .cursorIDE, case APIError.httpError(statusCode: 404) = error,
+                  credentialDigest != nil, let summary,
+                  let measurement = summary.profile404Measurement(usage: usage,
+                    enterpriseScope: !changedCredential && !modeContradicted && cachedEnterpriseScope) else {
+                throw error
+            }
+            freshProfile = nil
+            profile404Measurement = measurement
+        }
+        let unknownCredentialSwitch = freshProfile == nil && changedCredential
+        if unknownCredentialSwitch {
+            retainedProfile = nil
+            lastAccountEmail = nil
+            lastAccountSubject = nil
+            resetPerAccountState()
+            usageData = nil
+            lastSuccessAt = nil
+            consecutiveFailureCount = 0
+            notificationFailureCount = 0
+        }
+        let userInfo = freshProfile ?? UserInfoResponse(email: nil, name: nil)
+        let displayProfile = freshProfile
+            ?? (retainedProfile?.credentialDigest == credentialDigest ? retainedProfile?.profile : nil)
+            ?? userInfo
+        let accountSwitched = unknownCredentialSwitch || (freshProfile != nil
+            && resetIfAccountSwitched(newEmail: userInfo.email, newSubject: userInfo.sub))
         if accountSwitched || modeContradicted {
             if !accountSwitched { resetPerAccountState() }
-            context = try adoptSession(context, cookieHeader: cookieHeader)
+            context = try adoptSession(context, cookieHeader: cookieHeader,
+                revokePersisted: !unknownCredentialSwitch)
         }
         if let recent = context.recent {
             recentUsage.validateIdentity(subject: userInfo.sub, scope: nil, context: recent)
@@ -953,7 +995,7 @@ final class UsageViewModel {
         let isTokenBased = summary.map {
             $0.individualUsage?.plan == nil && $0.individualUsage?.overall != nil
         } ?? false
-        if isTokenBased,
+        if freshProfile != nil, isTokenBased,
            perUserMonthlyLimitDollars == nil || perUserOnDemandLimitDollars == nil,
            let teamId = try await resolveTeamId(cookieHeader: cookieHeader, context: context) {
             if perUserMonthlyLimitDollars == nil {
@@ -980,9 +1022,10 @@ final class UsageViewModel {
         let baseData: UsageDisplayData?
         if let summary {
             baseData = UsageDisplayData.from(
-                summary: summary, usage: usage, userInfo: userInfo,
+                summary: summary, usage: usage, userInfo: displayProfile,
                 perUserMonthlyLimitDollars: perUserMonthlyLimitDollars,
-                perUserOnDemandLimitDollars: perUserOnDemandLimitDollars)
+                perUserOnDemandLimitDollars: perUserOnDemandLimitDollars,
+                profile404Measurement: profile404Measurement)
         } else if let usage, !splitSummaryFailed {
             baseData = UsageDisplayData.from(usage: usage, userInfo: userInfo)
         } else {
@@ -990,20 +1033,34 @@ final class UsageViewModel {
         }
 
         if baseData != nil {
+            let freshSubject = UsageRevisionIdentity.accountDigest(subject: freshProfile?.sub, email: nil)
+            guard await splitUsage.prepareProfileAuthority(freshSubjectDigest: freshSubject) else {
+                throw CancellationError()
+            }
+            try requireCurrent(context)
+            guard await splitAlerts.prepareProfileAuthority(freshSubjectDigest: freshSubject) else {
+                throw CancellationError()
+            }
+            try requireCurrent(context)
             if var base = baseData {
                 if let summary {
                     let wasSplit = splitUsage.suppressesLegacyMeter
                     let enterpriseRequestScope: Bool
                     if case .enterprise = lastRequestScope { enterpriseRequestScope = true }
                     else { enterpriseRequestScope = false }
-                    splitUsage.accept(summary: summary, usage: usage, userInfo: userInfo,
+                    splitUsage.accept(summary: summary, usage: usage, userInfo: displayProfile,
                         generation: context.generation,
-                        enterpriseScope: enterpriseRequestScope || (cachedWeeklyMode?.teamID ?? 0) > 0)
+                        enterpriseScope: enterpriseRequestScope || (cachedWeeklyMode?.teamID ?? 0) > 0,
+                        allowsSplitPresentation: profile404Measurement == nil || profile404Measurement == .split)
                     if wasSplit != splitUsage.suppressesLegacyMeter {
                         previousPlanUsedCents = nil; previousRequestsUsed = nil
                         previousServerPercent = nil; previousOnDemandUsedCents = nil; previousMode = nil
                         lastJump = nil
                         splitAlerts.invalidateOwnership()
+                        guard await splitAlerts.prepareProfileAuthority(freshSubjectDigest: freshSubject) else {
+                            throw CancellationError()
+                        }
+                        try requireCurrent(context)
                     }
                     base.splitUsage = splitUsage.snapshot
                     base.splitEligibility = splitUsage.eligibility
@@ -1031,6 +1088,10 @@ final class UsageViewModel {
                     Log.info("On-demand mode latched ON — threshold notifications reset")
                 }
                 usageData = base.withOnDemandActive(isOnDemandLatched)
+            }
+            credentialOwner = selectedOwner ?? .unbound
+            if let freshProfile {
+                retainedProfile = credentialDigest.map { (credentialDigest: $0, profile: freshProfile) }
             }
             Log.info("Usage data refreshed")
             lastSuccessAt = Date()
@@ -1068,13 +1129,15 @@ final class UsageViewModel {
             )
             if needsRediscovery {
                 if let data = baseData {
-                    try await refreshWeeklyChart(cookieHeader: cookieHeader, data: data, userInfo: userInfo, context: &context)
+                    try await refreshWeeklyChart(cookieHeader: cookieHeader, data: data, userInfo: userInfo,
+                        allowDiscovery: freshProfile != nil, context: &context)
                 } else {
                     recordWeeklyFailure(discardData: true)
                 }
             }
         } else if let data = baseData {
-            try await refreshWeeklyChart(cookieHeader: cookieHeader, data: data, userInfo: userInfo, context: &context)
+            try await refreshWeeklyChart(cookieHeader: cookieHeader, data: data, userInfo: userInfo,
+                allowDiscovery: freshProfile != nil, context: &context)
         }
         try requireCurrent(context)
         guard baseData != nil else { throw APIError.httpError(statusCode: 0) }
@@ -1119,6 +1182,7 @@ final class UsageViewModel {
     /// Terminal expiry handling for the captured-cookie credential (#76/#84).
     private func handleCapturedCookieExpiry(context: RefreshContext) async {
         guard isCurrent(context) else { return }
+        retainedProfile = nil
         // Error level (not info): unified logging evicts info entries within
         // hours, and expiry timestamps must survive for interval analysis (#84).
         Log.error("Session expired, clearing keychain")
@@ -1423,7 +1487,7 @@ final class UsageViewModel {
 
     private func refreshWeeklyChart(
         cookieHeader: String, data: UsageDisplayData,
-        userInfo: UserInfoResponse, context: inout RefreshContext
+        userInfo: UserInfoResponse, allowDiscovery: Bool = true, context: inout RefreshContext
     ) async throws {
         try requireCurrent(context)
         // An unavailable summary cannot establish a new personal request scope.
@@ -1434,23 +1498,31 @@ final class UsageViewModel {
         }
         let mode: WeeklyMode
         if membership == "enterprise" {
-            guard let teamId = try await resolveTeamId(cookieHeader: cookieHeader, context: context) else {
-                recordWeeklyFailure(discardData: true)
-                return
-            }
-            try requireCurrent(context)
-            if cachedUserId == nil {
-                let member = try await fetchMyTeamMember(
-                    cookieHeader: cookieHeader, teamId: teamId, email: userInfo.email, context: context
-                )
+            if !allowDiscovery {
+                guard let teamId = cachedTeamId, let userId = cachedUserId else {
+                    recordWeeklyFailure(discardData: true)
+                    return
+                }
+                mode = .enterprise(teamId: teamId, userId: userId)
+            } else {
+                guard let teamId = try await resolveTeamId(cookieHeader: cookieHeader, context: context) else {
+                    recordWeeklyFailure(discardData: true)
+                    return
+                }
                 try requireCurrent(context)
-                cachedUserId = member?.userId
+                if cachedUserId == nil {
+                    let member = try await fetchMyTeamMember(
+                        cookieHeader: cookieHeader, teamId: teamId, email: userInfo.email, context: context
+                    )
+                    try requireCurrent(context)
+                    cachedUserId = member?.userId
+                }
+                guard let userId = cachedUserId else {
+                    recordWeeklyFailure(discardData: true)
+                    return
+                }
+                mode = .enterprise(teamId: teamId, userId: userId)
             }
-            guard let userId = cachedUserId else {
-                recordWeeklyFailure(discardData: true)
-                return
-            }
-            mode = .enterprise(teamId: teamId, userId: userId)
         } else {
             mode = .personal
         }
@@ -1493,6 +1565,8 @@ final class UsageViewModel {
     }
 
     func logout() {
+        credentialOwner = nil
+        retainedProfile = nil
         let subject = UsageRevisionIdentity.accountDigest(subject: lastAccountSubject, email: nil)
         if let account = splitUsage.snapshot?.identity.accountDigest
             ?? UsageRevisionIdentity.accountDigest(subject: lastAccountSubject, email: lastAccountEmail) {
@@ -2101,6 +2175,10 @@ final class UsageViewModel {
     /// force the recheck window open without waiting out the real interval.
     internal func testHook_setLastUpdateCheckAt(_ date: Date?) {
         lastUpdateCheckAt = date
+    }
+
+    internal func testHook_waitForSplitAlerts() async {
+        await splitAlerts.waitUntilIdle()
     }
 
     internal func testHook_setCookieHeader(_ header: String) {

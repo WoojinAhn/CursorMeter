@@ -7,6 +7,8 @@ final class SplitUsageAlertDispatcher {
     private struct Queued {
         var batch: SplitUsageEventBatch
         var ownershipRevision: UInt64
+        var authority: SplitUsageAlertStore.Authority
+        var activation: Task<SplitUsageAlertStore.Lease?, Never>
         var thresholdRevision: UInt64
         var boldRevision: UInt64
         var continuityCeiling: TimeInterval
@@ -31,6 +33,9 @@ final class SplitUsageAlertDispatcher {
     private var latestThresholdPolicyRevision: UInt64?
     private var knownSubjects: [String: String] = [:]
     private var ownershipRevision: UInt64 = 0
+    private var authorityRevision: UInt64 = 0
+    private var authority: SplitUsageAlertStore.Authority?
+    private var freshSubjectDigest: String?
     private var thresholdRevision: UInt64 = 0
     private var boldRevision: UInt64 = 0
     private var retiredBoldRevision: UInt64?
@@ -45,24 +50,53 @@ final class SplitUsageAlertDispatcher {
         self.now = now
     }
 
+    func prepareProfileAuthority(freshSubjectDigest: String?) async -> Bool {
+        authorityRevision &+= 1
+        let revision = authorityRevision
+        let lifecycle = ownershipRevision
+        if self.freshSubjectDigest != freshSubjectDigest {
+            authority = nil
+            pending = nil
+        }
+        await cleanup?.value
+        guard revision == authorityRevision, lifecycle == ownershipRevision, !Task.isCancelled else { return false }
+        let prepared = await store.prepareProfileAuthority(freshSubjectDigest: freshSubjectDigest, revision: revision)
+        guard revision == authorityRevision, lifecycle == ownershipRevision, !Task.isCancelled,
+              let prepared else { return false }
+        self.freshSubjectDigest = freshSubjectDigest
+        authority = prepared
+        return true
+    }
+
     @discardableResult
     func accept(_ observation: SplitUsageObservation, policy: SplitAlertPolicy) -> SplitUsageJump? {
+        guard let authority else { return nil }
         updatePolicy(policy)
-        if ownership != observation.ownership {
+        if ownership.map({ !sameLifecycle($0, observation.ownership) }) ?? true {
             ownershipRevision &+= 1
             pending = nil
-            ownership = observation.ownership
             latestRevision = nil
             retiredBoldRevision = nil
         }
-        if let subject = observation.ownership.persistentSubjectDigest {
+        ownership = observation.ownership
+        if let subject = observation.ownership.persistentSubjectDigest, subject == freshSubjectDigest {
             knownSubjects[observation.ownership.accountDigest] = subject
         }
         guard latestRevision.map({ observation.revision > $0 }) ?? true else { return nil }
         latestRevision = observation.revision
+        let previousCleanup = cleanup
+        let lifecycle = ownershipRevision
+        let activation = Task {
+            await previousCleanup?.value
+            return await store.activate(for: observation.ownership, revision: lifecycle, authority: authority)
+        }
+        cleanup = Task { _ = await activation.value }
         let previousPending = pending
         pending = nil
-        var batch = engine.accept(observation, policy: policy)
+        var signalObservation = observation
+        signalObservation.ownership.persistentSubjectDigest = nil
+        var batch = engine.accept(signalObservation, policy: policy)
+        batch.ownership = observation.ownership
         latestThresholds = Dictionary(uniqueKeysWithValues: batch.thresholds.map { ($0.identity, $0) })
         latestThresholdPolicyRevision = thresholdRevision
         var continuityCeiling = policy.continuityCeiling
@@ -74,6 +108,7 @@ final class SplitUsageAlertDispatcher {
         }
         if !batch.thresholds.isEmpty || batch.boldJump != nil {
             pending = Queued(batch: batch, ownershipRevision: ownershipRevision,
+                             authority: authority, activation: activation,
                              thresholdRevision: thresholdRevision, boldRevision: boldRevision,
                              continuityCeiling: continuityCeiling)
             if worker == nil { worker = Task { await drain() } }
@@ -89,6 +124,9 @@ final class SplitUsageAlertDispatcher {
 
     func invalidateOwnership() {
         ownershipRevision &+= 1
+        authorityRevision &+= 1
+        authority = nil
+        freshSubjectDigest = nil
         ownership = nil
         latestRevision = nil
         retiredBoldRevision = nil
@@ -96,6 +134,13 @@ final class SplitUsageAlertDispatcher {
         latestThresholdPolicyRevision = nil
         pending = nil
         engine.reset()
+        let previous = cleanup
+        let lifecycle = ownershipRevision
+        let revision = authorityRevision
+        cleanup = Task {
+            await previous?.value
+            await store.invalidate(lifecycle: lifecycle, authorityRevision: revision)
+        }
     }
 
     func resetContinuity() {
@@ -119,8 +164,17 @@ final class SplitUsageAlertDispatcher {
         await cleanup?.value
     }
 
+    private func sameLifecycle(_ lhs: SplitAlertOwnership, _ rhs: SplitAlertOwnership) -> Bool {
+        lhs.hasSameSignalScope(as: rhs) && lhs.generation == rhs.generation
+    }
+
+    private func isCurrentReceipt(_ queued: Queued) -> Bool {
+        queued.ownershipRevision == ownershipRevision
+            && ownership.map { sameLifecycle($0, queued.batch.ownership) } == true && !Task.isCancelled
+    }
+
     private func isCurrent(_ queued: Queued) -> Bool {
-        queued.ownershipRevision == ownershipRevision && queued.batch.ownership == ownership && !Task.isCancelled
+        isCurrentReceipt(queued) && queued.authority == authority
     }
 
     private func components(_ queued: Queued, delivered: Set<String>) -> Components {
@@ -162,7 +216,8 @@ final class SplitUsageAlertDispatcher {
             pending = nil
             await cleanup?.value
             guard isCurrent(queued) else { continue }
-            let state = await store.load(for: queued.batch.ownership, now: now())
+            guard let lease = await queued.activation.value else { continue }
+            let state = await store.load(for: queued.batch.ownership, lease: lease, now: now())
             let initial = components(queued, delivered: state.identities)
             retireOmittedBold(initial)
             guard !initial.isEmpty else { continue }
@@ -173,7 +228,7 @@ final class SplitUsageAlertDispatcher {
             guard let content = submitting.content else { continue }
             let delivered = await manager.submitUsageNotification(title: content.title, body: content.body,
                 identifier: "usage-split-\(UUID().uuidString)")
-            guard delivered, isCurrent(queued) else { continue }
+            guard delivered, isCurrentReceipt(queued) else { continue }
             // Successful submission cannot be retracted by a later policy edit
             // or value correction. Record exactly what was delivered; identities
             // include the original threshold value and budget. Ownership and the

@@ -17,13 +17,194 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         SplitUsageObservation(ownership: SplitAlertOwnership(accountDigest: account, requestPlanScope: "personal", generation: 1),
             revision: revision, timestamp: time, includedCents: cents, cursorPercent: percent, otherPercent: percent)
     }
+    private func makeDispatcher(manager: NotificationManager, store: SplitUsageAlertStore = SplitUsageAlertStore(),
+                                now: @escaping @MainActor () -> Date = { Date() }) async -> SplitUsageAlertDispatcher {
+        let dispatcher = SplitUsageAlertDispatcher(manager: manager, store: store, now: now)
+        let prepared = await dispatcher.prepareProfileAuthority(freshSubjectDigest: nil)
+        XCTAssertTrue(prepared)
+        return dispatcher
+    }
+
     private func settle(_ dispatcher: SplitUsageAlertDispatcher) async { await dispatcher.waitUntilIdle() }
+
+    private func persistentSample(_ revision: UInt64, subject: String? = "verified-subject", percent: Double = 95) -> SplitUsageObservation {
+        var value = sample(revision, percent: percent, time: Date(timeIntervalSince1970: 2900000))
+        value.ownership.persistentSubjectDigest = subject
+        value.ownership.cycleStart = Date(timeIntervalSince1970: 500000)
+        value.ownership.cycleEnd = Date(timeIntervalSince1970: 3000000)
+        return value
+    }
+
+    private func directory() throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: url) }
+        return url
+    }
+
+    func testUnpreparedAuthorityCannotSubmitOrPersist() async throws {
+        let directory = try directory()
+        var deliveries = 0
+        let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: { true },
+            deliver: { _ in deliveries += 1 }), store: SplitUsageAlertStore(directory: directory))
+        _ = dispatcher.accept(persistentSample(1), policy: .init())
+        await settle(dispatcher)
+        XCTAssertEqual(deliveries, 0)
+        XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: directory.path).isEmpty)
+        let prepared = await dispatcher.prepareProfileAuthority(freshSubjectDigest: nil)
+        XCTAssertTrue(prepared)
+        _ = dispatcher.accept(persistentSample(2, subject: nil), policy: .init())
+        await settle(dispatcher)
+        XCTAssertEqual(deliveries, 1)
+        XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: directory.path).isEmpty)
+    }
+
+    func testCancelledAuthorityPreparationCannotAcceptPublication() async {
+        let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: { true }, deliver: { _ in
+            XCTFail("Cancelled preparation must not authorize publication")
+        }))
+        let task = Task { await dispatcher.prepareProfileAuthority(freshSubjectDigest: "verified-subject") }
+        task.cancel()
+        let prepared = await task.value
+        XCTAssertFalse(prepared)
+        _ = dispatcher.accept(persistentSample(1), policy: .init())
+        await settle(dispatcher)
+    }
+
+    func testSuccessfulDeliveryAcrossDowngradeAndRecoveryIsSessionOnlyAndNotRepeated() async throws {
+        for recoverBeforeReceipt in [false, true] {
+            let directory = try directory()
+            let gate = Gate()
+            var deliveries = 0
+            let dispatcher = await makeDispatcher(manager: NotificationManager(requestAuthorization: { true }, deliver: { _ in
+                deliveries += 1
+                if deliveries == 1 { await gate.pause() }
+            }), store: SplitUsageAlertStore(directory: directory))
+            let fresh = await dispatcher.prepareProfileAuthority(freshSubjectDigest: "verified-subject")
+            XCTAssertTrue(fresh)
+            _ = dispatcher.accept(persistentSample(1), policy: .init())
+            await gate.wait()
+            let degraded = await dispatcher.prepareProfileAuthority(freshSubjectDigest: nil)
+            XCTAssertTrue(degraded)
+            _ = dispatcher.accept(persistentSample(2, subject: nil), policy: .init())
+            if recoverBeforeReceipt {
+                let recovered = await dispatcher.prepareProfileAuthority(freshSubjectDigest: "verified-subject")
+                XCTAssertTrue(recovered)
+                _ = dispatcher.accept(persistentSample(3), policy: .init())
+            }
+            gate.release()
+            await settle(dispatcher)
+            XCTAssertEqual(deliveries, 1)
+            XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: directory.path).isEmpty)
+
+            let recovered = await dispatcher.prepareProfileAuthority(freshSubjectDigest: "verified-subject")
+            XCTAssertTrue(recovered)
+            _ = dispatcher.accept(persistentSample(4), policy: .init())
+            await settle(dispatcher)
+            XCTAssertEqual(deliveries, 1)
+            XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: directory.path).isEmpty)
+        }
+    }
+
+    func testAcknowledgedDegradedThresholdSurvivesRepresentationReset() async throws {
+        let recoverySubjects: [String?] = [nil, "verified-subject"]
+        for recoveredSubject in recoverySubjects {
+            let directory = try directory()
+            var deliveries = 0
+            let dispatcher = await makeDispatcher(manager: NotificationManager(requestAuthorization: { true },
+                deliver: { _ in deliveries += 1 }), store: SplitUsageAlertStore(directory: directory))
+            _ = dispatcher.accept(persistentSample(1, subject: nil), policy: .init())
+            await settle(dispatcher)
+            XCTAssertEqual(deliveries, 1)
+
+            dispatcher.invalidateOwnership()
+            let prepared = await dispatcher.prepareProfileAuthority(freshSubjectDigest: recoveredSubject)
+            XCTAssertTrue(prepared)
+            _ = dispatcher.accept(persistentSample(2, subject: recoveredSubject), policy: .init())
+            await settle(dispatcher)
+
+            XCTAssertEqual(deliveries, 1, "A representation reset must retain acknowledged same-scope delivery knowledge")
+            XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: directory.path).isEmpty,
+                          "Recovery must not promote an earlier session-only receipt to disk")
+        }
+    }
+
+    func testLoadedLedgerKnowledgeSuppressesDegradedAndRecoveredNotifications() async throws {
+        let directory = try directory()
+        var deliveries = 0
+        let manager = NotificationManager(requestAuthorization: { true }, deliver: { _ in deliveries += 1 })
+        let writer = await makeDispatcher(manager: manager, store: SplitUsageAlertStore(directory: directory))
+        let initial = await writer.prepareProfileAuthority(freshSubjectDigest: "verified-subject")
+        XCTAssertTrue(initial)
+        _ = writer.accept(persistentSample(1), policy: .init())
+        await settle(writer)
+        XCTAssertEqual(deliveries, 1)
+        let url = try XCTUnwrap(FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil).first)
+        let original = try Data(contentsOf: url)
+
+        let dispatcher = await makeDispatcher(manager: manager, store: SplitUsageAlertStore(directory: directory))
+        let fresh = await dispatcher.prepareProfileAuthority(freshSubjectDigest: "verified-subject")
+        XCTAssertTrue(fresh)
+        _ = dispatcher.accept(persistentSample(1), policy: .init())
+        await settle(dispatcher)
+        let degraded = await dispatcher.prepareProfileAuthority(freshSubjectDigest: nil)
+        XCTAssertTrue(degraded)
+        try Data("must-not-be-read".utf8).write(to: url)
+        _ = dispatcher.accept(persistentSample(2, subject: nil), policy: .init())
+        await settle(dispatcher)
+        XCTAssertEqual(deliveries, 1)
+        XCTAssertEqual(try Data(contentsOf: url), Data("must-not-be-read".utf8))
+        try original.write(to: url)
+        let recovered = await dispatcher.prepareProfileAuthority(freshSubjectDigest: "verified-subject")
+        XCTAssertTrue(recovered)
+        _ = dispatcher.accept(persistentSample(3), policy: .init())
+        await settle(dispatcher)
+        XCTAssertEqual(deliveries, 1)
+        XCTAssertEqual(try Data(contentsOf: url), original)
+    }
+
+    func testLifecycleChangeRejectsLateSuccessfulDelivery() async throws {
+        for change in ["logout", "account", "scope", "cycle", "generation"] {
+            let directory = try directory()
+            let gate = Gate()
+            var deliveries = 0
+            let dispatcher = await makeDispatcher(manager: NotificationManager(requestAuthorization: { true }, deliver: { _ in
+                deliveries += 1
+                if deliveries == 1 { await gate.pause() }
+            }), store: SplitUsageAlertStore(directory: directory))
+            let prepared = await dispatcher.prepareProfileAuthority(freshSubjectDigest: "verified-subject")
+            XCTAssertTrue(prepared)
+            let original = persistentSample(1)
+            _ = dispatcher.accept(original, policy: .init())
+            await gate.wait()
+            if change == "logout" {
+                dispatcher.logout(accountDigest: original.ownership.accountDigest)
+            } else {
+                var next = persistentSample(2, percent: 20)
+                switch change {
+                case "account": next.ownership.accountDigest = "other-account"
+                case "scope": next.ownership.requestPlanScope = "team"
+                case "cycle": next.ownership.cycleEnd = next.ownership.cycleEnd?.addingTimeInterval(86400)
+                default: next.ownership.generation += 1
+                }
+                _ = dispatcher.accept(next, policy: .init())
+            }
+            gate.release()
+            await settle(dispatcher)
+            XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: directory.path).isEmpty, change)
+            let recovered = await dispatcher.prepareProfileAuthority(freshSubjectDigest: "verified-subject")
+            XCTAssertTrue(recovered)
+            _ = dispatcher.accept(persistentSample(3), policy: .init())
+            await settle(dispatcher)
+            XCTAssertEqual(deliveries, 2, change)
+        }
+    }
 
     func testNewThresholdAndBoldStayTogetherWhenAuthorizationWaits() async {
         let gate = Gate()
         var payloads: [UsageNotificationContent] = []
         var authorizations = 0
-        let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: {
+        let dispatcher = await makeDispatcher(manager: NotificationManager(requestAuthorization: {
             authorizations += 1
             if authorizations == 1 { await gate.pause() }
             return true
@@ -50,7 +231,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         let gate = Gate()
         var payloads: [UsageNotificationContent] = []
         var authorizations = 0
-        let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: {
+        let dispatcher = await makeDispatcher(manager: NotificationManager(requestAuthorization: {
             authorizations += 1
             if authorizations == 1 { await gate.pause() }
             return true
@@ -72,7 +253,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         let gate = Gate()
         var bodies: [String] = []
         var requests = 0
-        let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: {
+        let dispatcher = await makeDispatcher(manager: NotificationManager(requestAuthorization: {
             requests += 1
             if requests == 1 { await gate.pause() }
             return true
@@ -98,7 +279,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         let gate = Gate()
         var payloads: [UsageNotificationContent] = []
         var authorizations = 0
-        let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: {
+        let dispatcher = await makeDispatcher(manager: NotificationManager(requestAuthorization: {
             authorizations += 1
             if authorizations == 1 { await gate.pause() }
             return true
@@ -117,7 +298,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         let gate = Gate()
         var payloads: [UsageNotificationContent] = []
         var authorizations = 0
-        let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: {
+        let dispatcher = await makeDispatcher(manager: NotificationManager(requestAuthorization: {
             authorizations += 1
             if authorizations == 1 { await gate.pause() }
             return true
@@ -138,7 +319,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         let gate = Gate()
         var payloads: [UsageNotificationContent] = []
         var authorizations = 0
-        let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: {
+        let dispatcher = await makeDispatcher(manager: NotificationManager(requestAuthorization: {
             authorizations += 1
             if authorizations == 2 { await gate.pause() }
             return true
@@ -159,7 +340,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
     func testMaterializingSamePairDoesNotCancelPendingThreshold() async {
         let gate = Gate()
         var bodies: [String] = []
-        let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: {
+        let dispatcher = await makeDispatcher(manager: NotificationManager(requestAuthorization: {
             await gate.pause()
             return true
         }, deliver: { bodies.append($0.content.title + "\n" + $0.content.body) }))
@@ -176,7 +357,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
     func testCorrectionDuringAuthorizationDropsThresholdButKeepsRecentBold() async {
         let gate = Gate()
         var bodies: [String] = []
-        let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: {
+        let dispatcher = await makeDispatcher(manager: NotificationManager(requestAuthorization: {
             await gate.pause()
             return true
         }, deliver: { bodies.append($0.content.title + "\n" + $0.content.body) }))
@@ -197,7 +378,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
             let gate = Gate()
             var bodies: [String] = []
             var authorizations = 0
-            let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: {
+            let dispatcher = await makeDispatcher(manager: NotificationManager(requestAuthorization: {
                 authorizations += 1
                 if authorizations == 1 { await gate.pause() }
                 return true
@@ -226,7 +407,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         let gate = Gate()
         var bodies: [String] = []
         var authorizations = 0
-        let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: {
+        let dispatcher = await makeDispatcher(manager: NotificationManager(requestAuthorization: {
             authorizations += 1
             if authorizations == 1 { await gate.pause() }
             return true
@@ -251,7 +432,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         let store = SplitUsageAlertStore()
         var deliveries = 0
         let observation = sample(1, percent: 95)
-        let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: { true }, deliver: { _ in
+        let dispatcher = await makeDispatcher(manager: NotificationManager(requestAuthorization: { true }, deliver: { _ in
             deliveries += 1
             if deliveries == 1 { await gate.pause() }
         }), store: store)
@@ -260,8 +441,6 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         _ = dispatcher.accept(sample(2, percent: 50), policy: .init())
         gate.release()
         await settle(dispatcher)
-        let state = await store.load(for: observation.ownership, now: Date())
-        XCTAssertFalse(state.identities.isEmpty)
         _ = dispatcher.accept(sample(3, percent: 95), policy: .init())
         await settle(dispatcher)
         XCTAssertEqual(deliveries, 1)
@@ -272,7 +451,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         let deliveryGate = Gate()
         var authorizations = 0
         var bodies: [String] = []
-        let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: {
+        let dispatcher = await makeDispatcher(manager: NotificationManager(requestAuthorization: {
             authorizations += 1
             if authorizations == 1 { await authorizationGate.pause() }
             return true
@@ -298,7 +477,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         let gate = Gate()
         var bodies: [String] = []
         var authorizations = 0
-        let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: {
+        let dispatcher = await makeDispatcher(manager: NotificationManager(requestAuthorization: {
             authorizations += 1
             if authorizations == 1 { await gate.pause() }
             return true
@@ -317,7 +496,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         let gate = Gate()
         var bodies: [String] = []
         var requests = 0
-        let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: {
+        let dispatcher = await makeDispatcher(manager: NotificationManager(requestAuthorization: {
             requests += 1
             if requests == 1 { await gate.pause() }
             return true
@@ -338,7 +517,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         let gate = Gate()
         var bodies: [String] = []
         var requests = 0
-        let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: {
+        let dispatcher = await makeDispatcher(manager: NotificationManager(requestAuthorization: {
             requests += 1
             if requests == 1 { await gate.pause() }
             return true
@@ -360,7 +539,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         var time = Date()
         var bodies: [String] = []
         var requests = 0
-        let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: {
+        let dispatcher = await makeDispatcher(manager: NotificationManager(requestAuthorization: {
             requests += 1
             if requests == 1 { await gate.pause() }
             return true
@@ -383,7 +562,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
             let gate = Gate()
             var bodies: [String] = []
             var requests = 0
-            let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: {
+            let dispatcher = await makeDispatcher(manager: NotificationManager(requestAuthorization: {
                 requests += 1
                 if requests == 1 { await gate.pause() }
                 return true
@@ -411,7 +590,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
             let gate = Gate()
             var bodies: [String] = []
             var requests = 0
-            let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: {
+            let dispatcher = await makeDispatcher(manager: NotificationManager(requestAuthorization: {
                 requests += 1
                 if requests == 1 { await gate.pause() }
                 return true
@@ -438,7 +617,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         let gate = Gate()
         var bodies: [String] = []
         var requests = 0
-        let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: {
+        let dispatcher = await makeDispatcher(manager: NotificationManager(requestAuthorization: {
             requests += 1
             if requests == 1 { await gate.pause() }
             return true
@@ -460,7 +639,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
     func testContinuityResetRetiresAwaitingBoldAndRetainsCycleHighWater() async {
         let gate = Gate()
         var bodies: [String] = []
-        let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: {
+        let dispatcher = await makeDispatcher(manager: NotificationManager(requestAuthorization: {
             await gate.pause()
             return true
         }, deliver: { bodies.append($0.content.title + "\n" + $0.content.body) }))
@@ -482,7 +661,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
     func testContinuityResetKeepsAwaitingThresholdComponent() async {
         let gate = Gate()
         var bodies: [String] = []
-        let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: {
+        let dispatcher = await makeDispatcher(manager: NotificationManager(requestAuthorization: {
             await gate.pause()
             return true
         }, deliver: { bodies.append($0.content.title + "\n" + $0.content.body) }))
@@ -506,7 +685,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
 
     func testGroupedThresholdsAndBoldAreOneSubmissionAndCriticalCoversWarning() async {
         var bodies: [String] = []
-        let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: { true }, deliver: { bodies.append($0.content.title + "\n" + $0.content.body) }))
+        let dispatcher = await makeDispatcher(manager: NotificationManager(requestAuthorization: { true }, deliver: { bodies.append($0.content.title + "\n" + $0.content.body) }))
         let policy = SplitAlertPolicy(bold: true)
         _ = dispatcher.accept(sample(1, percent: 50), policy: policy)
         _ = dispatcher.accept(sample(2, percent: 95, cents: 40), policy: policy)
@@ -521,7 +700,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         let gate = Gate()
         var authorizationCount = 0
         var bodies: [String] = []
-        let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: {
+        let dispatcher = await makeDispatcher(manager: NotificationManager(requestAuthorization: {
             authorizationCount += 1
             if authorizationCount == 1 { await gate.pause() }
             return true
@@ -540,7 +719,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
     func testThresholdPolicyEditRetainsBoldWhileAwaitingAuthorization() async {
         let gate = Gate()
         var bodies: [String] = []
-        let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: { await gate.pause(); return true }, deliver: { bodies.append($0.content.title + "\n" + $0.content.body) }))
+        let dispatcher = await makeDispatcher(manager: NotificationManager(requestAuthorization: { await gate.pause(); return true }, deliver: { bodies.append($0.content.title + "\n" + $0.content.body) }))
         var policy = SplitAlertPolicy(bold: true)
         _ = dispatcher.accept(sample(1, percent: 50), policy: policy)
         _ = dispatcher.accept(sample(2, percent: 95, cents: 40), policy: policy)
@@ -557,7 +736,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
     func testBoldEditRetainsThresholdWhileAwaitingAuthorization() async {
         let gate = Gate()
         var bodies: [String] = []
-        let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: { await gate.pause(); return true }, deliver: { bodies.append($0.content.title + "\n" + $0.content.body) }))
+        let dispatcher = await makeDispatcher(manager: NotificationManager(requestAuthorization: { await gate.pause(); return true }, deliver: { bodies.append($0.content.title + "\n" + $0.content.body) }))
         var policy = SplitAlertPolicy(bold: true)
         _ = dispatcher.accept(sample(1, percent: 50), policy: policy)
         _ = dispatcher.accept(sample(2, percent: 95, cents: 40), policy: policy)
@@ -575,7 +754,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
     func testFailedDeliveryAndDeniedAuthorizationRetryOnNextFreshRevision() async {
         enum Failure: Error { case rejected }
         var attempts = 0
-        let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: { true }, deliver: { _ in
+        let dispatcher = await makeDispatcher(manager: NotificationManager(requestAuthorization: { true }, deliver: { _ in
             attempts += 1
             if attempts == 1 { throw Failure.rejected }
         }))
@@ -589,7 +768,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
 
         let permission = PermissionState()
         var sent = 0
-        let denied = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: { permission.allowed }, deliver: { _ in sent += 1 }))
+        let denied = await makeDispatcher(manager: NotificationManager(requestAuthorization: { permission.allowed }, deliver: { _ in sent += 1 }))
         _ = denied.accept(sample(1, percent: 95), policy: .init())
         await settle(denied)
         permission.allowed = true
@@ -601,7 +780,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
     func testAccountChangeDuringAuthorizationSuppressesOldAccount() async {
         let gate = Gate()
         var sent = 0
-        let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: { await gate.pause(); return true }, deliver: { _ in sent += 1 }))
+        let dispatcher = await makeDispatcher(manager: NotificationManager(requestAuthorization: { await gate.pause(); return true }, deliver: { _ in sent += 1 }))
         _ = dispatcher.accept(sample(1, percent: 95), policy: .init())
         await gate.wait()
         _ = dispatcher.accept(sample(2, percent: 20, account: "b"), policy: .init())
@@ -614,13 +793,15 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         let gate = Gate()
         let store = SplitUsageAlertStore()
         let observation = sample(1, percent: 95)
-        let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: { true }, deliver: { _ in await gate.pause() }), store: store)
+        let dispatcher = await makeDispatcher(manager: NotificationManager(requestAuthorization: { true }, deliver: { _ in await gate.pause() }), store: store)
         _ = dispatcher.accept(observation, policy: .init())
         await gate.wait()
         dispatcher.logout(accountDigest: "a")
         gate.release()
         await settle(dispatcher)
-        let state = await store.load(for: observation.ownership, now: Date())
+        let authority = await store.prepareProfileAuthority(freshSubjectDigest: nil, revision: 100)
+        let lease = await store.activate(for: observation.ownership, revision: 100, authority: authority!)
+        let state = await store.load(for: observation.ownership, lease: lease!, now: Date())
         XCTAssertTrue(state.identities.isEmpty)
     }
 
@@ -628,7 +809,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         let gate = Gate()
         var time = Date()
         var bodies: [String] = []
-        let dispatcher = SplitUsageAlertDispatcher(manager: NotificationManager(requestAuthorization: { await gate.pause(); return true }, deliver: { bodies.append($0.content.title + "\n" + $0.content.body) }), now: { time })
+        let dispatcher = await makeDispatcher(manager: NotificationManager(requestAuthorization: { await gate.pause(); return true }, deliver: { bodies.append($0.content.title + "\n" + $0.content.body) }), now: { time })
         let policy = SplitAlertPolicy(bold: true)
         _ = dispatcher.accept(sample(1, percent: 50, time: time), policy: policy)
         _ = dispatcher.accept(sample(2, percent: 95, cents: 40, time: time), policy: policy)
