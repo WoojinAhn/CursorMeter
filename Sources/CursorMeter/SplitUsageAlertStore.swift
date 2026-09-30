@@ -1,11 +1,18 @@
 import Foundation
 
-/// Only successful threshold identities are persisted. Actor leases prevent an old
-/// submission completion from recreating an account's ledger after logout.
+/// Lifecycle leases reject obsolete receipts; authority epochs independently fence
+/// disk access while preserving successful same-owner receipts in session memory.
 actor SplitUsageAlertStore {
+    struct Authority: Sendable, Equatable {
+        fileprivate var epoch: UInt64
+    }
+    struct Lease: Sendable {
+        fileprivate var lifecycle: UInt64
+        fileprivate var authority: Authority
+    }
     struct State: Sendable {
         var identities: Set<String>
-        var lease: UInt64
+        var lease: Lease
     }
     private struct Record: Codable {
         var identity: String
@@ -21,7 +28,11 @@ actor SplitUsageAlertStore {
     private let directory: URL?
     private var records: [String: [Record]] = [:]
     private var session: [String: Set<String>] = [:]
-    private var epochs: [String: UInt64] = [:]
+    private var authorityRevision: UInt64 = 0
+    private var authorityEpoch: UInt64 = 0
+    private var freshSubjectDigest: String?
+    private var lifecycleRevision: UInt64 = 0
+    private var ownership: SplitAlertOwnership?
     private var accountFiles: [String: Set<String>] = [:]
     private var memoryOnly: Set<String> = []
 
@@ -32,27 +43,62 @@ actor SplitUsageAlertStore {
             .appendingPathComponent("CursorMeter/SplitAlerts", isDirectory: true)
     }
 
-    func load(for ownership: SplitAlertOwnership, now: Date) -> State {
-        let lease = epochs[ownership.accountDigest, default: 0]
-        guard let key = ownership.persistenceKey, let cycle = ownership.cycleKey, directory != nil else {
-            return State(identities: session[sessionKey(ownership), default: []], lease: lease)
+    func prepareProfileAuthority(freshSubjectDigest: String?, revision: UInt64) -> Authority? {
+        guard revision > authorityRevision else { return nil }
+        if authorityRevision == 0 || self.freshSubjectDigest != freshSubjectDigest {
+            authorityEpoch &+= 1
+        }
+        authorityRevision = revision
+        self.freshSubjectDigest = freshSubjectDigest
+        return Authority(epoch: authorityEpoch)
+    }
+
+    func activate(for ownership: SplitAlertOwnership, revision: UInt64, authority: Authority) -> Lease? {
+        guard authority.epoch == authorityEpoch, authorityRevision > 0,
+              revision >= lifecycleRevision else { return nil }
+        if revision == lifecycleRevision {
+            guard let current = self.ownership, sameLifecycle(current, ownership) else { return nil }
+        }
+        lifecycleRevision = revision
+        self.ownership = ownership
+        return Lease(lifecycle: revision, authority: authority)
+    }
+
+    func invalidate(lifecycle: UInt64, authorityRevision: UInt64) {
+        if lifecycle > lifecycleRevision {
+            lifecycleRevision = lifecycle
+            ownership = nil
+        }
+        if authorityRevision > self.authorityRevision {
+            self.authorityRevision = authorityRevision
+            authorityEpoch &+= 1
+            freshSubjectDigest = nil
+        }
+    }
+
+    func load(for ownership: SplitAlertOwnership, lease: Lease, now: Date) -> State {
+        guard isCurrent(ownership, lease: lease) else { return State(identities: [], lease: lease) }
+        let sessionKey = sessionKey(ownership)
+        guard canPersist(ownership, lease: lease), let key = ownership.persistenceKey,
+              let cycle = ownership.cycleKey, directory != nil else {
+            return State(identities: session[sessionKey, default: []], lease: lease)
         }
         accountFiles[ownership.accountDigest, default: []].insert(key)
         if records[key] == nil { records[key] = read(key) }
         let previousCount = records[key]?.count
         records[key]?.removeAll { $0.cycle != cycle && now.timeIntervalSince($0.cycleEnd) > 7 * 86400 }
         if previousCount != records[key]?.count { write(key) }
-        return State(identities: Set(records[key, default: []].map(\.identity)), lease: lease)
+        let persisted = records[key, default: []].filter { $0.cycle == cycle }.map(\.identity)
+        session[sessionKey, default: []].formUnion(persisted)
+        return State(identities: session[sessionKey, default: []], lease: lease)
     }
 
-    func recordSuccessful(_ identities: Set<String>, ownership: SplitAlertOwnership, lease: UInt64, now: Date) {
-        guard lease == epochs[ownership.accountDigest, default: 0] else { return }
-        guard let key = ownership.persistenceKey, let cycle = ownership.cycleKey,
-              let end = ownership.cycleEnd, directory != nil else {
-            session[sessionKey(ownership), default: []].formUnion(identities)
-            return
-        }
-        _ = load(for: ownership, now: now)
+    func recordSuccessful(_ identities: Set<String>, ownership: SplitAlertOwnership, lease: Lease, now: Date) {
+        guard isCurrent(ownership, lease: lease), !identities.isEmpty else { return }
+        session[sessionKey(ownership), default: []].formUnion(identities)
+        guard canPersist(ownership, lease: lease), let key = ownership.persistenceKey,
+              let cycle = ownership.cycleKey, let end = ownership.cycleEnd, directory != nil else { return }
+        _ = load(for: ownership, lease: lease, now: now)
         let existing = Set(records[key, default: []].map(\.identity))
         records[key, default: []].append(contentsOf: identities.subtracting(existing).map {
             Record(identity: $0, cycle: cycle, cycleEnd: end)
@@ -61,7 +107,12 @@ actor SplitUsageAlertStore {
     }
 
     func logout(accountDigest: String, persistentSubjectDigest: String? = nil) {
-        epochs[accountDigest, default: 0] &+= 1
+        if ownership?.accountDigest == accountDigest {
+            lifecycleRevision &+= 1
+            ownership = nil
+            authorityEpoch &+= 1
+            freshSubjectDigest = nil
+        }
         session = session.filter { !$0.key.hasPrefix(accountDigest + ":") }
         var keys = accountFiles.removeValue(forKey: accountDigest) ?? []
         if let subject = persistentSubjectDigest, !subject.isEmpty {
@@ -72,6 +123,20 @@ actor SplitUsageAlertStore {
             memoryOnly.remove(key)
             if let url = file(key) { try? FileManager.default.removeItem(at: url) }
         }
+    }
+
+    private func sameLifecycle(_ lhs: SplitAlertOwnership, _ rhs: SplitAlertOwnership) -> Bool {
+        lhs.hasSameSignalScope(as: rhs) && lhs.generation == rhs.generation
+    }
+
+    private func isCurrent(_ ownership: SplitAlertOwnership, lease: Lease) -> Bool {
+        lease.lifecycle == lifecycleRevision
+            && self.ownership.map { sameLifecycle($0, ownership) } == true
+    }
+
+    private func canPersist(_ ownership: SplitAlertOwnership, lease: Lease) -> Bool {
+        lease.authority.epoch == authorityEpoch && freshSubjectDigest != nil
+            && ownership.persistentSubjectDigest == freshSubjectDigest
     }
 
     private func sessionKey(_ ownership: SplitAlertOwnership) -> String {

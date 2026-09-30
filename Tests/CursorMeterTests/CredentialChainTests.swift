@@ -84,6 +84,35 @@ final class CredentialChainTests: XCTestCase {
         XCTAssertTrue(box.all.allSatisfy { $0 == Self.ideCredential.cookieHeader })
     }
 
+    func testIDEProfile404KeepsUsableSummaryVisible() async {
+        let vm = makeViewModel()
+        vm.ideCredentialProvider = { Self.ideCredential }
+        vm.testHook_setCookieHeader("WorkosCursorSessionToken=other-account")
+        vm.authState = .loggedIn
+        var keychainDeletes = 0
+        vm.keychainDeleteHandler = { keychainDeletes += 1 }
+        let cookies = CookieBox()
+        let success = Self.successHandler { _ in }
+        MockURLProtocol.requestHandler = { request in
+            cookies.append(request.value(forHTTPHeaderField: "Cookie"))
+            if request.url?.path == "/api/auth/me" {
+                return (HTTPURLResponse(url: request.url!, statusCode: 404,
+                    httpVersion: nil, headerFields: nil)!, Data("{}".utf8))
+            }
+            return try success(request)
+        }
+
+        await vm.refresh()
+
+        XCTAssertEqual(vm.activeAuthSource, .cursorIDE)
+        XCTAssertEqual(vm.authState, .loggedIn)
+        XCTAssertEqual(vm.usageData?.planUsedCents, 8)
+        XCTAssertEqual(vm.usageData?.email, "Unknown")
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertEqual(keychainDeletes, 0)
+        XCTAssertTrue(cookies.all.allSatisfy { $0 == Self.ideCredential.cookieHeader })
+    }
+
     func testNoIDEFallsBackToCapturedCookie() async {
         let vm = makeViewModel()  // provider nil
         vm.testHook_setCookieHeader("WorkosCursorSessionToken=captured")

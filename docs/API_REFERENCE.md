@@ -15,7 +15,7 @@ Internal reference for the (undocumented) Cursor API surface used by CursorMeter
 
 ### `GET /api/auth/me`
 
-User identity. Used to render display name / email and gate UI for logged-in state. The optional authenticated `sub` also binds recent-usage restoration to the same account when credentials rotate; no additional identity request is made.
+Authenticated profile for display name / email and account identity. The optional authenticated `sub` also binds recent-usage restoration to the same account when credentials rotate; no additional identity request is made. An IDE-only exception restores usage when this endpoint returns exactly HTTP 404 and the same credential/batch has a usable usage-summary; any primary unauthorized result still wins. This exception has no fresh subject authority, performs no new team/member discovery, and does not switch to a saved browser account. See [the #128 specification](superpowers/specs/2026-09-30-issue-128-profile-404-mitigation.md) for the measurement predicate and account/persistence boundaries. The 404's cause remains unverified.
 
 Response (excerpt):
 ```json

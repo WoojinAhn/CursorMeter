@@ -2,24 +2,37 @@ import Darwin
 import Foundation
 
 actor CycleUsageStore {
+    struct Hooks: Sendable {
+        var beforeAuthorityChange: (@Sendable () async -> Void)? = nil
+    }
     private struct Envelope: Codable { let version: Int; let subjectDigest: String; let snapshot: CycleAmountSnapshot }
     private let fileURL: URL?
+    private let hooks: Hooks
     private var generation: UInt64 = 0
+    private var authorityEpoch: UInt64 = 0
+    private var authorizedSubject: String?
     private var identity: UsageRevisionIdentity?
     private var persistentSubject: String?
     private var memory: CycleAmountSnapshot?
     private let maximumBytes = 1024 * 1024
 
-    init(fileURL: URL? = nil) { self.fileURL = fileURL }
+    init(fileURL: URL? = nil, hooks: Hooks = Hooks()) { self.fileURL = fileURL; self.hooks = hooks }
 
     @discardableResult
-    func activate(identity: UsageRevisionIdentity, subjectDigest: String?) -> UInt64 {
+    func prepareAuthority(epoch: UInt64, subjectDigest: String?) async -> Bool {
+        await hooks.beforeAuthorityChange?()
+        guard epoch > authorityEpoch else { return false }
+        retireAuthority(epoch: epoch)
+        authorizedSubject = subjectDigest.flatMap { Self.validSubjectDigest($0) ? $0 : nil }
+        return true
+    }
+
+    func activate(identity: UsageRevisionIdentity, authority: UInt64) -> UInt64? {
+        guard authority == authorityEpoch else { return nil }
         generation &+= 1
         self.identity = identity
         memory = nil
-        persistentSubject = subjectDigest.flatMap { digest in
-            digest == identity.accountDigest && Self.validSubjectDigest(digest) ? digest : nil
-        }
+        persistentSubject = authorizedSubject.flatMap { $0 == identity.accountDigest ? $0 : nil }
         return generation
     }
 
@@ -54,15 +67,22 @@ actor CycleUsageStore {
         guard rename(temporary.path, fileURL.path) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
     }
 
-    func invalidate(removePersisted: Bool = false, subjectDigest: String? = nil) throws {
-        generation &+= 1
-        identity = nil; memory = nil
-        let account = subjectDigest ?? persistentSubject
-        persistentSubject = nil
+    func invalidate(authority: UInt64, removePersisted: Bool = false, subjectDigest: String? = nil) async throws {
+        await hooks.beforeAuthorityChange?()
+        guard authority > authorityEpoch else { return }
+        let account = subjectDigest ?? authorizedSubject
+        retireAuthority(epoch: authority)
         if removePersisted, let account, Self.validSubjectDigest(account), readEnvelope()?.subjectDigest == account,
            let fileURL, FileManager.default.fileExists(atPath: fileURL.path) {
             try FileManager.default.removeItem(at: fileURL)
         }
+    }
+
+    private func retireAuthority(epoch: UInt64) {
+        authorityEpoch = epoch
+        generation &+= 1
+        identity = nil; memory = nil
+        authorizedSubject = nil; persistentSubject = nil
     }
 
     private static func validSubjectDigest(_ digest: String) -> Bool {

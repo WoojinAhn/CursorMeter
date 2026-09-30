@@ -23,13 +23,15 @@ final class RefreshSessionOwnershipTests: XCTestCase {
     }
 
     private func makeViewModel(
-        network: OwnershipNetwork, feedback: RefreshFeedback? = nil
+        network: OwnershipNetwork, feedback: RefreshFeedback? = nil,
+        recentUsage: RecentUsageController? = nil
     ) -> UsageViewModel {
         OwnershipURLProtocol.network = network
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [OwnershipURLProtocol.self]
         let vm = UsageViewModel(
             apiClient: CursorAPIClient(configuration: configuration),
+            recentUsage: recentUsage,
             refreshFeedback: feedback ?? RefreshFeedback(timing: .immediate)
         )
         vm.updateCheckRunner = { .upToDate }
@@ -41,6 +43,291 @@ final class RefreshSessionOwnershipTests: XCTestCase {
         vm.testHook_setCookieHeader(Self.oldCookie)
         vm.authState = .loggedIn
         return vm
+    }
+
+    @MainActor
+    private final class Validity {
+        var token = UUID().uuidString
+        var commits: [String] = []
+        var persistence: RecentUsageValidityPersistence {
+            .init(read: { self.token }, commit: {
+                self.commits.append($0)
+                self.token = $0
+                return true
+            })
+        }
+    }
+
+    private func recentLocation() throws -> URL {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        return directory.appendingPathComponent("recent.json")
+    }
+
+    private func savedRecent(cookie: String, model: String) throws -> RecentUsageSnapshot {
+        let binding = try XCTUnwrap(RecentUsageBinding(cookieHeader: cookie, subject: "persisted-fixture", scope: .personal))
+        let now = Date()
+        return .init(candidate: .init(entries: [
+            .init(date: now, model: model, kind: .included, tokens: 100, chargedCents: 15)
+        ], cachedAt: now), binding: binding)
+    }
+
+    private func waitForRecentSnapshot(_ recent: RecentUsageController, expected: RecentUsageSnapshot) async {
+        let restored = expectation(description: "The exact-credential Recent snapshot is restored")
+        Self.observeRecentSnapshot(recent, expected: expected, restored: restored)
+        await fulfillment(of: [restored], timeout: 2)
+    }
+
+    private static func observeRecentSnapshot(_ recent: RecentUsageController, expected: RecentUsageSnapshot,
+                                       restored: XCTestExpectation) {
+        if recent.snapshot == expected { restored.fulfill(); return }
+        withObservationTracking { _ = recent.snapshot } onChange: {
+            Task { @MainActor in
+                Self.observeRecentSnapshot(recent, expected: expected, restored: restored)
+            }
+        }
+    }
+
+    func testUnbindableSuccessfulOwnerRetiresBeforeDegradedIDECredential() async throws {
+        let network = OwnershipNetwork { Self.enterpriseScopeReply($0, planUsed: 2_000, teamID: 77, userID: 42) }
+        let vm = makeViewModel(network: network)
+        defer { vm.stopAutoRefreshForTests() }
+        let ambiguousHeader = "WorkosCursorSessionToken=browser-a; WorkosCursorSessionToken=browser-b"
+        XCTAssertNil(RecentUsageBinding.credentialDigest(cookieHeader: ambiguousHeader))
+        vm.testHook_setCookieHeader(ambiguousHeader)
+        await vm.refresh()
+        XCTAssertEqual(vm.cachedWeeklyMode, .enterprise(teamId: 77, userId: 42))
+        XCTAssertEqual(vm.usageData?.isOnDemandActive, true)
+        for used in [1_000, 1_200] {
+            let summary = try JSONDecoder().decode(UsageSummaryResponse.self,
+                from: Data("{\"individualUsage\":{\"plan\":{\"used\":\(used),\"limit\":2000}}}".utf8))
+            vm.testHook_updateJumpState(from: .from(summary: summary, usage: nil,
+                userInfo: .init(email: "fixture@example.com", name: "Fixture")))
+        }
+        XCTAssertNotNil(vm.lastJump)
+        vm.testHook_setNotifiedThresholds([80, 90])
+        let initialCount = network.requests.count
+        network.handler = { request in
+            if request.path == "/api/auth/me" { return .http(404, Data()) }
+            return Self.enterpriseScopeReply(request, planUsed: 1_500, teamID: 88, userID: 99)
+        }
+        vm.ideCredentialProvider = { IDECredential(cookieHeader: Self.ideCookie, expiresAt: .distantFuture) }
+
+        await vm.refresh()
+
+        let requests = Array(network.requests.dropFirst(initialCount))
+        XCTAssertEqual(requests.count, 3, "An unbound successful owner must not be mistaken for cold start")
+        XCTAssertTrue(requests.allSatisfy { Self.primaryPaths.contains($0.path) })
+        XCTAssertNil(vm.cachedWeeklyMode)
+        XCTAssertNil(vm.weeklyData)
+        XCTAssertEqual(vm.usageData?.email, "Unknown")
+        XCTAssertEqual(vm.usageData?.planUsedCents, 1_500)
+        XCTAssertEqual(vm.usageData?.isOnDemandActive, false)
+        XCTAssertTrue(vm.testHook_notifiedThresholds().isEmpty)
+        XCTAssertNil(vm.lastJump)
+        XCTAssertNil(vm.errorMessage)
+        vm.testHook_setNotifiedThresholds([71])
+        await vm.refresh()
+        XCTAssertEqual(vm.testHook_notifiedThresholds(), [71], "The same exact IDE owner must not retire twice")
+    }
+
+    func testColdProfile404RetainsExactCredentialRecentFileAfterHistoryFailure() async throws {
+        let url = try recentLocation()
+        let validity = Validity()
+        let originalToken = validity.token
+        let saved = try savedRecent(cookie: Self.ideCookie, model: "saved-exact-ide")
+        try await RecentUsageStore(fileURL: url).save(saved, validityToken: originalToken, operation: 1)
+        let originalFile = try Data(contentsOf: url)
+        let recent = RecentUsageController(store: RecentUsageStore(fileURL: url), validityPersistence: validity.persistence)
+        let primaryStarted = expectation(description: "Cold IDE primary batch is held")
+        primaryStarted.expectedFulfillmentCount = 3
+        let network = OwnershipNetwork { request in
+            if Self.primaryPaths.contains(request.path) {
+                primaryStarted.fulfill()
+                return nil
+            }
+            return .http(503, Data())
+        }
+        let vm = makeViewModel(network: network, recentUsage: recent)
+        defer { vm.stopAutoRefreshForTests() }
+        vm.ideCredentialProvider = { IDECredential(cookieHeader: Self.ideCookie, expiresAt: .distantFuture) }
+        let refresh = Task { await vm.refresh() }
+        await fulfillment(of: [primaryStarted], timeout: 2)
+        await waitForRecentSnapshot(recent, expected: saved)
+        XCTAssertEqual(recent.snapshot, saved)
+        for request in network.requests where Self.primaryPaths.contains(request.path) {
+            let reply: OwnershipReply = request.path == "/api/auth/me" ? .http(404, Data()) : Self.success(request)
+            XCTAssertTrue(network.respond(to: request, with: reply))
+        }
+        await refresh.value
+        await recent.testHook_waitForPersistence()
+
+        XCTAssertEqual(vm.activeAuthSource, .cursorIDE)
+        XCTAssertEqual(vm.usageData?.planUsedCents, 8)
+        XCTAssertEqual(vm.usageData?.email, "Unknown")
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertEqual(recent.snapshot, saved)
+        XCTAssertEqual(recent.status, .failed)
+        XCTAssertEqual(validity.token, originalToken)
+        XCTAssertTrue(validity.commits.isEmpty)
+        XCTAssertEqual(try Data(contentsOf: url), originalFile)
+        XCTAssertEqual(network.requests.filter { $0.path == Self.eventsPath }.map { $0.body["teamId"] }, [0])
+        XCTAssertTrue(network.requests.allSatisfy { $0.cookie == Self.ideCookie })
+    }
+
+    func testUnknownCredentialAdoptionPreservesExactBRecentButHidesMismatchedA() async throws {
+        for persistedCookie in [Self.ideCookie, Self.oldCookie] {
+            let url = try recentLocation()
+            let validity = Validity()
+            let recent = RecentUsageController(store: RecentUsageStore(fileURL: url), validityPersistence: validity.persistence)
+            let network = OwnershipNetwork { Self.success($0, model: "owned-A") }
+            let vm = makeViewModel(network: network, recentUsage: recent)
+            defer { vm.stopAutoRefreshForTests() }
+            await vm.refresh()
+            await recent.testHook_waitForPersistence()
+            XCTAssertEqual(vm.usageData?.email, "fixture@example.com")
+            XCTAssertEqual(recent.snapshot?.candidate.entries.first?.model, "owned-A")
+            let saved = try savedRecent(cookie: persistedCookie, model: "persisted-owner")
+            let originalToken = validity.token
+            try await RecentUsageStore(fileURL: url).save(saved, validityToken: originalToken, operation: 1)
+            let originalFile = try Data(contentsOf: url)
+            let commitsBeforeAdoption = validity.commits
+            let primaryStarted = expectation(description: "Changed IDE credential primary batch is held")
+            primaryStarted.expectedFulfillmentCount = 3
+            network.handler = { request in
+                if Self.primaryPaths.contains(request.path) {
+                    primaryStarted.fulfill()
+                    return nil
+                }
+                return .http(503, Data())
+            }
+            vm.ideCredentialProvider = { IDECredential(cookieHeader: Self.ideCookie, expiresAt: .distantFuture) }
+            let refresh = Task { await vm.refresh() }
+            await fulfillment(of: [primaryStarted], timeout: 2)
+            XCTAssertNil(recent.snapshot, "A must be hidden as soon as B is selected")
+            for request in network.requests where request.cookie == Self.ideCookie {
+                let reply: OwnershipReply = request.path == "/api/auth/me" ? .http(404, Data()) : Self.success(request)
+                XCTAssertTrue(network.respond(to: request, with: reply))
+            }
+            await refresh.value
+            if persistedCookie == Self.ideCookie { await waitForRecentSnapshot(recent, expected: saved) }
+            await recent.testHook_waitForPersistence()
+
+            XCTAssertEqual(vm.activeAuthSource, .cursorIDE)
+            XCTAssertEqual(vm.usageData?.email, "Unknown")
+            XCTAssertEqual(vm.usageData?.planUsedCents, 8)
+            if persistedCookie == Self.ideCookie { XCTAssertEqual(recent.snapshot, saved) }
+            else { XCTAssertNil(recent.snapshot, "An unverified subject cannot restore A under B") }
+            XCTAssertEqual(recent.status, .failed)
+            XCTAssertEqual(validity.token, originalToken)
+            XCTAssertEqual(validity.commits, commitsBeforeAdoption)
+            XCTAssertEqual(try Data(contentsOf: url), originalFile)
+        }
+    }
+
+    func testSameCredentialProfile404KeepsEnterpriseHistoryWithoutNewDiscovery() async throws {
+        let network = OwnershipNetwork { Self.enterpriseScopeReply($0, planUsed: 500, teamID: 77, userID: 42) }
+        let vm = makeViewModel(network: network)
+        defer { vm.stopAutoRefreshForTests() }
+        vm.ideCredentialProvider = { IDECredential(cookieHeader: Self.ideCookie, expiresAt: .distantFuture) }
+        await vm.refresh()
+        XCTAssertEqual(vm.cachedWeeklyMode, .enterprise(teamId: 77, userId: 42))
+        XCTAssertEqual(vm.weeklyChartStatus, .ready)
+        let initialCount = network.requests.count
+        network.handler = { request in
+            if request.path == "/api/auth/me" { return .http(404, Data()) }
+            if request.path == Self.eventsPath { return .http(200, Self.events("same-owner-404")) }
+            return Self.enterpriseScopeReply(request, planUsed: 600, teamID: 77, userID: 42)
+        }
+
+        await vm.refresh()
+
+        let requests = Array(network.requests.dropFirst(initialCount))
+        XCTAssertEqual(requests.count, 5)
+        XCTAssertEqual(requests.filter { $0.path == Self.eventsPath }.map { $0.body["teamId"] }, [77])
+        XCTAssertEqual(requests.filter { $0.path == Self.eventsPath }.map { $0.body["userId"] }, [42])
+        XCTAssertEqual(requests.filter { $0.path == "/api/dashboard/get-hard-limit" }.map { $0.body["teamId"] }, [77])
+        XCTAssertFalse(requests.contains { ["/api/dashboard/teams", "/api/dashboard/get-team-spend"].contains($0.path) })
+        XCTAssertTrue(requests.allSatisfy { $0.cookie == Self.ideCookie })
+        XCTAssertEqual(vm.cachedWeeklyMode, .enterprise(teamId: 77, userId: 42))
+        XCTAssertEqual(vm.weeklyChartStatus, .ready)
+        XCTAssertEqual(vm.recentUsage.snapshot?.candidate.entries.first?.model, "same-owner-404")
+        XCTAssertNil(vm.recentUsage.snapshot?.binding.subjectDigest)
+        XCTAssertEqual(vm.recentUsage.status, .current)
+        XCTAssertEqual(vm.usageData?.email, "fixture@example.com")
+        XCTAssertEqual(vm.usageData?.planUsedCents, 600)
+        XCTAssertNil(vm.errorMessage)
+    }
+
+    func testUnknownCredentialRetiresEnterpriseOwnershipAcrossLifecycleBoundaries() async throws {
+        for boundary in ["rotation", "connect", "expiry", "logout"] {
+            let network = OwnershipNetwork { Self.enterpriseScopeReply($0, planUsed: 2_000, teamID: 77, userID: 42) }
+            let vm = makeViewModel(network: network)
+            defer { vm.stopAutoRefreshForTests() }
+            await vm.refresh()
+            XCTAssertEqual(vm.cachedWeeklyMode, .enterprise(teamId: 77, userId: 42), boundary)
+            XCTAssertEqual(vm.usageData?.isOnDemandActive, true, boundary)
+            for used in [1_000, 1_200] {
+                let data = try JSONDecoder().decode(UsageSummaryResponse.self, from: Data("""
+                {"membershipType":"enterprise","individualUsage":{"plan":{"used":\(used),"limit":2000}}}
+                """.utf8))
+                vm.testHook_updateJumpState(from: .from(summary: data, usage: nil,
+                    userInfo: .init(email: "fixture@example.com", name: "Fixture", sub: "fixture-subject")))
+            }
+            XCTAssertNotNil(vm.lastJump, boundary)
+            vm.testHook_setNotifiedThresholds([80, 90])
+            if boundary == "expiry" {
+                network.handler = { _ in .http(401, Data()) }
+                await vm.refresh()
+                XCTAssertEqual(vm.authState, .loginRequired)
+            } else if boundary == "logout" {
+                vm.logout()
+                XCTAssertEqual(vm.authState, .loggedOut)
+            }
+            let initialCount = network.requests.count
+            let primaryStarted = expectation(description: "Unknown B primary batch after \(boundary) is held")
+            primaryStarted.expectedFulfillmentCount = 3
+            network.handler = { request in
+                if Self.primaryPaths.contains(request.path) {
+                    primaryStarted.fulfill()
+                    return nil
+                }
+                return Self.enterpriseScopeReply(request, planUsed: 1_500, teamID: 88, userID: 99)
+            }
+            vm.ideCredentialProvider = { IDECredential(cookieHeader: Self.ideCookie, expiresAt: .distantFuture) }
+            if boundary != "rotation" {
+                vm.connectViaIDE()
+                vm.stopAutoRefreshForTests()
+            }
+            let refresh = Task { await vm.refresh() }
+            await fulfillment(of: [primaryStarted], timeout: 2)
+            let requestsBeforeProfile = Array(network.requests.dropFirst(initialCount))
+            XCTAssertEqual(requestsBeforeProfile.count, 3, "Old-ID requests must not launch before B's profile: \(boundary)")
+            XCTAssertTrue(requestsBeforeProfile.allSatisfy { Self.primaryPaths.contains($0.path) }, boundary)
+            for request in requestsBeforeProfile {
+                let reply: OwnershipReply = request.path == "/api/auth/me" ? .http(404, Data())
+                    : Self.enterpriseScopeReply(request, planUsed: 1_500, teamID: 88, userID: 99)
+                XCTAssertTrue(network.respond(to: request, with: reply))
+            }
+            await refresh.value
+
+            let requests = Array(network.requests.dropFirst(initialCount))
+            XCTAssertEqual(requests.count, 3, "No new enterprise discovery follows degraded identity: \(boundary)")
+            XCTAssertTrue(requests.allSatisfy { $0.cookie == Self.ideCookie }, boundary)
+            XCTAssertEqual(vm.authState, .loggedIn, boundary)
+            XCTAssertEqual(vm.activeAuthSource, .cursorIDE, boundary)
+            XCTAssertEqual(vm.usageData?.email, "Unknown", boundary)
+            XCTAssertNotEqual(vm.usageData?.name, "Fixture", boundary)
+            XCTAssertEqual(vm.usageData?.planUsedCents, 1_500, boundary)
+            XCTAssertEqual(vm.usageData?.isOnDemandActive, false, "A's latch cannot cross \(boundary)")
+            XCTAssertNil(vm.lastJump, "A's usage baseline cannot cross \(boundary)")
+            XCTAssertTrue(vm.testHook_notifiedThresholds().isEmpty, boundary)
+            XCTAssertNil(vm.cachedWeeklyMode, boundary)
+            XCTAssertNil(vm.weeklyData, boundary)
+            XCTAssertNil(vm.recentUsage.snapshot, boundary)
+            XCTAssertNil(vm.errorMessage, boundary)
+        }
     }
 
     func testLogoutCancelsDelayedSuccessWithoutAffectingReconnectedRefresh() async throws {
@@ -326,14 +613,14 @@ final class RefreshSessionOwnershipTests: XCTestCase {
     func testIDEUnauthorizedCancelsOptimisticPageBeforeSingleBrowserFallback() async throws {
         let network = OwnershipNetwork { Self.success($0, model: "cached") }
         let vm = makeViewModel(network: network)
+        vm.ideCredentialProvider = {
+            IDECredential(cookieHeader: Self.ideCookie, expiresAt: .distantFuture)
+        }
         await vm.refresh()
         XCTAssertEqual(vm.cachedWeeklyMode, .personal)
         let initialCount = network.requests.count
         var deletions = 0
         vm.keychainDeleteHandler = { deletions += 1 }
-        vm.ideCredentialProvider = {
-            IDECredential(cookieHeader: Self.ideCookie, expiresAt: .distantFuture)
-        }
         let ideStarted = expectation(description: "IDE primary and optimistic page one are held")
         ideStarted.expectedFulfillmentCount = 4
         let pageStopped = expectation(description: "IDE rejection cancels optimistic page one")
@@ -351,7 +638,7 @@ final class RefreshSessionOwnershipTests: XCTestCase {
         }
         let refresh = Task { await vm.refresh() }
         await fulfillment(of: [ideStarted], timeout: 2)
-        let ideRequests = network.requests.filter { $0.cookie == Self.ideCookie }
+        let ideRequests = network.requests.dropFirst(initialCount).filter { $0.cookie == Self.ideCookie }
         let oldPage = try XCTUnwrap(ideRequests.first { $0.path == Self.eventsPath })
         XCTAssertEqual(oldPage.body["page"], 1)
         XCTAssertEqual(oldPage.body["teamId"], 0)

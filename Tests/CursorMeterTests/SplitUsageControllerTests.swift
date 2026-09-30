@@ -61,10 +61,16 @@ final class SplitUsageControllerTests: XCTestCase {
         XCTAssertNil(controller.snapshot)
     }
 
-    func testIdentityWithoutSubjectCannotEnablePersistentAmounts() throws {
+    func testIdentityWithoutFreshPreparationCannotEnablePersistentAmounts() async throws {
         let controller = SplitUsageController()
         controller.accept(summary: summary(), usage: try usage(), userInfo: user, generation: 1, enterpriseScope: false)
+        XCTAssertNil(controller.persistentSubjectDigest)
+        let prepared = await controller.prepareProfileAuthority(freshSubjectDigest: UsageRevisionIdentity.accountDigest(subject: user.sub, email: nil))
+        XCTAssertTrue(prepared)
+        controller.accept(summary: summary(), usage: try usage(), userInfo: user, generation: 1, enterpriseScope: false)
         XCTAssertNotNil(controller.persistentSubjectDigest)
+        let downgraded = await controller.prepareProfileAuthority(freshSubjectDigest: nil)
+        XCTAssertTrue(downgraded)
         controller.accept(summary: summary(), usage: try usage(), userInfo: .init(email: user.email, name: nil), generation: 1, enterpriseScope: false)
         XCTAssertNil(controller.persistentSubjectDigest)
         XCTAssertNotEqual(controller.snapshot?.identity.accountDigest, UsageRevisionIdentity.accountDigest(subject: user.sub, email: nil))
@@ -90,6 +96,272 @@ final class SplitUsageControllerTests: XCTestCase {
         XCTAssertEqual(controller.snapshot?.identity.accountDigest, firstAccount)
         controller.accept(summary: summary(), usage: try usage(), userInfo: user, generation: 1, enterpriseScope: false)
         XCTAssertNotEqual(controller.snapshot?.identity.accountDigest, firstAccount)
+    }
+
+    func testQualifiedSinglePoolPresentationRetiresPreviouslyEligibleSplit() async throws {
+        let controller = SplitUsageController()
+        let digest = UsageRevisionIdentity.accountDigest(subject: user.sub, email: nil)
+        let prepared = await controller.prepareProfileAuthority(freshSubjectDigest: digest)
+        XCTAssertTrue(prepared)
+        controller.accept(summary: summary(), usage: try usage(), userInfo: user, generation: 1, enterpriseScope: false)
+        XCTAssertEqual(controller.eligibility, .eligible)
+        let downgraded = await controller.prepareProfileAuthority(freshSubjectDigest: nil)
+        XCTAssertTrue(downgraded)
+        controller.accept(summary: summary(), usage: nil, userInfo: user, generation: 1,
+                          enterpriseScope: false, allowsSplitPresentation: false)
+        XCTAssertEqual(controller.eligibility, .legacy)
+        XCTAssertFalse(controller.suppressesLegacyMeter)
+        XCTAssertNil(controller.snapshot)
+        XCTAssertNil(controller.primarySnapshot)
+        XCTAssertNil(controller.persistentSubjectDigest)
+    }
+
+    func testPreparedAnonymousRepresentationChangePreservesOwnerUntilExplicitReset() async throws {
+        let controller = SplitUsageController()
+        let unknown = UserInfoResponse(email: nil, name: nil)
+        let requestUsage = try usage()
+        var originalIdentity: UsageRevisionIdentity?
+        for allowsSplit in [true, false, true] {
+            let prepared = await controller.prepareProfileAuthority(freshSubjectDigest: nil)
+            XCTAssertTrue(prepared)
+            controller.accept(summary: summary(), usage: requestUsage, userInfo: unknown,
+                              generation: 1, enterpriseScope: false, allowsSplitPresentation: allowsSplit)
+            XCTAssertNil(controller.persistentSubjectDigest)
+            if allowsSplit {
+                let identity = try XCTUnwrap(controller.snapshot?.identity)
+                if let originalIdentity {
+                    XCTAssertEqual(identity.accountDigest, originalIdentity.accountDigest)
+                    XCTAssertEqual(identity.credentialGeneration, originalIdentity.credentialGeneration)
+                    XCTAssertTrue(identity.sameScope(as: originalIdentity))
+                } else { originalIdentity = identity }
+            } else {
+                XCTAssertEqual(controller.eligibility, .legacy)
+                XCTAssertNil(controller.snapshot)
+            }
+        }
+
+        controller.reset()
+        let prepared = await controller.prepareProfileAuthority(freshSubjectDigest: nil)
+        XCTAssertTrue(prepared)
+        controller.accept(summary: summary(), usage: requestUsage, userInfo: unknown,
+                          generation: 1, enterpriseScope: false)
+        let resetIdentity = try XCTUnwrap(controller.snapshot?.identity)
+        XCTAssertNotEqual(resetIdentity.accountDigest, originalIdentity?.accountDigest)
+        XCTAssertNil(controller.persistentSubjectDigest)
+
+        let nextPrepared = await controller.prepareProfileAuthority(freshSubjectDigest: nil)
+        XCTAssertTrue(nextPrepared)
+        controller.accept(summary: summary(), usage: requestUsage, userInfo: unknown,
+                          generation: 2, enterpriseScope: false)
+        XCTAssertNotEqual(controller.snapshot?.identity.accountDigest, resetIdentity.accountDigest)
+    }
+
+    func testFreshAuthoritySurvivesSameBatchAccountAndPlanReset() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: url) }
+        var time = try XCTUnwrap(UsageCycle.parse("2026-09-15T00:00:00Z"))
+        let controller = SplitUsageController(store: CycleUsageStore(fileURL: url), now: { time },
+            collect: { snapshot, _, _, _, _ in
+                .init(status: .complete, snapshot: .init(identity: snapshot.identity, capturedAt: snapshot.capturedAt,
+                    cursorCents: 123, coverage: .init(complete: true)), pageCount: 1, byteCount: 100)
+            })
+        let secondUser = UserInfoResponse(email: "second@example.test", name: nil, sub: "second")
+        for (index, profile) in [user, secondUser, secondUser].enumerated() {
+            let primary = index == 2 ? summary(limit: 2000, membership: "pro") : summary()
+            let digest = UsageRevisionIdentity.accountDigest(subject: profile.sub, email: nil)
+            let prepared = await controller.prepareProfileAuthority(freshSubjectDigest: digest)
+            XCTAssertTrue(prepared)
+            controller.accept(summary: primary, usage: try usage(), userInfo: profile,
+                              generation: UInt64(index + 1), enterpriseScope: false)
+            XCTAssertEqual(controller.persistentSubjectDigest, digest)
+            controller.requestAmounts(summary: primary, cookieHeader: "fixture")
+            await eventually { controller.amountState == .ready }
+            let reader = CycleUsageStore(fileURL: url)
+            await reader.prepareAuthority(epoch: 1, subjectDigest: digest)
+            let identity = try XCTUnwrap(controller.primarySnapshot?.identity)
+            let activated = await reader.activate(identity: identity, authority: 1)
+            let operation = try XCTUnwrap(activated)
+            let saved = await reader.load(operation: operation, now: time)
+            XCTAssertEqual(saved?.identity.accountDigest, digest)
+            XCTAssertEqual(saved?.identity.planIdentity, identity.planIdentity)
+            time = time.addingTimeInterval(601)
+        }
+    }
+
+    private actor AuthorityGate {
+        let blockedCall: Int
+        var calls = 0
+        var waiting = false
+        var continuation: CheckedContinuation<Void, Never>?
+        init(blockedCall: Int = 1) { self.blockedCall = blockedCall }
+        func wait() async {
+            calls += 1
+            if calls == blockedCall {
+                waiting = true
+                await withCheckedContinuation { continuation = $0 }
+                waiting = false
+            }
+        }
+        func release() { continuation?.resume(); continuation = nil }
+    }
+
+    func testPendingAuthorityPreparationRejectsResetSuspensionCancellationAndSupersession() async throws {
+        for change in ["reset", "suspend", "cancel", "supersede"] {
+            let gate = AuthorityGate()
+            let store = CycleUsageStore(hooks: .init(beforeAuthorityChange: { await gate.wait() }))
+            let controller = SplitUsageController(store: store)
+            let digest = UsageRevisionIdentity.accountDigest(subject: user.sub, email: nil)
+            let pending = Task { await controller.prepareProfileAuthority(freshSubjectDigest: digest) }
+            await eventually { await gate.waiting }
+            var replacement: Task<Bool, Never>?
+            var replacementStarted = false
+            switch change {
+            case "reset": controller.reset(removePersisted: true, subjectDigest: digest)
+            case "suspend": controller.suspend()
+            case "cancel": pending.cancel()
+            default:
+                replacement = Task {
+                    replacementStarted = true
+                    return await controller.prepareProfileAuthority(freshSubjectDigest: nil)
+                }
+                await eventually { replacementStarted }
+            }
+            await gate.release()
+            let obsolete = await pending.value
+            XCTAssertFalse(obsolete, change)
+            if let replacement {
+                let current = await replacement.value
+                XCTAssertTrue(current, change)
+            }
+            let fenced = await controller.prepareProfileAuthority(freshSubjectDigest: nil)
+            XCTAssertTrue(fenced, change)
+            XCTAssertNil(controller.persistentSubjectDigest, change)
+            let recovered = await controller.prepareProfileAuthority(freshSubjectDigest: digest)
+            XCTAssertTrue(recovered, change)
+            XCTAssertEqual(controller.persistentSubjectDigest, digest, change)
+        }
+    }
+
+    func testAmountRequestWaitsForPendingResetFence() async throws {
+        actor Calls {
+            var count = 0
+            func record() { count += 1 }
+        }
+        let gate = AuthorityGate(blockedCall: 2)
+        let calls = Calls()
+        let store = CycleUsageStore(hooks: .init(beforeAuthorityChange: { await gate.wait() }))
+        let controller = SplitUsageController(store: store, collect: { _, _, _, _, _ in
+            await calls.record()
+            return .init(status: .complete, snapshot: nil, pageCount: 0, byteCount: 0)
+        })
+        let prepared = await controller.prepareProfileAuthority(freshSubjectDigest: UsageRevisionIdentity.accountDigest(subject: user.sub, email: nil))
+        XCTAssertTrue(prepared)
+        controller.accept(summary: summary(), usage: try usage(), userInfo: user, generation: 1, enterpriseScope: false)
+        controller.reset()
+        await eventually { await gate.waiting }
+        controller.accept(summary: summary(), usage: try usage(), userInfo: user, generation: 2, enterpriseScope: false)
+        controller.requestAmounts(summary: summary(), cookieHeader: "fixture")
+        await Task.yield()
+        let beforeFence = await calls.count
+        XCTAssertEqual(beforeFence, 0)
+        await gate.release()
+        await eventually { await calls.count == 1 }
+        XCTAssertNil(controller.persistentSubjectDigest)
+    }
+
+    func testSameOwnerDowngradePreservesAmountsAndRetiresCollectorAcrossRecovery() async throws {
+        actor Responses {
+            var calls = 0
+            var waiting = false
+            var continuation: CheckedContinuation<Void, Never>?
+            func collect(_ snapshot: SplitUsageSnapshot) async -> CycleCollectionResult {
+                calls += 1
+                let count = calls
+                if count == 2 {
+                    waiting = true
+                    await withCheckedContinuation { continuation = $0 }
+                }
+                return .init(status: .complete,
+                    snapshot: .init(identity: snapshot.identity, capturedAt: snapshot.capturedAt,
+                                    cursorCents: Decimal(count * 100), coverage: .init(complete: true)),
+                    pageCount: 1, byteCount: 100)
+            }
+            func release() { continuation?.resume(); continuation = nil }
+        }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: url) }
+        var time = try XCTUnwrap(UsageCycle.parse("2026-09-15T00:00:00Z"))
+        let responses = Responses()
+        let controller = SplitUsageController(store: CycleUsageStore(fileURL: url), now: { time },
+            collect: { snapshot, _, _, _, _ in await responses.collect(snapshot) })
+        let digest = UsageRevisionIdentity.accountDigest(subject: user.sub, email: nil)
+        let prepared = await controller.prepareProfileAuthority(freshSubjectDigest: digest)
+        XCTAssertTrue(prepared)
+        controller.accept(summary: summary(), usage: try usage(), userInfo: user, generation: 1, enterpriseScope: false)
+        controller.requestAmounts(summary: summary(), cookieHeader: "fixture")
+        await eventually { controller.amountState == .ready }
+        let originalFile = try Data(contentsOf: url)
+        let ownedAmounts = controller.amounts
+        time = time.addingTimeInterval(601)
+        controller.accept(summary: summary(cursor: 11), usage: try usage(), userInfo: user, generation: 1, enterpriseScope: false)
+        controller.requestAmounts(summary: summary(cursor: 11), cookieHeader: "fixture")
+        await eventually { await responses.waiting }
+        let ownedPrimary = controller.primarySnapshot
+        let downgraded = await controller.prepareProfileAuthority(freshSubjectDigest: nil)
+        XCTAssertTrue(downgraded)
+        XCTAssertEqual(controller.primarySnapshot, ownedPrimary)
+        XCTAssertEqual(controller.amounts, ownedAmounts)
+        XCTAssertEqual(controller.amountState, .ready)
+        controller.accept(summary: summary(cursor: 12), usage: try usage(), userInfo: user, generation: 1, enterpriseScope: false)
+        XCTAssertEqual(controller.amounts, ownedAmounts)
+        XCTAssertNil(controller.persistentSubjectDigest)
+        time = time.addingTimeInterval(601)
+        controller.requestAmounts(summary: summary(cursor: 12), cookieHeader: "fixture")
+        await eventually { controller.amounts?.cursorCents == 300 && controller.amountState == .ready }
+        XCTAssertEqual(try Data(contentsOf: url), originalFile)
+
+        let recovered = await controller.prepareProfileAuthority(freshSubjectDigest: digest)
+        XCTAssertTrue(recovered)
+        time = time.addingTimeInterval(601)
+        controller.accept(summary: summary(cursor: 13), usage: try usage(), userInfo: user, generation: 1, enterpriseScope: false)
+        controller.requestAmounts(summary: summary(cursor: 13), cookieHeader: "fixture")
+        await eventually { controller.amounts?.cursorCents == 400 && controller.amountState == .ready }
+        let recoveredFile = try Data(contentsOf: url)
+        await responses.release()
+        await eventually { controller.schedule.automaticPagesRemaining(at: time) == 296 }
+        XCTAssertEqual(controller.amounts?.cursorCents, 400)
+        XCTAssertEqual(controller.snapshot?.cursorPercent, 13)
+        XCTAssertEqual(try Data(contentsOf: url), recoveredFile)
+    }
+
+    func testRetainedProfileWithoutFreshAuthorityCannotRestoreOrWriteAmounts() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let time = try XCTUnwrap(UsageCycle.parse("2026-09-15T00:00:00Z"))
+        let source = SplitUsageController(now: { time })
+        source.accept(summary: summary(), usage: try usage(), userInfo: user, generation: 1, enterpriseScope: false)
+        let snapshot = try XCTUnwrap(source.primarySnapshot)
+        let writer = CycleUsageStore(fileURL: url)
+        await writer.prepareAuthority(epoch: 1, subjectDigest: snapshot.identity.accountDigest)
+        let activated = await writer.activate(identity: snapshot.identity, authority: 1)
+        let operation = try XCTUnwrap(activated)
+        try await writer.save(.init(identity: snapshot.identity, capturedAt: time, cursorCents: 777,
+                                   coverage: .init(complete: true)), operation: operation)
+        let originalFile = try Data(contentsOf: url)
+        let gate = CollectionGate()
+        let controller = SplitUsageController(store: CycleUsageStore(fileURL: url), now: { time },
+            collect: { snapshot, _, _, _, _ in await gate.collect(snapshot) })
+        let prepared = await controller.prepareProfileAuthority(freshSubjectDigest: nil)
+        XCTAssertTrue(prepared)
+        controller.accept(summary: summary(), usage: try usage(), userInfo: user, generation: 1, enterpriseScope: false)
+        controller.requestAmounts(summary: summary(), cookieHeader: "fixture")
+        await eventually { await gate.calls == 1 }
+        XCTAssertNil(controller.amounts)
+        XCTAssertNil(controller.persistentSubjectDigest)
+        await gate.release()
+        await eventually { controller.amountState == .ready }
+        XCTAssertEqual(controller.amounts?.cursorCents, 0)
+        XCTAssertEqual(try Data(contentsOf: url), originalFile)
     }
 
     private actor CollectionGate {
@@ -231,7 +503,9 @@ final class SplitUsageControllerTests: XCTestCase {
             residualCents: 0, coverage: .init(complete: true), status: .estimatedAttribution,
             sourceCursorPercent: 10, sourceOtherPercent: 20)
         let writer = CycleUsageStore(fileURL: url)
-        let operation = await writer.activate(identity: cached.identity, subjectDigest: cached.identity.accountDigest)
+        await writer.prepareAuthority(epoch: 1, subjectDigest: cached.identity.accountDigest)
+        let activated = await writer.activate(identity: cached.identity, authority: 1)
+        let operation = try XCTUnwrap(activated)
         try await writer.save(cached, operation: operation)
 
         let gate = SupplementGate()
@@ -246,6 +520,8 @@ final class SplitUsageControllerTests: XCTestCase {
                     sourceCursorPercent: 10, sourceOtherPercent: 20)
                 return .init(status: .complete, snapshot: refreshed, pageCount: 2, byteCount: 100)
             })
+        let prepared = await restarted.prepareProfileAuthority(freshSubjectDigest: oldSnapshot.identity.accountDigest)
+        XCTAssertTrue(prepared)
         restarted.accept(summary: primary, usage: try usage(), userInfo: user, generation: 1, enterpriseScope: false)
         XCTAssertEqual(restarted.primarySnapshot?.identity, oldSnapshot.identity)
         restarted.requestAmounts(summary: primary, cookieHeader: "fixture", manual: false)
@@ -262,7 +538,9 @@ final class SplitUsageControllerTests: XCTestCase {
         XCTAssertEqual(restarted.amounts?.estimatedOtherLimitCents, 86000)
         XCTAssertEqual(restarted.schedule.availability(at: time.addingTimeInterval(2), manual: false), .unchanged)
         let reader = CycleUsageStore(fileURL: url)
-        let reload = await reader.activate(identity: oldSnapshot.identity, subjectDigest: oldSnapshot.identity.accountDigest)
+        await reader.prepareAuthority(epoch: 1, subjectDigest: oldSnapshot.identity.accountDigest)
+        let loadedOperation = await reader.activate(identity: oldSnapshot.identity, authority: 1)
+        let reload = try XCTUnwrap(loadedOperation)
         let persisted = await reader.load(operation: reload, now: time.addingTimeInterval(2))
         XCTAssertEqual(persisted?.estimatedCursorLimitCents, 10000)
         XCTAssertEqual(persisted?.estimatedOtherLimitCents, 86000)
@@ -548,7 +826,9 @@ final class SplitUsageControllerTests: XCTestCase {
         source.accept(summary: summary(), usage: try usage(), userInfo: user, generation: 1, enterpriseScope: false)
         let snapshot = try XCTUnwrap(source.primarySnapshot)
         let writer = CycleUsageStore(fileURL: url)
-        let operation = await writer.activate(identity: snapshot.identity, subjectDigest: snapshot.identity.accountDigest)
+        await writer.prepareAuthority(epoch: 1, subjectDigest: snapshot.identity.accountDigest)
+        let activated = await writer.activate(identity: snapshot.identity, authority: 1)
+        let operation = try XCTUnwrap(activated)
         try await writer.save(.init(identity: snapshot.identity, capturedAt: snapshot.capturedAt), operation: operation)
         XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
         let controller = SplitUsageController(store: CycleUsageStore(fileURL: url))

@@ -33,6 +33,12 @@ final class SplitUsageController {
     @ObservationIgnored private var periodCursorPlaces = 0
     @ObservationIgnored private var periodOtherPlaces = 0
     @ObservationIgnored private var taskRevision: UInt64 = 0
+    @ObservationIgnored private var lifecycleRevision: UInt64 = 0
+    @ObservationIgnored private var preparationRevision: UInt64 = 0
+    @ObservationIgnored private var authorityEpoch: UInt64 = 0
+    @ObservationIgnored private var authoritySubjectDigest: String?
+    @ObservationIgnored private var authorityFence: Task<Bool, Never>?
+    @ObservationIgnored private var preparedForAcceptance = false
     @ObservationIgnored private var revision: UInt64 = 0
     @ObservationIgnored private var sessionIdentity = UUID().uuidString
     @ObservationIgnored private var latestRequest: (UsageSummaryResponse, String)?
@@ -61,45 +67,86 @@ final class SplitUsageController {
         } else { self.collect = nil }
     }
 
+    func prepareProfileAuthority(freshSubjectDigest: String?) async -> Bool {
+        guard !Task.isCancelled else { return false }
+        preparationRevision &+= 1
+        let preparation = preparationRevision
+        let lifecycle = lifecycleRevision
+        preparedForAcceptance = false
+        if freshSubjectDigest != authoritySubjectDigest {
+            retireTask()
+            if amounts != nil { amountState = .ready }
+            persistentSubjectDigest = nil
+            enqueueAuthorityFence(subjectDigest: freshSubjectDigest)
+        }
+        let epoch = authorityEpoch
+        let acknowledged = await authorityFence?.value ?? true
+        guard acknowledged, !Task.isCancelled, lifecycle == lifecycleRevision,
+              preparation == preparationRevision, epoch == authorityEpoch else {
+            if Task.isCancelled, lifecycle == lifecycleRevision,
+               preparation == preparationRevision, epoch == authorityEpoch {
+                persistentSubjectDigest = nil
+                enqueueAuthorityFence(subjectDigest: nil)
+            }
+            return false
+        }
+        persistentSubjectDigest = freshSubjectDigest
+        preparedForAcceptance = true
+        return true
+    }
+
+    @discardableResult
     func accept(summary: UsageSummaryResponse, usage: UsageResponse?, userInfo: UserInfoResponse,
-                generation: UInt64, enterpriseScope: Bool) {
+                generation: UInt64, enterpriseScope: Bool, allowsSplitPresentation: Bool = true) -> UsageRevisionIdentity? {
+        let hasPreparedAuthority = preparedForAcceptance
+        preparedForAcceptance = false
         let newMembership = (summary.membershipType?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
             .flatMap { $0.isEmpty ? nil : $0 }
         let newLimit = summary.individualUsage?.plan?.limit
         let newCycle = UsageCycle(start: summary.billingCycleStart, end: summary.billingCycleEnd)
-        let verifiedAccount = UsageRevisionIdentity.accountDigest(subject: userInfo.sub, email: userInfo.email)
-        let candidateAccount = verifiedAccount ?? UsageRevisionIdentity.digest("session:\(sessionIdentity):\(generation)")
-        let contradicted = enterpriseScope || summary.limitType?.lowercased() == "team"
+        let memoryAccount = UsageRevisionIdentity.accountDigest(subject: userInfo.sub, email: userInfo.email)
+        let candidateAccount = memoryAccount ?? UsageRevisionIdentity.digest("session:\(sessionIdentity):\(generation)")
+        let scopeContradicted = enterpriseScope || summary.limitType?.lowercased() == "team"
             || summary.teamUsage?.hasUsageData == true
             || ["enterprise", "business", "team", "teams", "free"].contains(newMembership ?? "")
             || (summary.individualUsage?.plan == nil && summary.individualUsage?.overall != nil)
             || usage?.models.values.contains(where: { $0.maxRequestUsage != nil }) == true
+        let contradicted = !allowsSplitPresentation || scopeContradicted
         let transition = primarySnapshot.map { previous in
             previous.identity.accountDigest != candidateAccount
                 || (newCycle != nil && newCycle != cycle)
                 || (newMembership != nil && membership != nil && newMembership != membership)
                 || (newLimit != nil && planLimit != nil && newLimit != planLimit)
         } ?? false
-        if transition || contradicted { reset(removePersisted: false) }
+        if transition || contradicted {
+            if hasPreparedAuthority {
+                retireTask()
+                latestRequest = nil
+                resetMemory()
+                // Scope retirement must keep only this batch's explicitly prepared authority.
+                enqueueAuthorityFence(subjectDigest: persistentSubjectDigest)
+            } else { reset(removePersisted: false) }
+        }
         membership = newMembership ?? membership
         planLimit = newLimit ?? planLimit
         cycle = newCycle ?? cycle
-        persistentSubjectDigest = UsageRevisionIdentity.accountDigest(subject: userInfo.sub, email: nil)
+        // A display fallback can retire split data without retiring a submitted
+        // alert's owner. Return its scope for receipt validation even while legacy.
+        let account = memoryAccount ?? UsageRevisionIdentity.digest("session:\(sessionIdentity):\(generation)")
+        let identity = UsageRevisionIdentity(localID: revision &+ 1, credentialGeneration: generation, accountDigest: account,
+            scopeDigest: UsageRevisionIdentity.digest("personal:team:0:user:none"), cycle: cycle,
+            planIdentity: planScopeIdentity ?? "\(membership ?? "unknown"):\(planLimit.map(String.init) ?? "unknown")")
         guard !contradicted else {
             eligibility = .legacy
             snapshot = nil; primarySnapshot = nil
-            return
+            return scopeContradicted ? nil : identity
         }
         if eligibility != .eligible {
             eligibility = SplitUsageEligibility.evaluate(summary: summary, usage: usage, enterpriseScope: enterpriseScope)
         }
-        guard suppressesLegacyMeter else { snapshot = nil; primarySnapshot = nil; return }
+        guard suppressesLegacyMeter else { snapshot = nil; primarySnapshot = nil; return nil }
         revision &+= 1
-        let account = verifiedAccount ?? UsageRevisionIdentity.digest("session:\(sessionIdentity):\(generation)")
-        if planScopeIdentity == nil { planScopeIdentity = "\(membership ?? "unknown"):\(planLimit.map(String.init) ?? "unknown")" }
-        let identity = UsageRevisionIdentity(localID: revision, credentialGeneration: generation, accountDigest: account,
-            scopeDigest: UsageRevisionIdentity.digest("personal:team:0:user:none"), cycle: cycle,
-            planIdentity: planScopeIdentity!)
+        planScopeIdentity = identity.planIdentity
         let cursor = eligibility == .eligible ? summary.individualUsage?.plan?.autoPercentUsed : nil
         let other = eligibility == .eligible ? summary.individualUsage?.plan?.apiPercentUsed : nil
         let used = summary.individualUsage?.plan?.used.flatMap { $0 >= 0 ? Decimal($0) : nil }
@@ -123,6 +170,7 @@ final class SplitUsageController {
         } else { supplementMemo = nil }
         isStale = false
         schedule.observe(fingerprint: fingerprint)
+        return identity
     }
 
     func requestAmounts(summary: UsageSummaryResponse, cookieHeader: String, manual: Bool = false) {
@@ -131,6 +179,17 @@ final class SplitUsageController {
     }
 
     func requestAmounts(manual: Bool = true) {
+        if let authorityFence {
+            let lifecycle = lifecycleRevision
+            let epoch = authorityEpoch
+            Task { [weak self] in
+                let acknowledged = await authorityFence.value
+                guard let self, acknowledged, !Task.isCancelled,
+                      self.lifecycleRevision == lifecycle, self.authorityEpoch == epoch else { return }
+                self.requestAmounts(manual: manual)
+            }
+            return
+        }
         guard !isSleeping, eligibility == .eligible, !isStale, let snapshot = primarySnapshot, snapshot.identity.cycle != nil,
               let (summary, cookie) = latestRequest, supplementTask == nil else { return }
         guard let collect, let allowance = schedule.begin(at: now(), manual: manual),
@@ -141,12 +200,13 @@ final class SplitUsageController {
         taskRevision &+= 1
         let taskID = taskRevision
         let subject = persistentSubjectDigest
+        let authority = authorityEpoch
         amountState = .refreshing
         task = Task { [weak self, store] in
             guard let self else { return }
             defer { self.schedule.finish(.cancelled, pages: 0, at: self.now(), attemptID: attemptID) }
             guard self.owns(taskID, snapshot: snapshot) else { return }
-            let operation = await store?.activate(identity: snapshot.identity, subjectDigest: subject)
+            let operation = await store?.activate(identity: snapshot.identity, authority: authority)
             guard self.owns(taskID, snapshot: snapshot) else { return }
             if self.amounts == nil, let operation, let cached = await store?.load(operation: operation, now: self.now()),
                self.owns(taskID, snapshot: snapshot) {
@@ -308,23 +368,53 @@ final class SplitUsageController {
     func resumeAfterWake() { isSleeping = false }
 
     func suspend(removePersisted: Bool = false, subjectDigest: String? = nil) {
+        lifecycleRevision &+= 1
+        preparationRevision &+= 1
+        preparedForAcceptance = false
         retireTask()
         latestRequest = nil
         recordFailure()
         let subject = subjectDigest ?? persistentSubjectDigest
-        if let store { Task { try? await store.invalidate(removePersisted: removePersisted, subjectDigest: subject) } }
+        persistentSubjectDigest = nil
+        enqueueAuthorityFence(subjectDigest: nil, invalidate: true,
+                              removePersisted: removePersisted, removalSubjectDigest: subject)
     }
 
     func reset(removePersisted: Bool = false, subjectDigest: String? = nil) {
         suspend(removePersisted: removePersisted, subjectDigest: subjectDigest)
+        resetMemory()
+        sessionIdentity = UUID().uuidString
+    }
+
+    private func resetMemory() {
         eligibility = .legacy; snapshot = nil; primarySnapshot = nil; amounts = nil; isStale = false
-        amountState = .pending; persistentSubjectDigest = nil
+        amountState = .pending
         membership = nil; planLimit = nil; cycle = nil
         planScopeIdentity = nil; primaryFingerprint = nil; supplementMemo = nil
         periodCursorPlaces = 0; periodOtherPlaces = 0
         supplementNextAt = nil; supplementFailures = 0
-        sessionIdentity = UUID().uuidString
         schedule.resetCycle()
+    }
+
+    private func enqueueAuthorityFence(subjectDigest: String?, invalidate: Bool = false,
+                                       removePersisted: Bool = false, removalSubjectDigest: String? = nil) {
+        authorityEpoch &+= 1
+        let epoch = authorityEpoch
+        authoritySubjectDigest = subjectDigest
+        let previous = authorityFence
+        authorityFence = Task { [weak self, store] in
+            _ = await previous?.value
+            let acknowledged: Bool
+            if invalidate {
+                try? await store?.invalidate(authority: epoch, removePersisted: removePersisted,
+                                            subjectDigest: removalSubjectDigest)
+                acknowledged = true
+            } else {
+                acknowledged = await store?.prepareAuthority(epoch: epoch, subjectDigest: subjectDigest) ?? true
+            }
+            if self?.authorityEpoch == epoch { self?.authorityFence = nil }
+            return acknowledged
+        }
     }
 
     private func retireTask() {
