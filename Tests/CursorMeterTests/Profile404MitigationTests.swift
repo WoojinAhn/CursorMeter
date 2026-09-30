@@ -248,4 +248,111 @@ final class Profile404MitigationTests: XCTestCase {
         XCTAssertEqual(bodies.count, 1, "The same delivered split threshold must survive a temporary credit representation")
         XCTAssertFalse(FileManager.default.fileExists(atPath: directory.path), "No fresh profile means no alert file")
     }
+
+    @MainActor
+    private final class ReceiptGate {
+        var continuation: CheckedContinuation<Void, Never>?
+        func pause() async { await withCheckedContinuation { continuation = $0 } }
+        func release() { continuation?.resume(); continuation = nil }
+    }
+
+    func testScopeChangeDuringCreditGapRetiresInFlightReceipt() async throws {
+        for change in ["cycle", "plan", "request-scope", "summary-failure-request-scope"] {
+            let gate = ReceiptGate()
+            let started = expectation(description: "Submission started before \(change)")
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: directory) }
+            var deliveries = 0
+            let manager = NotificationManager(requestAuthorization: { true }, deliver: { _ in
+                deliveries += 1
+                if deliveries == 1 { started.fulfill(); await gate.pause() }
+            })
+            let vm = viewModel(manager: manager, alertStore: SplitUsageAlertStore(directory: directory))
+            vm.notificationEnabled = true
+            vm.jumpEffectEnabled = false
+            let primary = #"{"membershipType":"ultra","billingCycleStart":"2026-09-01T00:00:00Z","billingCycleEnd":"2026-10-01T00:00:00Z","individualUsage":{"plan":{"used":20,"limit":40000,"autoPercentUsed":1,"apiPercentUsed":99}}}"#
+            MockURLProtocol.requestHandler = Self.handler(profileStatus: 200, profileBody: Self.profile, summary: primary)
+            await vm.refresh()
+            await fulfillment(of: [started], timeout: 2)
+            MockURLProtocol.requestHandler = Self.handler(summary: primary, usageStatus: 500)
+            await vm.refresh()
+            XCTAssertEqual(vm.splitUsage.eligibility, .legacy)
+            let changed = change == "cycle" ? primary.replacingOccurrences(of: "2026-10-01", with: "2026-11-01")
+                : change == "plan" ? primary.replacingOccurrences(of: "40000", with: "2000") : primary
+            let summaryFailed = change == "summary-failure-request-scope"
+            let requestScope = change == "request-scope" || summaryFailed
+            MockURLProtocol.requestHandler = Self.handler(profileStatus: summaryFailed ? 200 : 404,
+                profileBody: summaryFailed ? Self.profile : "{}", summary: changed, summaryStatus: summaryFailed ? 500 : 200,
+                usageStatus: requestScope ? 200 : 500,
+                usageBody: requestScope ? #"{"legacy":{"numRequests":1,"maxRequestUsage":500}}"# : "{}")
+            await vm.refresh()
+            XCTAssertEqual(vm.splitUsage.eligibility, .legacy)
+            MockURLProtocol.requestHandler = Self.handler(summary: primary)
+            await vm.refresh()
+            XCTAssertEqual(vm.splitUsage.eligibility, .eligible)
+            gate.release()
+            await vm.testHook_waitForSplitAlerts()
+            XCTAssertEqual(deliveries, 2, "An intervening \(change) must retire the old receipt even if the display stays legacy")
+            XCTAssertFalse(FileManager.default.fileExists(atPath: directory.path))
+        }
+    }
+
+    func testInFlightReceiptSurvivesDegradedPresentationFlap() async throws {
+        for (mode, receiptAfterReturn, recoverProfile) in [
+            ("healthy", false, false),
+            ("cold-degraded", false, false), ("cold-degraded", true, false),
+            ("fresh-to-degraded", false, false), ("fresh-to-degraded", true, false),
+            ("fresh-to-degraded", false, true), ("fresh-to-degraded", true, true)
+        ] {
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let degraded = mode != "healthy"
+            let gate = ReceiptGate()
+            let deliveryStarted = expectation(description: "First notification reached submit, mode=\(mode)")
+            var bodies: [String] = []
+            let manager = NotificationManager(requestAuthorization: { true }, deliver: {
+                bodies.append($0.content.body)
+                if bodies.count == 1 {
+                    deliveryStarted.fulfill()
+                    await gate.pause()
+                }
+            })
+            let vm = viewModel(manager: manager, alertStore: SplitUsageAlertStore(directory: directory))
+            vm.notificationEnabled = true
+            vm.jumpEffectEnabled = false
+            let primary = #"{"membershipType":"ultra","billingCycleStart":"2026-09-01T00:00:00Z","billingCycleEnd":"2026-10-01T00:00:00Z","individualUsage":{"plan":{"used":20,"limit":40000,"autoPercentUsed":1,"apiPercentUsed":99}}}"#
+            let status = degraded ? 404 : 200
+            let profileBody = degraded ? "{}" : Self.profile
+            let initialStatus = mode == "cold-degraded" ? 404 : 200
+            let initialProfileBody = initialStatus == 200 ? Self.profile : "{}"
+            MockURLProtocol.requestHandler = Self.handler(profileStatus: initialStatus, profileBody: initialProfileBody, summary: primary)
+            await vm.refresh()
+            await fulfillment(of: [deliveryStarted], timeout: 2)
+            XCTAssertEqual(bodies.count, 1)
+            let originalOwner = try XCTUnwrap(vm.splitUsage.snapshot?.identity)
+            MockURLProtocol.requestHandler = Self.handler(profileStatus: status, profileBody: profileBody,
+                summary: primary, usageStatus: 500)
+            await vm.refresh()
+            XCTAssertEqual(vm.splitUsage.eligibility, degraded ? .legacy : .eligible)
+            if !receiptAfterReturn {
+                gate.release()
+                await vm.testHook_waitForSplitAlerts()
+            }
+            MockURLProtocol.requestHandler = Self.handler(profileStatus: recoverProfile ? 200 : status,
+                profileBody: recoverProfile ? Self.profile : profileBody, summary: primary)
+            await vm.refresh()
+            if receiptAfterReturn { gate.release() }
+            await vm.testHook_waitForSplitAlerts()
+            let returnedOwner = try XCTUnwrap(vm.splitUsage.snapshot?.identity)
+            XCTAssertTrue(returnedOwner.sameScope(as: originalOwner))
+            XCTAssertEqual(returnedOwner.credentialGeneration, originalOwner.credentialGeneration)
+            XCTAssertNil(vm.errorMessage)
+            XCTAssertEqual(bodies.count, 1, "A submitted same-owner threshold repeated; mode=\(mode), receiptAfterReturn=\(receiptAfterReturn), recoverProfile=\(recoverProfile)")
+            if degraded {
+                XCTAssertFalse(FileManager.default.fileExists(atPath: directory.path),
+                               "A degraded or retired-authority receipt must remain session-only")
+            }
+        }
+    }
+
 }

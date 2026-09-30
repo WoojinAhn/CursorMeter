@@ -106,7 +106,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
         }
     }
 
-    func testAcknowledgedDegradedThresholdSurvivesRepresentationReset() async throws {
+    func testAcknowledgedDegradedThresholdSurvivesOwnershipInvalidation() async throws {
         let recoverySubjects: [String?] = [nil, "verified-subject"]
         for recoveredSubject in recoverySubjects {
             let directory = try directory()
@@ -123,7 +123,7 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
             _ = dispatcher.accept(persistentSample(2, subject: recoveredSubject), policy: .init())
             await settle(dispatcher)
 
-            XCTAssertEqual(deliveries, 1, "A representation reset must retain acknowledged same-scope delivery knowledge")
+            XCTAssertEqual(deliveries, 1, "Ownership invalidation must retain acknowledged same-scope delivery knowledge")
             XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: directory.path).isEmpty,
                           "Recovery must not promote an earlier session-only receipt to disk")
         }
@@ -197,6 +197,67 @@ final class SplitUsageAlertDispatcherTests: XCTestCase {
             _ = dispatcher.accept(persistentSample(3), policy: .init())
             await settle(dispatcher)
             XCTAssertEqual(deliveries, 2, change)
+        }
+    }
+
+    func testPresentationFallbackRetiresUnsubmittedThresholdAndBold() async {
+        let gate = Gate()
+        var deliveries = 0
+        let dispatcher = await makeDispatcher(manager: NotificationManager(requestAuthorization: {
+            await gate.pause()
+            return true
+        }, deliver: { _ in deliveries += 1 }))
+        let policy = SplitAlertPolicy(bold: true)
+        let initial = sample(1, percent: 10)
+        dispatcher.accept(initial, policy: policy)
+        dispatcher.accept(sample(2, percent: 95, cents: 1000), policy: policy)
+        await gate.wait()
+        XCTAssertFalse(dispatcher.reconcilePresentation(ownership: initial.ownership, isSplit: false))
+        XCTAssertFalse(dispatcher.reconcilePresentation(ownership: initial.ownership, isSplit: true))
+        gate.release()
+        await settle(dispatcher)
+        XCTAssertEqual(deliveries, 0, "Returning to split must not revive unsent threshold or Bold components")
+        var baselinePolicy = policy
+        baselinePolicy.thresholdsEnabled = false
+        XCTAssertNil(dispatcher.accept(sample(3, percent: 100), policy: baselinePolicy), "Fallback must reset the jump baseline")
+        await settle(dispatcher)
+    }
+
+    func testOwnershipChangeDuringPresentationGapRejectsInFlightReceipt() async throws {
+        for change in ["account", "scope", "cycle", "generation", "unavailable", "logout"] {
+            let directory = try directory()
+            let gate = Gate()
+            var deliveries = 0
+            let dispatcher = await makeDispatcher(manager: NotificationManager(requestAuthorization: { true }, deliver: { _ in
+                deliveries += 1
+                if deliveries == 1 { await gate.pause() }
+            }), store: SplitUsageAlertStore(directory: directory))
+            let original = persistentSample(1, subject: nil)
+            dispatcher.accept(original, policy: .init())
+            await gate.wait()
+            XCTAssertFalse(dispatcher.reconcilePresentation(ownership: original.ownership, isSplit: false))
+            var changed = original.ownership
+            switch change {
+            case "account": changed.accountDigest = "other-account"
+            case "scope": changed.requestPlanScope = "other-scope"
+            case "cycle": changed.cycleEnd = changed.cycleEnd?.addingTimeInterval(86400)
+            case "generation": changed.generation += 1
+            default: break
+            }
+            if change == "logout" {
+                dispatcher.logout(accountDigest: original.ownership.accountDigest)
+            } else {
+                XCTAssertTrue(dispatcher.reconcilePresentation(ownership: change == "unavailable" ? nil : changed,
+                                                              isSplit: false), change)
+            }
+            let prepared = await dispatcher.prepareProfileAuthority(freshSubjectDigest: nil)
+            XCTAssertTrue(prepared)
+            dispatcher.reconcilePresentation(ownership: original.ownership, isSplit: true)
+            dispatcher.accept(persistentSample(2, subject: nil), policy: .init())
+            gate.release()
+            await settle(dispatcher)
+            XCTAssertEqual(deliveries, 2, "Returning to the original owner cannot resurrect a retired receipt: \(change)")
+            XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: directory.path).isEmpty)
         }
     }
 

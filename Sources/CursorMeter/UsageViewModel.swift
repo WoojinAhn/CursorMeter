@@ -1043,12 +1043,13 @@ final class UsageViewModel {
             }
             try requireCurrent(context)
             if var base = baseData {
+                var receiptIdentity: UsageRevisionIdentity?
                 if let summary {
                     let wasSplit = splitUsage.suppressesLegacyMeter
                     let enterpriseRequestScope: Bool
                     if case .enterprise = lastRequestScope { enterpriseRequestScope = true }
                     else { enterpriseRequestScope = false }
-                    splitUsage.accept(summary: summary, usage: usage, userInfo: displayProfile,
+                    receiptIdentity = splitUsage.accept(summary: summary, usage: usage, userInfo: displayProfile,
                         generation: context.generation,
                         enterpriseScope: enterpriseRequestScope || (cachedWeeklyMode?.teamID ?? 0) > 0,
                         allowsSplitPresentation: profile404Measurement == nil || profile404Measurement == .split)
@@ -1056,15 +1057,18 @@ final class UsageViewModel {
                         previousPlanUsedCents = nil; previousRequestsUsed = nil
                         previousServerPercent = nil; previousOnDemandUsedCents = nil; previousMode = nil
                         lastJump = nil
-                        splitAlerts.invalidateOwnership()
-                        guard await splitAlerts.prepareProfileAuthority(freshSubjectDigest: freshSubject) else {
-                            throw CancellationError()
-                        }
-                        try requireCurrent(context)
                     }
                     base.splitUsage = splitUsage.snapshot
                     base.splitEligibility = splitUsage.eligibility
                     base.cycleAmounts = splitUsage.amounts
+                }
+                // A request-count fallback without summary cannot establish split ownership.
+                if splitAlerts.reconcilePresentation(ownership: receiptIdentity.map(splitAlertOwnership),
+                                                     isSplit: splitUsage.suppressesLegacyMeter) {
+                    guard await splitAlerts.prepareProfileAuthority(freshSubjectDigest: freshSubject) else {
+                        throw CancellationError()
+                    }
+                    try requireCurrent(context)
                 }
                 // Rollover detection must precede the latch update: otherwise the
                 // first refresh of a new cycle paints stale `isOnDemandActive = true`
@@ -1159,14 +1163,16 @@ final class UsageViewModel {
         }
     }
 
-    private func publishSplitObservation(_ snapshot: SplitUsageSnapshot, data: UsageDisplayData) {
-        let identity = snapshot.identity
-        let ownership = SplitAlertOwnership(accountDigest: identity.accountDigest,
+    private func splitAlertOwnership(_ identity: UsageRevisionIdentity) -> SplitAlertOwnership {
+        SplitAlertOwnership(accountDigest: identity.accountDigest,
             persistentSubjectDigest: splitUsage.persistentSubjectDigest,
             requestPlanScope: identity.scopeDigest + ":" + identity.planIdentity,
             cycleStart: identity.cycle?.start, cycleEnd: identity.cycle?.end,
             generation: identity.credentialGeneration)
-        let observation = SplitUsageObservation(ownership: ownership, revision: identity.localID,
+    }
+
+    private func publishSplitObservation(_ snapshot: SplitUsageSnapshot, data: UsageDisplayData) {
+        let observation = SplitUsageObservation(ownership: splitAlertOwnership(snapshot.identity), revision: snapshot.identity.localID,
             timestamp: snapshot.capturedAt,
             includedCents: snapshot.includedUsedCents.map { NSDecimalNumber(decimal: $0).doubleValue },
             cursorPercent: snapshot.cursorPercent, otherPercent: snapshot.otherPercent,

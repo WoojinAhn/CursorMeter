@@ -266,7 +266,7 @@ final class SplitUsageAlertStoreTests: XCTestCase {
         }
     }
 
-    func testRepresentationResetRetainsLoadedAndAcknowledgedIDsButRejectsLateReceipt() async throws {
+    func testLifecycleInvalidationRetainsLoadedAndAcknowledgedIDsButRejectsLateReceipt() async throws {
         let directory = try directory()
         let owner = owner()
         let now = Date(timeIntervalSince1970: 2900000)

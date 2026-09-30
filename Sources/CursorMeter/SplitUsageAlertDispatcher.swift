@@ -122,6 +122,28 @@ final class SplitUsageAlertDispatcher {
         self.policy = policy
     }
 
+    /// Reconcile every accepted summary, including changes during a legacy gap.
+    /// True means real ownership was retired and profile authority needs preparation.
+    @discardableResult
+    func reconcilePresentation(ownership current: SplitAlertOwnership?, isSplit: Bool) -> Bool {
+        guard let ownership else { return false }
+        guard let current, sameLifecycle(ownership, current) else {
+            invalidateOwnership()
+            return true
+        }
+        guard !isSplit else { return false }
+        // Cancel unsent thresholds and Bold, but retain same-owner successful
+        // submissions. Their original authority lease still fences disk writes.
+        pending = nil
+        latestThresholds = [:]
+        latestThresholdPolicyRevision = nil
+        thresholdRevision &+= 1
+        boldRevision &+= 1
+        retiredBoldRevision = nil
+        engine.reset()
+        return false
+    }
+
     func invalidateOwnership() {
         ownershipRevision &+= 1
         authorityRevision &+= 1

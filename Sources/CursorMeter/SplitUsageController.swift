@@ -95,8 +95,9 @@ final class SplitUsageController {
         return true
     }
 
+    @discardableResult
     func accept(summary: UsageSummaryResponse, usage: UsageResponse?, userInfo: UserInfoResponse,
-                generation: UInt64, enterpriseScope: Bool, allowsSplitPresentation: Bool = true) {
+                generation: UInt64, enterpriseScope: Bool, allowsSplitPresentation: Bool = true) -> UsageRevisionIdentity? {
         let hasPreparedAuthority = preparedForAcceptance
         preparedForAcceptance = false
         let newMembership = (summary.membershipType?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
@@ -105,11 +106,12 @@ final class SplitUsageController {
         let newCycle = UsageCycle(start: summary.billingCycleStart, end: summary.billingCycleEnd)
         let memoryAccount = UsageRevisionIdentity.accountDigest(subject: userInfo.sub, email: userInfo.email)
         let candidateAccount = memoryAccount ?? UsageRevisionIdentity.digest("session:\(sessionIdentity):\(generation)")
-        let contradicted = !allowsSplitPresentation || enterpriseScope || summary.limitType?.lowercased() == "team"
+        let scopeContradicted = enterpriseScope || summary.limitType?.lowercased() == "team"
             || summary.teamUsage?.hasUsageData == true
             || ["enterprise", "business", "team", "teams", "free"].contains(newMembership ?? "")
             || (summary.individualUsage?.plan == nil && summary.individualUsage?.overall != nil)
             || usage?.models.values.contains(where: { $0.maxRequestUsage != nil }) == true
+        let contradicted = !allowsSplitPresentation || scopeContradicted
         let transition = primarySnapshot.map { previous in
             previous.identity.accountDigest != candidateAccount
                 || (newCycle != nil && newCycle != cycle)
@@ -128,21 +130,23 @@ final class SplitUsageController {
         membership = newMembership ?? membership
         planLimit = newLimit ?? planLimit
         cycle = newCycle ?? cycle
+        // A display fallback can retire split data without retiring a submitted
+        // alert's owner. Return its scope for receipt validation even while legacy.
+        let account = memoryAccount ?? UsageRevisionIdentity.digest("session:\(sessionIdentity):\(generation)")
+        let identity = UsageRevisionIdentity(localID: revision &+ 1, credentialGeneration: generation, accountDigest: account,
+            scopeDigest: UsageRevisionIdentity.digest("personal:team:0:user:none"), cycle: cycle,
+            planIdentity: planScopeIdentity ?? "\(membership ?? "unknown"):\(planLimit.map(String.init) ?? "unknown")")
         guard !contradicted else {
             eligibility = .legacy
             snapshot = nil; primarySnapshot = nil
-            return
+            return scopeContradicted ? nil : identity
         }
         if eligibility != .eligible {
             eligibility = SplitUsageEligibility.evaluate(summary: summary, usage: usage, enterpriseScope: enterpriseScope)
         }
-        guard suppressesLegacyMeter else { snapshot = nil; primarySnapshot = nil; return }
+        guard suppressesLegacyMeter else { snapshot = nil; primarySnapshot = nil; return nil }
         revision &+= 1
-        let account = memoryAccount ?? UsageRevisionIdentity.digest("session:\(sessionIdentity):\(generation)")
-        if planScopeIdentity == nil { planScopeIdentity = "\(membership ?? "unknown"):\(planLimit.map(String.init) ?? "unknown")" }
-        let identity = UsageRevisionIdentity(localID: revision, credentialGeneration: generation, accountDigest: account,
-            scopeDigest: UsageRevisionIdentity.digest("personal:team:0:user:none"), cycle: cycle,
-            planIdentity: planScopeIdentity!)
+        planScopeIdentity = identity.planIdentity
         let cursor = eligibility == .eligible ? summary.individualUsage?.plan?.autoPercentUsed : nil
         let other = eligibility == .eligible ? summary.individualUsage?.plan?.apiPercentUsed : nil
         let used = summary.individualUsage?.plan?.used.flatMap { $0 >= 0 ? Decimal($0) : nil }
@@ -166,6 +170,7 @@ final class SplitUsageController {
         } else { supplementMemo = nil }
         isStale = false
         schedule.observe(fingerprint: fingerprint)
+        return identity
     }
 
     func requestAmounts(summary: UsageSummaryResponse, cookieHeader: String, manual: Bool = false) {
