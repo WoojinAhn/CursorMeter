@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     private var loginWindow: LoginWindow?
     private var eventMonitor: Any?
     private var popoverDismissMonitor: Any?
+    private var popoverDayTimer: Timer?
     private var jumpCoordinator: JumpEffectCoordinator?
     private var activityWatcher: CursorActivityWatcher?
     private var timeZoneObserver: NSObjectProtocol?
@@ -125,6 +126,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             eventMonitor = nil
         }
         removePopoverDismissMonitor()
+        cancelPopoverDayTimer()
         jumpCoordinator?.stop()
         jumpCoordinator = nil
         if let observer = timeZoneObserver {
@@ -150,12 +152,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             forName: NSWorkspace.willSleepNotification, object: nil, queue: .main
         ) { [weak self] _ in
             // The main-queue notification must retire work before suspension.
-            MainActor.assumeIsolated { self?.viewModel.systemWillSleep() }
+            MainActor.assumeIsolated {
+                self?.cancelPopoverDayTimer()
+                self?.viewModel.systemWillSleep()
+            }
         }
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.viewModel.systemDidWake() }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.viewModel.systemDidWake()
+                self.refreshPopoverDay()
+            }
         }
         timeZoneObserver = NotificationCenter.default.addObserver(
             forName: .NSSystemTimeZoneDidChange, object: nil, queue: .main
@@ -273,13 +282,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         NSApp.activate(ignoringOtherApps: true)
         // Countdown text is render-time-computed (#85); refresh it at the
         // moment of opening rather than waiting for the next observation tick.
+        viewModel.splitUsage.reevaluateToday(at: Date())
         (popover.contentViewController as? MenuBarPopoverViewController)?.updateUI()
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         installPopoverDismissMonitor()
+        schedulePopoverDayTimer()
     }
 
     private func hidePopover() {
         popover.performClose(nil)
+    }
+
+    private func refreshPopoverDay() {
+        viewModel.splitUsage.reevaluateToday(at: Date())
+        if popover?.isShown == true {
+            (popover.contentViewController as? MenuBarPopoverViewController)?.updateUI()
+        }
+        schedulePopoverDayTimer()
+    }
+
+    private func schedulePopoverDayTimer() {
+        cancelPopoverDayTimer()
+        guard popover?.isShown == true, let day = TodayUsageDay(containing: Date()) else { return }
+        // This boundary only retires yesterday's highlight; normal refresh owns networking.
+        let timer = Timer(fire: day.end, interval: 0, repeats: false) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.refreshPopoverDay() }
+        }
+        popoverDayTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func cancelPopoverDayTimer() {
+        popoverDayTimer?.invalidate()
+        popoverDayTimer = nil
     }
 
     // .transient on its own doesn't dismiss when the user clicks a system menu
@@ -499,6 +534,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     func popoverDidClose(_ notification: Notification) {
         // Covers both explicit hidePopover() and .transient auto-dismiss paths.
         removePopoverDismissMonitor()
+        cancelPopoverDayTimer()
     }
 
     // MARK: - UNUserNotificationCenterDelegate
@@ -550,6 +586,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             _ = viewModel.estimatedLimitsEnabled
             _ = viewModel.splitPresentation
             _ = viewModel.splitUsage.eligibility
+            _ = viewModel.splitUsage.todayPercentagePoints
             _ = viewModel.splitOuterPool
             _ = viewModel.isLoading
             _ = viewModel.errorMessage

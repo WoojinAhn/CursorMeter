@@ -2,6 +2,32 @@ import XCTest
 @testable import CursorMeter
 
 final class CycleCollectionScheduleTests: XCTestCase {
+    func testTodayDemandUsesStartSpacingAndSeparateUnchangedIdentity() {
+        let start = Date(timeIntervalSince1970: 1_790_000_000)
+        var schedule = CycleCollectionSchedule()
+        schedule.observe(fingerprint: "raw")
+        XCTAssertEqual(schedule.begin(at: start, manual: false, todayDemand: "first"), 100)
+        schedule.finish(.complete, pages: 4, at: start.addingTimeInterval(45))
+        XCTAssertEqual(schedule.availability(at: start.addingTimeInterval(59), manual: false, todayDemand: "second"),
+                       .waiting(until: start.addingTimeInterval(60)))
+        XCTAssertEqual(schedule.availability(at: start.addingTimeInterval(60), manual: false, todayDemand: "first"), .unchanged)
+        XCTAssertEqual(schedule.begin(at: start.addingTimeInterval(60), manual: false, todayDemand: "second"), 100)
+        schedule.finish(.complete, pages: 4, at: start.addingTimeInterval(61))
+        XCTAssertEqual(schedule.availability(at: start.addingTimeInterval(120), manual: true),
+                       .waiting(until: start.addingTimeInterval(121)))
+    }
+
+    func testTodayRevisionCannotBypassFailureGateAndRawSummaryControlsStability() {
+        let start = Date(timeIntervalSince1970: 1_790_000_000)
+        var schedule = CycleCollectionSchedule()
+        schedule.observe(fingerprint: "raw")
+        _ = schedule.begin(at: start, manual: false, todayDemand: "one")
+        schedule.finish(.unstable, pages: 1, at: start)
+        schedule.observe(fingerprint: "raw")
+        XCTAssertNil(schedule.begin(at: start.addingTimeInterval(60), manual: false, todayDemand: "two"))
+        schedule.observe(fingerprint: "raw")
+        XCTAssertNotNil(schedule.begin(at: start.addingTimeInterval(60), manual: false, todayDemand: "three"))
+    }
     private let start = Date(timeIntervalSince1970: 1_000_000)
 
     func testCompleteNeedsTenMinutesAndChangedFingerprint() {
@@ -274,6 +300,74 @@ final class CycleCollectionScheduleTests: XCTestCase {
         XCTAssertNil(schedule.begin(at: start.addingTimeInterval(899), manual: false))
         XCTAssertTrue(schedule.canFetchSupplement(at: start.addingTimeInterval(900)))
         XCTAssertEqual(schedule.begin(at: start.addingTimeInterval(900), manual: false), 100)
+    }
+
+    func testInvalidatingCompletedTodayDemandPreservesStartManualLegacyAndServerGates() {
+        var schedule = CycleCollectionSchedule()
+        schedule.observe(fingerprint: "raw")
+        _ = schedule.begin(at: start, manual: false, todayDemand: "same")
+        schedule.finish(.complete, pages: 4, at: start.addingTimeInterval(45))
+        schedule.invalidateCompletedTodayDemand()
+        XCTAssertEqual(schedule.automaticPagesRemaining(at: start.addingTimeInterval(50)), 296)
+        XCTAssertEqual(schedule.availability(at: start.addingTimeInterval(59), manual: false, todayDemand: "same"),
+                       .waiting(until: start.addingTimeInterval(60)))
+        XCTAssertEqual(schedule.availability(at: start.addingTimeInterval(60), manual: false, todayDemand: "same"), .ready)
+        XCTAssertEqual(schedule.availability(at: start.addingTimeInterval(60), manual: true),
+                       .waiting(until: start.addingTimeInterval(105)))
+        XCTAssertEqual(schedule.availability(at: start.addingTimeInterval(60), manual: false), .unchanged)
+        schedule.recordSupplementRateLimit(900, at: start.addingTimeInterval(50))
+        schedule.invalidateCompletedTodayDemand()
+        XCTAssertEqual(schedule.availability(at: start.addingTimeInterval(60), manual: false, todayDemand: "same"),
+                       .waiting(until: start.addingTimeInterval(950)))
+        XCTAssertEqual(schedule.availability(at: start.addingTimeInterval(60), manual: true),
+                       .waiting(until: start.addingTimeInterval(950)))
+    }
+
+    func testInvalidatingTodayDemandPreservesFailureBackoffsAndRawStability() {
+        for (outcome, delay) in [(CycleCollectionSchedule.Outcome.transportFailure, 60.0),
+                                 (.endpointFailure, 1800.0), (.rateLimited(retryAfter: 900), 900.0)] {
+            var schedule = CycleCollectionSchedule()
+            schedule.observe(fingerprint: "raw")
+            _ = schedule.begin(at: start, manual: false, todayDemand: "same")
+            schedule.finish(outcome, pages: 4, at: start)
+            schedule.invalidateCompletedTodayDemand()
+            XCTAssertEqual(schedule.automaticPagesRemaining(at: start), 296)
+            XCTAssertEqual(schedule.availability(at: start, manual: false, todayDemand: "same"),
+                           .waiting(until: start.addingTimeInterval(delay)))
+        }
+        var unstable = CycleCollectionSchedule()
+        unstable.observe(fingerprint: "raw")
+        _ = unstable.begin(at: start, manual: false, todayDemand: "same")
+        unstable.finish(.unstable, pages: 1, at: start)
+        unstable.observe(fingerprint: "raw")
+        unstable.invalidateCompletedTodayDemand()
+        XCTAssertEqual(unstable.availability(at: start.addingTimeInterval(60), manual: false, todayDemand: "same"),
+                       .waiting(until: start.addingTimeInterval(300)))
+        unstable.observe(fingerprint: "raw")
+        XCTAssertEqual(unstable.availability(at: start.addingTimeInterval(60), manual: false, todayDemand: "same"), .ready)
+    }
+
+    func testInvalidatingTodayDemandPreservesHardRollingAndRetiredPageBudgets() {
+        var hard = CycleCollectionSchedule()
+        _ = hard.begin(at: start, manual: false, todayDemand: "same")
+        hard.finish(.budgetPartial, pages: 100, at: start)
+        hard.invalidateCompletedTodayDemand()
+        XCTAssertEqual(hard.availability(at: start.addingTimeInterval(60), manual: false, todayDemand: "same"), .cycleLimit)
+        var rolling = CycleCollectionSchedule()
+        for index in 0..<3 {
+            let instant = start.addingTimeInterval(Double(index * 60))
+            _ = rolling.begin(at: instant, manual: false, todayDemand: "revision-\(index)")
+            rolling.finish(.complete, pages: 100, at: instant)
+        }
+        rolling.invalidateCompletedTodayDemand()
+        XCTAssertEqual(rolling.automaticPagesRemaining(at: start.addingTimeInterval(180)), 0)
+        XCTAssertEqual(rolling.availability(at: start.addingTimeInterval(180), manual: false, todayDemand: "revision-2"),
+                       .waiting(until: start.addingTimeInterval(3600)))
+        var retired = CycleCollectionSchedule()
+        _ = retired.begin(at: start, manual: false, todayDemand: "same")
+        retired.retireCurrent(at: start)
+        retired.invalidateCompletedTodayDemand()
+        XCTAssertEqual(retired.automaticPagesRemaining(at: start), 200)
     }
 
 }

@@ -5,12 +5,17 @@ import Observation
 final class SplitUsageController {
     typealias Supplement = @Sendable (SplitUsageSnapshot) async -> Void
     typealias Collect = @Sendable (SplitUsageSnapshot, UsageSummaryResponse, String, Int, @escaping Supplement) async -> CycleCollectionResult
+    typealias CollectToday = @Sendable (SplitUsageSnapshot, UsageSummaryResponse, String, Int, TodayUsageCollectionContext?, @escaping Supplement) async -> CycleCollectionResult
+    typealias WaitUntil = @Sendable (Date) async throws -> Void
     typealias FetchPeriod = @Sendable (String) async throws -> CurrentPeriodUsageResponse
 
     private(set) var eligibility: SplitUsageEligibility = .legacy
     private(set) var snapshot: SplitUsageSnapshot?
     private(set) var primarySnapshot: SplitUsageSnapshot?
     private(set) var amounts: CycleAmountSnapshot?
+    private(set) var todayPercentagePoints: [UsagePoolID: Double]?
+    private(set) var amountsAreEarlier = false
+    private(set) var historyEpoch: UInt64 = 0
     private(set) var isStale = false
     private(set) var isFetchingSupplement = false
     private(set) var amountState: SplitAmountPresentationState = .pending
@@ -18,7 +23,8 @@ final class SplitUsageController {
     private(set) var schedule = CycleCollectionSchedule()
     var suppressesLegacyMeter: Bool { eligibility != .legacy }
 
-    @ObservationIgnored private let collect: Collect?
+    @ObservationIgnored private let collect: CollectToday?
+    @ObservationIgnored private let waitUntil: WaitUntil
     @ObservationIgnored private let fetchPeriod: FetchPeriod?
     @ObservationIgnored private let store: CycleUsageStore?
     @ObservationIgnored private let now: () -> Date
@@ -45,26 +51,159 @@ final class SplitUsageController {
     @ObservationIgnored private var membership: String?
     @ObservationIgnored private var planLimit: Int?
     @ObservationIgnored private var cycle: UsageCycle?
+    private struct TodayRequest {
+        let snapshot: SplitUsageSnapshot
+        let summary: UsageSummaryResponse
+        let cookie: String
+        let evidence: CycleEventEvidence
+        let epoch: UInt64
+    }
+    @ObservationIgnored private var pendingToday: TodayRequest?
+    @ObservationIgnored private var activeToday: TodayRequest?
+    @ObservationIgnored private var activeDemand: CycleCollectionDemand?
+    @ObservationIgnored private var latestDemand: CycleCollectionDemand?
+    @ObservationIgnored private var fulfilledDemand: CycleCollectionDemand?
+    @ObservationIgnored private var lastHistoryRequest: TodayRequest?
+    @ObservationIgnored private var amountFingerprint: String?
+    @ObservationIgnored private var durableInvalidAttribution = false
+    @ObservationIgnored private var admissionTask: Task<Void, Never>?
+    @ObservationIgnored private var deferredWake: Task<Void, Never>?
+    @ObservationIgnored private var deferredDeadline: Date?
+    @ObservationIgnored private var wakeRevision: UInt64 = 0
+    private var waitsForWakeRefresh = false
     private var isSleeping = false
 
     init(apiClient: CursorAPIClient? = nil, store: CycleUsageStore? = nil,
-         now: @escaping () -> Date = { Date() }, collect: Collect? = nil, fetchPeriod: FetchPeriod? = nil) {
+         now: @escaping () -> Date = { Date() }, collect: Collect? = nil, fetchPeriod: FetchPeriod? = nil,
+         collectToday: CollectToday? = nil, waitUntil: WaitUntil? = nil) {
         self.store = store
         self.now = now
+        self.waitUntil = waitUntil ?? { date in
+            try await Task.sleep(for: .seconds(max(0, date.timeIntervalSinceNow)))
+        }
         if let fetchPeriod { self.fetchPeriod = fetchPeriod }
         else if let apiClient { self.fetchPeriod = { cookie in try await apiClient.fetchCurrentPeriodUsage(cookieHeader: cookie) } }
         else { self.fetchPeriod = nil }
-        if let collect { self.collect = collect }
+        if let collectToday { self.collect = collectToday }
+        else if let collect { self.collect = { snapshot, summary, cookie, allowance, _, supplement in
+            await collect(snapshot, summary, cookie, allowance, supplement)
+        } }
         else if let apiClient {
-            self.collect = { snapshot, summary, cookie, allowance, supplement in
+            self.collect = { snapshot, summary, cookie, allowance, context, supplement in
                 let collector = CycleUsageCollector(budget: .init(maxPages: allowance), fetchPage: { page, bytes in
                     try await apiClient.fetchCycleUsagePage(cookieHeader: cookie, teamId: 0, userId: nil, page: page, maximumBytes: bytes)
                 }, fetchSummary: { try await apiClient.fetchUsageSummaryForCycleValidation(cookieHeader: cookie) }, fetchPeriod: {
                     try await apiClient.fetchCurrentPeriodUsage(cookieHeader: cookie)
                 }, onSupplement: supplement)
-                return await collector.collect(snapshot: snapshot, summary: summary)
+                return await collector.collect(snapshot: snapshot, summary: summary, todayContext: context)
             }
         } else { self.collect = nil }
+    }
+
+    func reevaluateToday(at date: Date) {
+        todayPercentagePoints = TodayUsageAllocation.percentagePoints(snapshot: snapshot, amounts: amounts,
+            primaryIsStale: isStale,
+            currentSessionAndDemandEligible: fulfilledDemand != nil && fulfilledDemand == latestDemand, now: date)
+    }
+
+    func requestAmounts(summary: UsageSummaryResponse, cookieHeader: String, primaryIdentity: UsageRevisionIdentity,
+                        eventEvidence: CycleEventEvidence, historyEpoch: UInt64) {
+        guard !isSleeping, historyEpoch == self.historyEpoch, eligibility == .eligible, !isStale,
+              let primarySnapshot, primarySnapshot.identity == primaryIdentity,
+              Self.fingerprint(summary: summary) == primaryFingerprint,
+              let day = TodayUsageDay(containing: now()) else { return }
+        waitsForWakeRefresh = false
+        latestRequest = (summary, cookieHeader)
+        let request = TodayRequest(snapshot: primarySnapshot, summary: summary, cookie: cookieHeader,
+                                   evidence: eventEvidence, epoch: historyEpoch)
+        let demand = CycleCollectionDemand(summaryFingerprint: Self.fingerprint(summary: summary), day: day,
+                                           eventEvidence: eventEvidence)
+        latestDemand = demand
+        reevaluateToday(at: now())
+        if lastHistoryRequest?.snapshot.identity == primaryIdentity,
+           lastHistoryRequest?.evidence == eventEvidence { return }
+        lastHistoryRequest = request
+        if activeDemand == demand { pendingToday = nil; return }
+        pendingToday = request
+        drainToday()
+    }
+
+    private var usesFastTodayCadence: Bool {
+        guard !durableInvalidAttribution,
+              let cursor = SplitUsageSnapshot.validPercent(snapshot?.cursorPercent), cursor < 100,
+              let other = SplitUsageSnapshot.validPercent(snapshot?.otherPercent), other < 100 else { return false }
+        return true
+    }
+
+    private func isCurrent(_ request: TodayRequest) -> Bool {
+        !isSleeping && !waitsForWakeRefresh && request.epoch == historyEpoch && eligibility == .eligible && !isStale
+            && request.snapshot.identity.cycle != nil && primarySnapshot?.identity == request.snapshot.identity
+    }
+
+    private func drainToday() {
+        guard task == nil, admissionTask == nil, supplementTask == nil, let request = pendingToday,
+              isCurrent(request), let day = TodayUsageDay(containing: now()) else { return }
+        let preview = CycleCollectionDemand(summaryFingerprint: Self.fingerprint(summary: request.summary), day: day,
+                                             eventEvidence: request.evidence)
+        let availability = schedule.availability(at: now(), manual: false,
+                                                todayDemand: usesFastTodayCadence ? preview.key : nil)
+        guard availability == .ready, collect != nil else {
+            if case let .waiting(until) = availability { deferToday(until: until) }
+            requestSupplement(snapshot: request.snapshot, summary: request.summary, cookie: request.cookie)
+            return
+        }
+        cancelDeferredWake()
+        let owner = taskRevision
+        let authority = authorityEpoch
+        let fence = authorityFence
+        admissionTask = Task { [weak self, store] in
+            guard let self else { return }
+            let acknowledged = await fence?.value ?? true
+            guard acknowledged, !Task.isCancelled, self.taskRevision == owner, self.authorityEpoch == authority else { return }
+            let operation = await store?.activate(identity: request.snapshot.identity, authority: authority)
+            guard !Task.isCancelled, self.taskRevision == owner, self.authorityEpoch == authority else { return }
+            self.admissionTask = nil
+            guard let current = self.pendingToday, self.isCurrent(current) else { return }
+            guard current.snapshot.identity == request.snapshot.identity, current.evidence == request.evidence else {
+                self.drainToday()
+                return
+            }
+            // All authority awaits precede this single day capture and admission.
+            guard let context = TodayUsageCollectionContext(admittedAt: self.now()) else { return }
+            let demand = CycleCollectionDemand(summaryFingerprint: Self.fingerprint(summary: current.summary),
+                                               day: context.day, eventEvidence: current.evidence)
+            self.latestDemand = demand
+            self.reevaluateToday(at: context.admittedAt)
+            guard let allowance = self.schedule.begin(at: context.admittedAt, manual: false,
+                    todayDemand: self.usesFastTodayCadence ? demand.key : nil),
+                  let attemptID = self.schedule.currentAttemptID else { self.drainToday(); return }
+            self.pendingToday = nil
+            self.activeToday = current
+            self.activeDemand = demand
+            self.launchCollection(snapshot: current.snapshot, summary: current.summary, cookie: current.cookie,
+                allowance: allowance, attemptID: attemptID, context: context, demand: demand, operation: operation)
+        }
+    }
+
+    private func deferToday(until deadline: Date) {
+        guard deferredDeadline != deadline else { return }
+        cancelDeferredWake()
+        deferredDeadline = deadline
+        let token = wakeRevision
+        deferredWake = Task { [weak self, waitUntil] in
+            do { try await waitUntil(deadline) } catch { return }
+            guard let self, !Task.isCancelled, token == self.wakeRevision else { return }
+            self.deferredWake = nil
+            self.deferredDeadline = nil
+            self.drainToday()
+        }
+    }
+
+    private func cancelDeferredWake() {
+        wakeRevision &+= 1
+        deferredWake?.cancel()
+        deferredWake = nil
+        deferredDeadline = nil
     }
 
     func prepareProfileAuthority(freshSubjectDigest: String?) async -> Bool {
@@ -153,6 +292,10 @@ final class SplitUsageController {
         let old = primarySnapshot
         if let old, old.identity.credentialGeneration != generation || !old.identity.sameScope(as: identity) {
             retireTask()
+            clearToday()
+            schedule.resetCycle()
+            amounts = nil
+            amountState = .pending
             supplementMemo = nil
         }
         let fingerprint = Self.fingerprint(summary: summary)
@@ -170,6 +313,7 @@ final class SplitUsageController {
         } else { supplementMemo = nil }
         isStale = false
         schedule.observe(fingerprint: fingerprint)
+        reevaluateToday(at: now())
         return identity
     }
 
@@ -191,12 +335,22 @@ final class SplitUsageController {
             return
         }
         guard !isSleeping, eligibility == .eligible, !isStale, let snapshot = primarySnapshot, snapshot.identity.cycle != nil,
-              let (summary, cookie) = latestRequest, supplementTask == nil else { return }
-        guard let collect, let allowance = schedule.begin(at: now(), manual: manual),
+              let (summary, cookie) = latestRequest, supplementTask == nil, admissionTask == nil else { return }
+        guard collect != nil, let allowance = schedule.begin(at: now(), manual: manual),
               let attemptID = schedule.currentAttemptID else {
             requestSupplement(snapshot: snapshot, summary: summary, cookie: cookie)
             return
         }
+        fulfilledDemand = nil
+        reevaluateToday(at: now())
+        launchCollection(snapshot: snapshot, summary: summary, cookie: cookie, allowance: allowance,
+                         attemptID: attemptID, context: nil, demand: nil)
+    }
+
+    private func launchCollection(snapshot: SplitUsageSnapshot, summary: UsageSummaryResponse, cookie: String,
+                                  allowance: Int, attemptID: UInt64, context: TodayUsageCollectionContext?,
+                                  demand: CycleCollectionDemand?, operation preparedOperation: UInt64? = nil) {
+        guard let collect else { return }
         taskRevision &+= 1
         let taskID = taskRevision
         let subject = persistentSubjectDigest
@@ -204,37 +358,69 @@ final class SplitUsageController {
         amountState = .refreshing
         task = Task { [weak self, store] in
             guard let self else { return }
-            defer { self.schedule.finish(.cancelled, pages: 0, at: self.now(), attemptID: attemptID) }
+            defer {
+                self.schedule.finish(.cancelled, pages: 0, at: self.now(), attemptID: attemptID)
+                if self.taskRevision == taskID {
+                    self.task = nil
+                    self.activeToday = nil
+                    self.activeDemand = nil
+                }
+                self.drainToday()
+            }
             guard self.owns(taskID, snapshot: snapshot) else { return }
-            let operation = await store?.activate(identity: snapshot.identity, authority: authority)
+            let operation: UInt64?
+            if context != nil { operation = preparedOperation }
+            else { operation = await store?.activate(identity: snapshot.identity, authority: authority) }
             guard self.owns(taskID, snapshot: snapshot) else { return }
             if self.amounts == nil, let operation, let cached = await store?.load(operation: operation, now: self.now()),
                self.owns(taskID, snapshot: snapshot) {
                 self.amounts = cached
+                self.fulfilledDemand = nil
+                self.reevaluateToday(at: self.now())
             }
             guard self.owns(taskID, snapshot: snapshot) else { return }
             let fingerprint = Self.fingerprint(summary: summary)
-            let result = await collect(snapshot, summary, cookie, allowance) { [weak self] supplemental in
+            let result = await collect(snapshot, summary, cookie, allowance, context) { [weak self] supplemental in
                 await self?.acceptSupplement(supplemental, fingerprint: fingerprint, taskID: taskID)
             }
-            self.schedule.finish(Self.outcome(result.status), pages: result.pageCount, at: self.now(), attemptID: attemptID)
+            let unreconciled = demand != nil && result.status == .complete && result.snapshot.map {
+                $0.coverage.complete && ($0.residualCents.map { $0.isNaN || abs($0) > 1 } ?? true)
+            } == true
+            self.schedule.finish(unreconciled ? .unstable : Self.outcome(result.status), pages: result.pageCount,
+                                 at: self.now(), attemptID: attemptID)
             guard self.owns(taskID, snapshot: snapshot) else { return }
             if let supplemental = result.supplementarySnapshot {
                 self.acceptSupplement(supplemental, fingerprint: fingerprint, taskID: taskID)
             }
             if let amounts = result.snapshot, amounts.identity.sameScope(as: snapshot.identity),
-               amounts.coverage.complete || self.amounts?.coverage.complete != true {
-                self.amounts = amounts
-                if let operation, subject != nil { try? await store?.save(amounts, operation: operation) }
-                guard self.owns(taskID, snapshot: snapshot) else { return }
+               amounts.identity.credentialGeneration == snapshot.identity.credentialGeneration {
+                if amounts.coverage.complete {
+                    self.durableInvalidAttribution = amounts.unknownCount > 0 || amounts.unknownCents != 0
+                        || [amounts.cursorCents, amounts.otherCents].contains { $0.isNaN || $0 < 0 }
+                        || ((amounts.sourceCursorPercent ?? 0) > 0 && amounts.cursorCents == 0)
+                        || ((amounts.sourceOtherPercent ?? 0) > 0 && amounts.otherCents == 0)
+                }
+                let retainEarlier = unreconciled && self.amountFingerprint == fingerprint
+                    && self.amounts?.coverage.complete == true && self.amounts?.status == .estimatedAttribution
+                if retainEarlier {
+                    self.amountsAreEarlier = true
+                    self.fulfilledDemand = nil
+                } else if amounts.coverage.complete || self.amounts?.coverage.complete != true {
+                    self.amounts = amounts
+                    self.amountFingerprint = fingerprint
+                    self.amountsAreEarlier = false
+                    self.fulfilledDemand = result.status == .complete && !unreconciled ? demand : nil
+                    if let operation, subject != nil { try? await store?.save(amounts, operation: operation) }
+                    guard self.owns(taskID, snapshot: snapshot) else { return }
+                }
             }
+            self.reevaluateToday(at: self.now())
             switch result.status {
             case .complete: self.amountState = .ready
             case .partial, .unstable: self.amountState = self.amounts == nil ? .unavailable : .ready
             case .cancelled: self.amountState = .pending
             default: self.amountState = .failed
             }
-            self.task = nil
         }
     }
 
@@ -273,6 +459,7 @@ final class SplitUsageController {
         periodOtherPlaces = max(periodOtherPlaces, supplemental.periodOtherObservedPlaces)
         supplementMemo = (supplemental, fingerprint)
         snapshot = applying(supplemental, to: primarySnapshot)
+        reevaluateToday(at: now())
     }
 
     private func requestSupplement(snapshot: SplitUsageSnapshot, summary: UsageSummaryResponse, cookie: String) {
@@ -290,6 +477,7 @@ final class SplitUsageController {
                 if supplementID == self.supplementRevision {
                     self.supplementTask = nil
                     self.isFetchingSupplement = false
+                    self.drainToday()
                 }
             }
             do {
@@ -358,14 +546,25 @@ final class SplitUsageController {
         }
     }
 
-    func recordFailure() { if suppressesLegacyMeter { isStale = true } }
+    func recordFailure() {
+        if suppressesLegacyMeter { isStale = true }
+        reevaluateToday(at: now())
+    }
 
     func prepareForSleep() {
         isSleeping = true
+        historyEpoch &+= 1
+        waitsForWakeRefresh = true
+        if pendingToday == nil { pendingToday = activeToday }
         retireTask()
+        reevaluateToday(at: now())
     }
 
-    func resumeAfterWake() { isSleeping = false }
+    func resumeAfterWake() {
+        isSleeping = false
+        historyEpoch &+= 1
+        reevaluateToday(at: now())
+    }
 
     func suspend(removePersisted: Bool = false, subjectDigest: String? = nil) {
         lifecycleRevision &+= 1
@@ -373,6 +572,7 @@ final class SplitUsageController {
         preparedForAcceptance = false
         retireTask()
         latestRequest = nil
+        clearToday()
         recordFailure()
         let subject = subjectDigest ?? persistentSubjectDigest
         persistentSubjectDigest = nil
@@ -394,6 +594,7 @@ final class SplitUsageController {
         periodCursorPlaces = 0; periodOtherPlaces = 0
         supplementNextAt = nil; supplementFailures = 0
         schedule.resetCycle()
+        clearToday()
     }
 
     private func enqueueAuthorityFence(subjectDigest: String?, invalidate: Bool = false,
@@ -417,7 +618,20 @@ final class SplitUsageController {
         }
     }
 
+    private func clearToday() {
+        pendingToday = nil; activeToday = nil; activeDemand = nil; latestDemand = nil; fulfilledDemand = nil
+        lastHistoryRequest = nil; amountFingerprint = nil; durableInvalidAttribution = false
+        todayPercentagePoints = nil; amountsAreEarlier = false
+        cancelDeferredWake()
+    }
+
     private func retireTask() {
+        admissionTask?.cancel()
+        admissionTask = nil
+        cancelDeferredWake()
+        activeToday = nil
+        activeDemand = nil
+        fulfilledDemand = nil
         taskRevision &+= 1
         task?.cancel()
         task = nil
@@ -426,6 +640,7 @@ final class SplitUsageController {
         supplementTask = nil
         isFetchingSupplement = false
         schedule.retireCurrent(at: now())
+        schedule.invalidateCompletedTodayDemand()
         if amountState == .refreshing { amountState = .pending }
     }
 

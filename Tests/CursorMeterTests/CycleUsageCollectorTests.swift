@@ -383,6 +383,148 @@ final class CycleUsageCollectorTests: XCTestCase, @unchecked Sendable {
         XCTAssertEqual(result.byteCount, 100)
     }
 
+    func testTodaySumsUseTheSameDecimalClassificationAsCycleAmounts() async throws {
+        let at = UsageCycle.parse("2026-10-02T03:00:00Z")!
+        let cycle = UsageCycle(start: at.addingTimeInterval(-86_400), end: at.addingTimeInterval(86_400))!
+        let primary = todaySnapshot(used: 4, cycle: cycle, at: at)
+        let summary = todaySummary(used: 4, cycle: cycle)
+        let rows = [
+            todayEvent(at, "1.123456789123456789", kind: "USAGE_EVENT_KIND_FREE_CREDIT"),
+            todayEvent(at.addingTimeInterval(-1), "2.876543210876543211", model: "future-model", kind: "USAGE_EVENT_KIND_INCLUDED_IN_BUSINESS"),
+            todayEvent(at.addingTimeInterval(-2), "5", model: "grok-bot-4.7"),
+            todayEvent(at.addingTimeInterval(-3), "6", kind: "USAGE_EVENT_KIND_USAGE_BASED"),
+            todayEvent(at.addingTimeInterval(-4), nil, kind: "USAGE_EVENT_KIND_ERRORED_NOT_CHARGED"),
+            todayEvent(at.addingTimeInterval(-5), "0")
+        ]
+        var collector = CycleUsageCollector(fetchPage: { _, _ in self.page(rows, total: rows.count) },
+                                            fetchSummary: { summary }, fetchPeriod: { throw CycleEnrichmentError.transport })
+        collector.now = { at }
+        let result = await collector.collect(snapshot: primary, summary: summary)
+        let amounts = try XCTUnwrap(result.snapshot)
+        let today = try XCTUnwrap(amounts.todayUsage)
+        XCTAssertEqual(result.status, .complete)
+        XCTAssertEqual(amounts.status, .estimatedAttribution)
+        XCTAssertEqual(today.cursorCents, Decimal(string: "1.123456789123456789"))
+        XCTAssertEqual(today.otherCents, Decimal(string: "2.876543210876543211"))
+        XCTAssertEqual(today.cursorCents, amounts.cursorCents)
+        XCTAssertEqual(today.otherCents, amounts.otherCents)
+        XCTAssertEqual(today.sourceIncludedTotalCents, 4)
+        XCTAssertEqual(today.evidenceAt, at)
+        XCTAssertEqual(amounts.botCents, 5)
+        XCTAssertEqual(amounts.paidCents, 6)
+    }
+
+    func testTodayIntersectsHalfOpenDayWithBillingCycle() async throws {
+        let dayStart = UsageCycle.parse("2026-10-01T15:00:00Z")!
+        let dayEnd = dayStart.addingTimeInterval(86_400)
+        for cycle in [UsageCycle(start: dayStart.addingTimeInterval(10), end: dayEnd.addingTimeInterval(10))!,
+                      UsageCycle(start: dayStart.addingTimeInterval(-10), end: dayEnd.addingTimeInterval(-10))!] {
+            let at = dayStart.addingTimeInterval(100)
+            let rows = [
+                todayEvent(cycle.end, "500"),
+                todayEvent(cycle.end.addingTimeInterval(-1), "1"),
+                todayEvent(dayEnd.addingTimeInterval(-1), "2"),
+                todayEvent(dayStart, "4"),
+                todayEvent(cycle.start, "8"),
+                todayEvent(cycle.start.addingTimeInterval(-1), "1")
+            ].sorted { $0.date! > $1.date! }
+            let included = rows.filter { cycle.start <= $0.date! && $0.date! < cycle.end }.reduce(Decimal.zero) { $0 + $1.chargedCents! }
+            let todayTotal = rows.filter { cycle.start <= $0.date! && $0.date! < cycle.end && dayStart <= $0.date! && $0.date! < dayEnd }.reduce(Decimal.zero) { $0 + $1.chargedCents! }
+            let primary = todaySnapshot(used: included, cycle: cycle, at: at)
+            let summary = todaySummary(used: NSDecimalNumber(decimal: included).intValue, cycle: cycle)
+            var collector = CycleUsageCollector(fetchPage: { _, _ in self.page(rows, total: rows.count) },
+                                                fetchSummary: { summary }, fetchPeriod: { throw CycleEnrichmentError.transport })
+            collector.now = { at }
+            let result = await collector.collect(snapshot: primary, summary: summary)
+            XCTAssertEqual(result.snapshot?.cursorCents, included)
+            XCTAssertEqual(result.snapshot?.todayUsage?.cursorCents, todayTotal)
+            XCTAssertEqual(result.snapshot?.todayUsage?.day.start, dayStart)
+            XCTAssertEqual(result.snapshot?.todayUsage?.day.end, dayEnd)
+        }
+    }
+
+    func testCollectionAndRetryCrossingMidnightKeepAdmissionDayAndResetSums() async throws {
+        let midnight = UsageCycle.parse("2026-10-02T15:00:00Z")!
+        let admittedAt = midnight.addingTimeInterval(-1)
+        let clock = TodayCollectionClock(admittedAt)
+        let cycle = UsageCycle(start: midnight.addingTimeInterval(-90_000), end: midnight.addingTimeInterval(90_000))!
+        let rows = [todayEvent(midnight, "2"), todayEvent(admittedAt, "3")]
+        let primary = todaySnapshot(used: 5, cycle: cycle, at: admittedAt)
+        let summary = todaySummary(used: 5, cycle: cycle)
+        let sequence = CollectionSequence()
+        var collector = CycleUsageCollector(fetchPage: { _, _ in
+            let call = await sequence.next()
+            clock.set(midnight.addingTimeInterval(1))
+            return self.page(call == 2 ? [self.todayEvent(midnight, "99")] : rows, total: 2)
+        }, fetchSummary: { summary }, fetchPeriod: { throw CycleEnrichmentError.transport })
+        collector.now = { clock.read() }
+        let result = await collector.collect(snapshot: primary, summary: summary)
+        XCTAssertEqual(result.status, .complete)
+        XCTAssertEqual(result.pageCount, 4)
+        XCTAssertEqual(result.snapshot?.cursorCents, 5)
+        XCTAssertEqual(result.snapshot?.todayUsage?.cursorCents, 3)
+        XCTAssertEqual(result.snapshot?.todayUsage?.evidenceAt, admittedAt)
+        XCTAssertEqual(result.snapshot?.todayUsage?.day.end, midnight)
+        XCTAssertNil(TodayUsageAllocation.percentagePoints(snapshot: primary, amounts: result.snapshot, primaryIsStale: false,
+                                                           currentSessionAndDemandEligible: true, now: clock.read()))
+    }
+
+    func testUnresolvedOrPartialDailyReceiptsCannotAllocate() async throws {
+        let at = UsageCycle.parse("2026-10-02T03:00:00Z")!
+        let cycle = UsageCycle(start: at.addingTimeInterval(-86_400), end: at.addingTimeInterval(86_400))!
+        let primary = todaySnapshot(used: 1, cycle: cycle, at: at)
+        let summary = todaySummary(used: 1, cycle: cycle)
+        for partial in [false, true] {
+            let rows = [todayEvent(at, "1", model: partial ? "composer-2.5" : nil)]
+            var collector = CycleUsageCollector(budget: .init(maxPages: partial ? 1 : 100),
+                                                fetchPage: { _, _ in self.page(rows, total: 1) },
+                                                fetchSummary: { summary }, fetchPeriod: { throw CycleEnrichmentError.transport })
+            collector.now = { at }
+            let result = await collector.collect(snapshot: primary, summary: summary)
+            XCTAssertEqual(result.status, partial ? .partial : .complete)
+            XCTAssertNotNil(result.snapshot?.todayUsage)
+            XCTAssertNil(TodayUsageAllocation.percentagePoints(snapshot: primary, amounts: result.snapshot, primaryIsStale: false,
+                                                               currentSessionAndDemandEligible: true, now: at))
+        }
+    }
+
+    func testExplicitAdmissionContextAppliesToEveryPageAfterMidnight() async throws {
+        let midnight = UsageCycle.parse("2026-10-02T15:00:00Z")!
+        let admittedAt = midnight.addingTimeInterval(-1)
+        let cycle = UsageCycle(start: midnight.addingTimeInterval(-90_000), end: midnight.addingTimeInterval(90_000))!
+        let primary = todaySnapshot(used: 10, cycle: cycle, at: admittedAt)
+        let summary = todaySummary(used: 10, cycle: cycle)
+        let first = [todayEvent(midnight, "2"), todayEvent(admittedAt, "3")]
+        let second = [todayEvent(admittedAt.addingTimeInterval(-100), "5")]
+        var collector = CycleUsageCollector(fetchPage: { number, _ in self.page(number == 1 ? first : second, total: 3) },
+                                            fetchSummary: { summary }, fetchPeriod: { throw CycleEnrichmentError.transport })
+        collector.now = { midnight.addingTimeInterval(1) }
+        let context = try XCTUnwrap(TodayUsageCollectionContext(admittedAt: admittedAt))
+        let result = await collector.collect(snapshot: primary, summary: summary, todayContext: context)
+        XCTAssertEqual(result.status, .complete)
+        XCTAssertEqual(result.pageCount, 3)
+        XCTAssertEqual(result.snapshot?.cursorCents, 10)
+        XCTAssertEqual(result.snapshot?.todayUsage?.cursorCents, 8)
+        XCTAssertEqual(result.snapshot?.todayUsage?.evidenceAt, admittedAt)
+        XCTAssertEqual(result.snapshot?.todayUsage?.day, context.day)
+    }
+
+    private func todayEvent(_ date: Date, _ cents: String?, model: String? = "composer-2.5",
+                            kind: String = "USAGE_EVENT_KIND_INCLUDED_IN_ULTRA") -> CycleUsageEvent {
+        .init(timestamp: String(date.timeIntervalSince1970 * 1000), model: model, kind: kind,
+              chargedCents: cents.flatMap { Decimal(string: $0) })
+    }
+
+    private func todaySnapshot(used: Decimal, cycle: UsageCycle, at: Date) -> SplitUsageSnapshot {
+        .init(identity: .init(localID: 1, credentialGeneration: 1, accountDigest: "a", scopeDigest: "s", cycle: cycle, planIdentity: "pro:100"),
+              capturedAt: at, cursorPercent: 10, otherPercent: 10, includedUsedCents: used)
+    }
+
+    private func todaySummary(used: Int, cycle: UsageCycle) -> UsageSummaryResponse {
+        let formatter = ISO8601DateFormatter()
+        return try! JSONDecoder().decode(UsageSummaryResponse.self, from: Data(#"{"billingCycleStart":"\#(formatter.string(from: cycle.start))","billingCycleEnd":"\#(formatter.string(from: cycle.end))","membershipType":"pro","individualUsage":{"plan":{"used":\#(used),"limit":100,"autoPercentUsed":10,"apiPercentUsed":10}}}"#.utf8))
+    }
+
     func collector(_ feed: PageFeed, maxPages: Int = 100) -> CycleUsageCollector {
         CycleUsageCollector(budget: .init(maxPages: maxPages), fetchPage: { page, _ in await feed.get(page) }, fetchSummary: { self.summary(used: await feed.expectedUsed()) }, fetchPeriod: {
             try JSONDecoder().decode(CurrentPeriodUsageResponse.self, from: Data(#"{"billingCycleStart":"1970-01-01T00:00:01Z","billingCycleEnd":"1970-01-01T00:00:10Z","planUsage":{"includedSpend":\#(await feed.expectedUsed())},"autoBucketModels":["composer-2.5"]}"#.utf8))
@@ -421,4 +563,12 @@ actor PageFeed {
 private actor CollectionSequence {
     var value = 0
     func next() -> Int { value += 1; return value }
+}
+
+private final class TodayCollectionClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var instant: Date
+    init(_ instant: Date) { self.instant = instant }
+    func read() -> Date { lock.withLock { instant } }
+    func set(_ instant: Date) { lock.withLock { self.instant = instant } }
 }

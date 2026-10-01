@@ -632,13 +632,17 @@ final class MenuBarPopoverViewController: NSViewController {
             secondaryRow.isHidden = true
         }
         if let presentation = viewModel.splitPresentation, split {
-            for (row, pool) in zip(splitPoolRows, presentation.pools) { row.update(pool) }
+            let today = viewModel.splitUsage.todayPercentagePoints
+            for (row, pool) in zip(splitPoolRows, presentation.pools) {
+                row.update(pool, todayPoints: today?[pool.id])
+            }
             splitMeter.image = CircularProgressIcon.makeSplitImage(
                 cursorPercent: viewModel.splitUsage.snapshot?.cursorPercent,
                 otherPercent: viewModel.splitUsage.snapshot?.otherPercent,
-                outerPool: viewModel.splitOuterPool, size: NSSize(width: 112, height: 112))
+                outerPool: viewModel.splitOuterPool, size: NSSize(width: 112, height: 112),
+                todayPercentagePoints: today ?? [:])
             splitMeter.setAccessibilityValue(presentation.accessibilityValue)
-            splitMeter.toolTip = presentation.tooltip
+            splitMeter.toolTip = PopoverTodayUsagePresentation.tooltip(total: presentation.tooltip, points: today)
             splitDetailLabel.stringValue = presentation.detailLines.joined(separator: "\n")
             splitDetailLabel.isHidden = presentation.detailLines.isEmpty
         }
@@ -1006,13 +1010,13 @@ private final class SplitPoolRow: NSStackView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("use init()") }
 
-    func update(_ pool: SplitPoolPresentation) {
+    func update(_ pool: SplitPoolPresentation, todayPoints: Double? = nil) {
         titleLabel.stringValue = pool.id.displayName
         marker.image = NSImage(systemSymbolName: pool.position == .outer ? "circle" : "circle.fill", accessibilityDescription: nil)
         valueLabel.stringValue = pool.readoutText
         amountLabel.stringValue = pool.detailText ?? ""
         amountLabel.isHidden = pool.detailText == nil
-        setAccessibilityLabel(pool.line)
+        setAccessibilityLabel(PopoverTodayUsagePresentation.rowLabel(pool, todayPoints: todayPoints))
     }
 }
 
