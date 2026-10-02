@@ -2,19 +2,19 @@ import XCTest
 @testable import CursorMeter
 
 final class CycleCollectionScheduleTests: XCTestCase {
-    func testTodayDemandUsesStartSpacingAndSeparateUnchangedIdentity() {
+    func testTodayDemandUsesCompletionPacingAndSeparateUnchangedIdentity() {
         let start = Date(timeIntervalSince1970: 1_790_000_000)
         var schedule = CycleCollectionSchedule()
         schedule.observe(fingerprint: "raw")
         XCTAssertEqual(schedule.begin(at: start, manual: false, todayDemand: "first"), 100)
         schedule.finish(.complete, pages: 4, at: start.addingTimeInterval(45))
         XCTAssertEqual(schedule.availability(at: start.addingTimeInterval(59), manual: false, todayDemand: "second"),
-                       .waiting(until: start.addingTimeInterval(60)))
+                       .waiting(until: start.addingTimeInterval(117)))
         XCTAssertEqual(schedule.availability(at: start.addingTimeInterval(60), manual: false, todayDemand: "first"), .unchanged)
-        XCTAssertEqual(schedule.begin(at: start.addingTimeInterval(60), manual: false, todayDemand: "second"), 100)
-        schedule.finish(.complete, pages: 4, at: start.addingTimeInterval(61))
-        XCTAssertEqual(schedule.availability(at: start.addingTimeInterval(120), manual: true),
-                       .waiting(until: start.addingTimeInterval(121)))
+        XCTAssertEqual(schedule.begin(at: start.addingTimeInterval(117), manual: false, todayDemand: "second"), 100)
+        schedule.finish(.complete, pages: 4, at: start.addingTimeInterval(118))
+        XCTAssertEqual(schedule.availability(at: start.addingTimeInterval(177), manual: true),
+                       .waiting(until: start.addingTimeInterval(178)))
     }
 
     func testTodayRevisionCannotBypassFailureGateAndRawSummaryControlsStability() {
@@ -310,8 +310,8 @@ final class CycleCollectionScheduleTests: XCTestCase {
         schedule.invalidateCompletedTodayDemand()
         XCTAssertEqual(schedule.automaticPagesRemaining(at: start.addingTimeInterval(50)), 296)
         XCTAssertEqual(schedule.availability(at: start.addingTimeInterval(59), manual: false, todayDemand: "same"),
-                       .waiting(until: start.addingTimeInterval(60)))
-        XCTAssertEqual(schedule.availability(at: start.addingTimeInterval(60), manual: false, todayDemand: "same"), .ready)
+                       .waiting(until: start.addingTimeInterval(117)))
+        XCTAssertEqual(schedule.availability(at: start.addingTimeInterval(117), manual: false, todayDemand: "same"), .ready)
         XCTAssertEqual(schedule.availability(at: start.addingTimeInterval(60), manual: true),
                        .waiting(until: start.addingTimeInterval(105)))
         XCTAssertEqual(schedule.availability(at: start.addingTimeInterval(60), manual: false), .unchanged)
@@ -356,7 +356,8 @@ final class CycleCollectionScheduleTests: XCTestCase {
         var rolling = CycleCollectionSchedule()
         for index in 0..<3 {
             let instant = start.addingTimeInterval(Double(index * 60))
-            _ = rolling.begin(at: instant, manual: false, todayDemand: "revision-\(index)")
+            rolling.resetCycle()
+            XCTAssertEqual(rolling.begin(at: instant, manual: false, todayDemand: "revision-\(index)"), 100)
             rolling.finish(.complete, pages: 100, at: instant)
         }
         rolling.invalidateCompletedTodayDemand()

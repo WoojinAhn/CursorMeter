@@ -32,8 +32,11 @@ final class TodayUsageIntegrationTests: XCTestCase {
         var status: CycleCollectionStatus = .complete
         var unreconciled = false
         var unknown = false
-        func set(hold: Bool = false, status: CycleCollectionStatus = .complete, unreconciled: Bool = false, unknown: Bool = false) {
+        var pageCount = 2
+        func set(hold: Bool = false, status: CycleCollectionStatus = .complete, unreconciled: Bool = false,
+                 unknown: Bool = false, pageCount: Int = 2) {
             self.hold = hold; self.status = status; self.unreconciled = unreconciled; self.unknown = unknown
+            self.pageCount = pageCount
         }
         func collect(_ snapshot: SplitUsageSnapshot, context: TodayUsageCollectionContext?) async -> CycleCollectionResult {
             contexts.append(context); identities.append(snapshot.identity)
@@ -50,7 +53,7 @@ final class TodayUsageIntegrationTests: XCTestCase {
                 amounts.todayUsage = .init(day: context.day, evidenceAt: context.admittedAt,
                     cursorCents: 25, otherCents: 100, sourceIncludedTotalCents: snapshot.includedUsedCents!)
             }
-            return .init(status: .complete, snapshot: amounts, pageCount: 2, byteCount: 0)
+            return .init(status: .complete, snapshot: amounts, pageCount: pageCount, byteCount: 0)
         }
         func release() { hold = false; continuation?.resume(); continuation = nil }
     }
@@ -91,6 +94,67 @@ final class TodayUsageIntegrationTests: XCTestCase {
         for _ in 0..<20 { await Task.yield() }
         let count = await collector.contexts.count
         XCTAssertEqual(count, 2)
+    }
+
+    func testNewestDemandDrainsOnceAtAdaptiveDeadlineAfterCollectionCompletes() async throws {
+        var time = start
+        let collector = Collector(), wake = Wake()
+        await collector.set(hold: true, pageCount: 51)
+        let controller = SplitUsageController(now: { time }, collectToday: { snapshot, _, _, _, context, _ in
+            await collector.collect(snapshot, context: context)
+        }, waitUntil: { try await wake.wait($0) })
+        let summary = try summary()
+        _ = try accept(controller, summary)
+        try request(controller, summary, .revision("a"))
+        await eventually { await collector.contexts.count == 1 }
+        time = start.addingTimeInterval(45)
+        await collector.release()
+        await eventually { controller.todayPercentagePoints != nil && controller.amountState == .ready }
+        let costs = try XCTUnwrap(controller.amounts)
+        XCTAssertEqual(controller.todayPercentagePoints?[.cursor], 5)
+        XCTAssertEqual(controller.todayPercentagePoints?[.other], 20)
+
+        time = start.addingTimeInterval(55)
+        _ = try accept(controller, summary)
+        try request(controller, summary, .revision("b"))
+        XCTAssertNil(controller.todayPercentagePoints)
+        XCTAssertEqual(controller.amounts, costs)
+        await eventually { await wake.deadlines.count == 1 }
+        time = start.addingTimeInterval(65)
+        let latest = try accept(controller, summary)
+        try request(controller, summary, .revision("c"))
+        for _ in 0..<20 { await Task.yield() }
+        let deadlines = await wake.deadlines
+        XCTAssertEqual(deadlines, [start.addingTimeInterval(963)])
+        let callsBeforeWake = await collector.contexts.count
+        XCTAssertEqual(callsBeforeWake, 1)
+        XCTAssertNil(controller.todayPercentagePoints)
+        XCTAssertEqual(controller.amounts, costs)
+        XCTAssertEqual(controller.schedule.automaticPagesRemaining(at: time), 249)
+
+        await collector.set(hold: true, pageCount: 51)
+        time = start.addingTimeInterval(963)
+        await wake.fire()
+        await eventually { await collector.contexts.count == 2 }
+        let identity = await collector.identities.last
+        let contexts = await collector.contexts
+        XCTAssertEqual(identity, latest)
+        XCTAssertEqual(contexts[1]?.admittedAt, time)
+        XCTAssertNil(controller.todayPercentagePoints)
+        XCTAssertEqual(controller.amounts, costs)
+        await collector.release()
+        await eventually { controller.todayPercentagePoints != nil && controller.amountState == .ready }
+        XCTAssertEqual(controller.amounts?.identity, latest)
+        XCTAssertEqual(controller.amounts?.cursorCents, costs.cursorCents)
+        XCTAssertEqual(controller.amounts?.otherCents, costs.otherCents)
+        XCTAssertEqual(controller.todayPercentagePoints?[.cursor], 5)
+        XCTAssertEqual(controller.todayPercentagePoints?[.other], 20)
+        try request(controller, summary, .revision("c"))
+        for _ in 0..<20 { await Task.yield() }
+        let finalCalls = await collector.contexts.count
+        let finalDeadlines = await wake.deadlines
+        XCTAssertEqual(finalCalls, 2)
+        XCTAssertEqual(finalDeadlines, deadlines)
     }
 
     func testFallbackTokensInvalidateAndDuplicateCallbackCoalesces() async throws {

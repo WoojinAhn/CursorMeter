@@ -9,6 +9,7 @@
 **Tech Stack:** Swift 6, Foundation, AppKit, XCTest; no dependencies.
 
 Specification: [Issue #130 design](../specs/2026-10-02-issue-130-today-usage-highlight-design.md).
+Cadence follow-up: [Budget-aware collection plan](2026-10-02-issue-130-budget-aware-cadence.md) supersedes the original 60-second-only success policy below.
 Baseline: `origin/main` at `9f19ec1`; 973 tests passed before changes.
 Branch: `feature/130-today-usage-design`.
 

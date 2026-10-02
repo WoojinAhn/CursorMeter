@@ -50,6 +50,7 @@ struct CycleCollectionSchedule: Sendable {
     private var lastOutcome: Outcome?
     private var reachedCycleBudget = false
     private var nextAutomaticAt: Date?
+    private var nextSuccessfulTodayAt: Date?
     private var serverRetryAt: Date?
     private var unstableFailures = 0
     private var transportFailures = 0
@@ -103,8 +104,12 @@ struct CycleCollectionSchedule: Sendable {
     }
 
     private func todayStartAvailability(at now: Date) -> Availability {
-        if let lastStartedAt, now < lastStartedAt.addingTimeInterval(60) {
-            return .waiting(until: lastStartedAt.addingTimeInterval(60))
+        var deadline = lastStartedAt?.addingTimeInterval(60)
+        if case .complete = lastOutcome, let nextSuccessfulTodayAt {
+            deadline = max(deadline ?? nextSuccessfulTodayAt, nextSuccessfulTodayAt)
+        }
+        if let deadline, now < deadline {
+            return .waiting(until: deadline)
         }
         return .ready
     }
@@ -147,6 +152,12 @@ struct CycleCollectionSchedule: Sendable {
             reachedCycleBudget = false
             unstableFailures = 0; transportFailures = 0
             nextAutomaticAt = now.addingTimeInterval(600)
+            if !attempt.manual {
+                let chargedPages = min(attempt.pageAllowance, max(0, pages))
+                // Preserve room for the next full attempt, measured from ledger charge time.
+                let delay = max(60, Double(chargedPages) * 3600 / (300 - 100))
+                nextSuccessfulTodayAt = now.addingTimeInterval(delay)
+            }
         case .budgetPartial:
             reachedCycleBudget = true
             unstableFailures = 0; transportFailures = 0
@@ -214,6 +225,7 @@ struct CycleCollectionSchedule: Sendable {
         fingerprint = nil; lastFingerprint = nil
         lastTodayDemand = nil; lastStartedAt = nil
         lastFinishedAt = nil; lastOutcome = nil; nextAutomaticAt = nil
+        nextSuccessfulTodayAt = nil
         reachedCycleBudget = false
         stableObservations = 0; unstableFailures = 0; transportFailures = 0
     }

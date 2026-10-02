@@ -2,7 +2,7 @@
 
 Date: 2026-10-02
 
-Status: Frozen v1.1 after three-model review and the Opus/Gemini/Astra zero-use help clarification.
+Status: Frozen v1.2 after Grok/Gemini agreement and Astra approval of budget-aware successful-collection pacing; v1.1 visual and evidence contracts remain unchanged.
 
 Issue: [#130](https://github.com/WoojinAhn/CursorMeter/issues/130)
 
@@ -253,7 +253,7 @@ be obtained, do not equate that absence with a proven unchanged history: create
 one fallback demand per newly admitted primary refresh ID. This fallback token
 is not an event-content revision. Coalesce duplicate demand within that refresh
 and retain only the latest pending fallback while collection is active. Apply
-the same 60-second admission, backoff, and budgets. This avoids treating every
+the same budget-aware admission, backoff, and budgets. This avoids treating every
 unknown-revision refresh as the same permanently suppressed nil key. A known changed
 revision or day must bypass the old `.unchanged` suppression even when all shown
 percentages and rounded included totals are unchanged.
@@ -295,10 +295,28 @@ pending demand drains after completion. This prevents zero-page failures from
 creating a self-sustaining retry loop. Drain after supplementary-period work ends
 as well as after full-cycle work; neither may swallow a pending demand.
 
-For today's admitted demand, replace the successful-collection 600-second cooldown
-with a **60-second minimum between starts**, aligned with the existing activity
-throttle. Rapid manual refreshes must not bypass it. Keep any existing collection
-without today's demand on its current scheduling contract. When a pending attempt
+For today's admitted demand, keep a **60-second minimum between starts**. After
+an active automatic successful collection, additionally wait from its completion
+by `max(60, chargedHistoryPages * 3600 / (300 - 100))` seconds. Clamp the count to
+the existing 0...100 allowance, including verification and retry pages. Completion
+is the reference because the rolling ledger charges at completion. For charges
+of 5/11/21/51 pages this adds 90/198/378/918 seconds after completion, spreading
+successful work instead of exhausting the budget in a burst. The denominator
+reserves room for the next full 100-page attempt.
+
+Apply this adaptive deadline when the latest active outcome is complete, even
+when it exceeds the legacy 600-second cooldown. Any active automatic success,
+including an automatic attempt admitted without a today demand key, replaces it
+using the new actual cost. A manual
+cost-only success neither sets nor clears it, and cannot shorten a previous
+unexpired automatic deadline. Retired completions only settle their existing
+accounting; they cannot replace the pacing deadline. Failed outcomes keep their
+existing backoffs and early-retry behavior. Real schedule/cycle reset clears this
+scope-local deadline while preserving the hourly charges, retired reservations,
+and Retry-After. Presentation-only demand invalidation retains it.
+
+Rapid manual refreshes must not bypass automatic today admission. Existing work
+without today's demand keeps its current scheduling contract. When a pending attempt
 is deferred, schedule at most one cancellable wake-up at the next allowed time;
 this is demand draining, not periodic polling. Stop it on logout or scope change.
 Normal refreshes, including the refresh button, use automatic budget and failure
@@ -327,6 +345,13 @@ transport backoff, unstable-source backoff, endpoint-failure backoff, and 429
 Retry-After handling. A new event revision is not permission to bypass these
 failure protections. Budget exhaustion or an unstable server response can still
 temporarily remove the optional highlight; the official total remains visible.
+For histories consisting only of paced automatic successes, this spacing avoids
+additional hourly stalls even when costs and scan durations vary. Failure charges,
+retired completions, legacy work and scope resets can still cause budget waits.
+The hard rolling budget remains authoritative. The formula is conservative: a
+100-page success waits 1800 seconds after completion, and a 40-page success waits
+720 seconds, which is slower than the legacy 600-second cadence. This trades
+burst responsiveness for sustained admission across varying successful costs.
 
 This choice increases requests. For N history pages, an ordinary complete attempt
 uses approximately N+4 endpoint calls, including period checks, summary recheck,
@@ -364,8 +389,9 @@ summary is unchanged, subject to the selected scheduling policy and existing
 transport backoff.
 Keep `schedule.observe` on the raw summary fingerprint for its existing stable
 observation counter; use the separate demand key only for today coalescing and
-unchanged suppression. Today admission measures 60 seconds between starts;
-legacy cost-only manual retry retains its existing 60 seconds after completion.
+unchanged suppression. Today admission combines the 60-second start floor with
+the successful-completion adaptive deadline above; legacy cost-only manual retry
+retains its existing 60 seconds after completion.
 
 Continuous changes can make the collector unstable and temporarily suppress the
 highlight until a stable collection succeeds. The frequency is not measured, so
@@ -401,6 +427,12 @@ Select focused tests before changing application code:
 - New event receipt with unchanged displayed/raw percentages and included total;
   identical receipt suppression; unavailable revision fallback; multiple arrivals
   during one collection; deferred newest-demand execution and preserved backoff.
+- Three-hour steady-demand runs with charged costs 5/11/21/51/100 and scan
+  durations 0/60 seconds, including varying costs and durations: full allowance at
+  each paced admission, no additional hourly stall, and rolling charges at most
+  300. Controller tests must advance time during collection to distinguish
+  completion-based pacing from start-based pacing. Cover charged retries,
+  manual and retired completions, reset, invalidation, and newest-demand draining.
 - Consecutive admitted refreshes without an event revision can each request a
   fallback after admission allows it; repeated callbacks within one refresh cannot.
 - Normal/warning/critical, no/all/almost-all/tiny today usage, one unavailable pool, swapped
