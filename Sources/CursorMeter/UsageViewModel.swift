@@ -157,7 +157,8 @@ final class UsageViewModel {
             amountState: splitUsage.amountState, percentIsStale: splitUsage.isStale, paid: paid,
             timeZone: recentUsageTimeZone == .utc ? TimeZone(secondsFromGMT: 0)! : .current,
             valueMode: splitUsage.eligibility == .eligible ? popoverValueMode : .percent,
-            showEstimatedLimits: splitUsage.eligibility == .eligible && estimatedLimitsEnabled)
+            showEstimatedLimits: splitUsage.eligibility == .eligible && estimatedLimitsEnabled,
+            amountsAreEarlier: splitUsage.amountsAreEarlier)
     }
     var effectiveMenuBarDisplayMode: Int {
         splitUsage.suppressesLegacyMeter ? 0 : Self.resolvedMenuBarDisplayMode(
@@ -320,6 +321,7 @@ final class UsageViewModel {
         var feedback: RefreshAttempt
         var meter: RefreshOutcome = .failure
         var recent: RefreshOutcome = .failure
+        var eventRevision: (context: RefreshContext, value: String)?
         var optimisticWeekly: Task<UsageEventCollection, Never>?
         var optimisticHardLimit: Task<HardLimitResponse?, Never>?
     }
@@ -722,6 +724,7 @@ final class UsageViewModel {
         )
         let selected = RefreshContext(networkID: context.networkID, generation: context.generation, recent: recent)
         activeRefresh?.context = selected
+        activeRefresh?.eventRevision = nil
         return selected
     }
 
@@ -740,6 +743,7 @@ final class UsageViewModel {
         activeRefresh?.context = adopted
         activeRefresh?.feedback = feedback
         activeRefresh?.recent = .failure
+        activeRefresh?.eventRevision = nil
         lastRequestScope = nil
         if wasPolling { startAutoRefresh() }
         return try selectCredential(cookieHeader, context: adopted)
@@ -871,6 +875,8 @@ final class UsageViewModel {
     private func runRefreshAttempt(cookieHeader: String, source: AuthSource,
                                    context initialContext: RefreshContext) async throws {
         var context = initialContext
+        let historyEpoch = splitUsage.historyEpoch
+        var acceptedPrimaryIdentity: UsageRevisionIdentity?
         try requireCurrent(context)
         let credentialDigest = RecentUsageBinding.credentialDigest(cookieHeader: cookieHeader)
         let selectedOwner = credentialDigest.map(CredentialOwner.exact)
@@ -1053,6 +1059,7 @@ final class UsageViewModel {
                         generation: context.generation,
                         enterpriseScope: enterpriseRequestScope || (cachedWeeklyMode?.teamID ?? 0) > 0,
                         allowsSplitPresentation: profile404Measurement == nil || profile404Measurement == .split)
+                    acceptedPrimaryIdentity = receiptIdentity
                     if wasSplit != splitUsage.suppressesLegacyMeter {
                         previousPlanUsedCents = nil; previousRequestsUsed = nil
                         previousServerPercent = nil; previousOnDemandUsedCents = nil; previousMode = nil
@@ -1122,7 +1129,6 @@ final class UsageViewModel {
             activeRefresh?.meter = .success
             if splitUsage.eligibility == .eligible, let snapshot = splitUsage.primarySnapshot, let data = usageData {
                 publishSplitObservation(snapshot, data: data)
-                if let summary { splitUsage.requestAmounts(summary: summary, cookieHeader: cookieHeader) }
             }
         }
 
@@ -1145,6 +1151,13 @@ final class UsageViewModel {
         }
         try requireCurrent(context)
         guard baseData != nil else { throw APIError.httpError(statusCode: 0) }
+        if let summary, let acceptedPrimaryIdentity {
+            let admittedRevision = activeRefresh?.eventRevision
+            let evidence: CycleEventEvidence = admittedRevision?.context == context
+                ? .revision(admittedRevision!.value) : .primaryRefresh(context.networkID)
+            splitUsage.requestAmounts(summary: summary, cookieHeader: cookieHeader,
+                primaryIdentity: acceptedPrimaryIdentity, eventEvidence: evidence, historyEpoch: historyEpoch)
+        }
 
         // Check notification thresholds
         if let data = usageData, !splitUsage.suppressesLegacyMeter {
@@ -1449,6 +1462,9 @@ final class UsageViewModel {
         if let candidate = collection.recent, let recent = context.recent,
            recentUsage.publish(candidate: candidate, context: recent) {
             activeRefresh?.recent = .success
+            if case .success = collection.weekly, let revision = collection.liveRevision {
+                activeRefresh?.eventRevision = (context, revision)
+            }
         } else if let recent = context.recent {
             recentUsage.recordFailure(context: recent)
         }

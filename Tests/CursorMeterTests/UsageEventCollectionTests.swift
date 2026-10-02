@@ -127,6 +127,46 @@ final class UsageEventCollectionTests: XCTestCase {
         XCTAssertEqual(recorder.bodies, [["teamId": 0, "page": 1, "pageSize": 100]])
     }
 
+    func testLiveRevisionUsesFullOriginalHeadAndTotalWithoutReceiptTime() async throws {
+        let recorder = Recorder()
+        var revisions: [String] = []
+        for (count, total, prefix) in [(31, 31, "a"), (31, 31, "a"), (32, 32, "a"), (31, 32, "a"), (31, 31, "b")] {
+            stub(recorder) { page in (200, Self.page(page == 1 ? count : 0, total: total, prefix: prefix)) }
+            let result = await collect(recorder)
+            revisions.append(try XCTUnwrap(result.liveRevision))
+        }
+        XCTAssertEqual(revisions[0], revisions[1])
+        XCTAssertNotEqual(revisions[0], revisions[2], "The 31st and later rows precede Recent's projection")
+        XCTAssertNotEqual(revisions[0], revisions[3], "Available total count is part of the revision")
+        XCTAssertNotEqual(revisions[0], revisions[4])
+    }
+
+    func testFailedPaginationRetainsRecentButCannotSupplyLiveRevision() async {
+        let recorder = Recorder()
+        stub(recorder) { page in (page == 1 ? 200 : 503, page == 1 ? Self.page(100) : Data()) }
+        let result = await collect(recorder)
+        XCTAssertNotNil(result.recent)
+        XCTAssertNil(result.liveRevision)
+    }
+
+    func testLiveRevisionKeepsOriginalOrderAndRowsBeyondRecentProjection() async throws {
+        let recorder = Recorder()
+        var revisions: [String] = []
+        for mutation in ["original", "order", "last-row"] {
+            var page = try XCTUnwrap(JSONSerialization.jsonObject(with: Self.page(31, total: 31)) as? [String: Any])
+            var events = try XCTUnwrap(page["usageEventsDisplay"] as? [[String: Any]])
+            if mutation == "order" { events.swapAt(0, 1) }
+            if mutation == "last-row" { events[30]["model"] = "changed-beyond-recent-projection" }
+            page["usageEventsDisplay"] = events
+            let data = try JSONSerialization.data(withJSONObject: page)
+            stub(recorder) { _ in (200, data) }
+            let result = await collect(recorder)
+            revisions.append(try XCTUnwrap(result.liveRevision))
+        }
+        XCTAssertNotEqual(revisions[0], revisions[1])
+        XCTAssertNotEqual(revisions[0], revisions[2])
+    }
+
     func testRecentLimitDoesNotStopWeeklyPaginationBeforeFivePageCap() async throws {
         let recorder = Recorder()
         stub(recorder) { _ in (200, Self.page(100)) }

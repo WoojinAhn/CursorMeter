@@ -52,6 +52,8 @@ actor CycleUsageStore {
 
     func save(_ snapshot: CycleAmountSnapshot, operation: UInt64) throws {
         guard operation == generation, snapshot.identity == identity, Self.valid(snapshot) else { return }
+        var snapshot = snapshot
+        if snapshot.todayUsage?.isValid(for: snapshot) == false { snapshot.todayUsage = nil }
         memory = snapshot
         guard let fileURL, let persistentSubject, snapshot.identity.cycle != nil else { return }
         let data = try JSONEncoder().encode(Envelope(version: 1, subjectDigest: persistentSubject, snapshot: snapshot))

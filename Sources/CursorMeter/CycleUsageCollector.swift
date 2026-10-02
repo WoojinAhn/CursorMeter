@@ -22,8 +22,10 @@ struct CycleUsageCollector: Sendable {
         self.onSupplement = onSupplement
     }
 
-    func collect(snapshot: SplitUsageSnapshot, summary: UsageSummaryResponse) async -> CycleCollectionResult {
+    func collect(snapshot: SplitUsageSnapshot, summary: UsageSummaryResponse,
+                 todayContext: TodayUsageCollectionContext? = nil) async -> CycleCollectionResult {
         let began = now()
+        let todayContext = todayContext ?? TodayUsageCollectionContext(admittedAt: began)
         var pages = 0, bytes = 0, receivedEvents = 0
         var partial: CycleAmountSnapshot?
         var retryingUnreconciledSource = false
@@ -112,6 +114,10 @@ struct CycleUsageCollector: Sendable {
                 aggregate.sourceOtherPercent = resolved.otherPercent
                 aggregate.cursorObservedPlaces = resolved.cursorObservedPlaces
                 aggregate.otherObservedPlaces = resolved.otherObservedPlaces
+                if let todayContext, let sourceIncluded = snapshot.includedUsedCents {
+                    aggregate.todayUsage = .init(day: todayContext.day, evidenceAt: todayContext.admittedAt,
+                                                sourceIncludedTotalCents: sourceIncluded)
+                }
                 var included: Decimal = 0
                 var reachedCycleStart = false
                 var unresolved = false, invalid = false
@@ -167,8 +173,12 @@ struct CycleUsageCollector: Sendable {
                             }
                             switch classification.family {
                             case .bot: aggregate.botCents += cost
-                            case .cursor: aggregate.cursorCents += cost; included += cost
-                            case .other: aggregate.otherCents += cost; included += cost
+                            case .cursor:
+                                aggregate.cursorCents += cost; included += cost
+                                if todayContext?.day.contains(date) == true { aggregate.todayUsage?.cursorCents += cost }
+                            case .other:
+                                aggregate.otherCents += cost; included += cost
+                                if todayContext?.day.contains(date) == true { aggregate.todayUsage?.otherCents += cost }
                             case .unknown: aggregate.unknownCents += cost; aggregate.unknownCount += 1; included += cost; unresolved = true
                             }
                         }

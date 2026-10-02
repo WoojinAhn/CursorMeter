@@ -54,10 +54,17 @@ enum CircularProgressIcon {
 
     static func makeSplitImage(
         cursorPercent: Double?, otherPercent: Double?, outerPool: UsagePoolID = .other,
-        size: NSSize = NSSize(width: 18, height: 18)
+        size: NSSize = NSSize(width: 18, height: 18),
+        todayPercentagePoints: [UsagePoolID: Double] = [:]
     ) -> NSImage {
         let outer = outerPool == .other ? otherPercent : cursorPercent
         let center = outerPool == .other ? cursorPercent : otherPercent
+        let canShowToday = [cursorPercent, otherPercent].allSatisfy {
+            guard let value = $0 else { return false }
+            return value.isFinite && value >= 0 && value < 100
+        }
+        let outerToday = canShowToday ? todayPercentagePoints[outerPool] : nil
+        let centerToday = canShowToday ? todayPercentagePoints[outerPool == .other ? .cursor : .other] : nil
         let image = NSImage(size: size, flipped: false) { rect in
             guard let context = NSGraphicsContext.current?.cgContext else { return false }
             let diameter = min(rect.width, rect.height)
@@ -66,9 +73,11 @@ enum CircularProgressIcon {
             let ringRadius = diameter / 2 - ringWidth / 2 - diameter / 36
             let centerRadius = diameter * 0.27
             drawSplitRegion(in: context, center: origin, radius: ringRadius,
-                            lineWidth: ringWidth, percent: outer, filled: false)
+                            lineWidth: ringWidth, percent: outer, filled: false,
+                            todayPercentagePoints: outerToday)
             drawSplitRegion(in: context, center: origin, radius: centerRadius,
-                            lineWidth: diameter / 24, percent: center, filled: true)
+                            lineWidth: diameter / 24, percent: center, filled: true,
+                            todayPercentagePoints: centerToday)
             return true
         }
         image.isTemplate = false
@@ -312,7 +321,8 @@ enum CircularProgressIcon {
 
     private static func drawSplitRegion(
         in context: CGContext, center: CGPoint, radius: CGFloat,
-        lineWidth: CGFloat, percent: Double?, filled: Bool
+        lineWidth: CGFloat, percent: Double?, filled: Bool,
+        todayPercentagePoints: Double? = nil
     ) {
         context.saveGState()
         defer { context.restoreGState() }
@@ -350,12 +360,48 @@ enum CircularProgressIcon {
         }
         context.addArc(center: center, radius: radius, startAngle: start,
                        endAngle: start - 2 * .pi * progress, clockwise: true)
+        if filled { context.closePath() }
+        let originalPath = context.path
+        if filled {
+            context.fillPath()
+        } else {
+            context.strokePath()
+        }
+        guard let today = todayPercentagePoints, today.isFinite, today > 0, today <= percent,
+              let originalPath else { return }
+        let fillPath = filled ? originalPath : originalPath.copy(
+            strokingWithWidth: lineWidth, lineCap: .butt, lineJoin: .miter, miterLimit: 10)
+        // Clipping keeps the official fill endpoint and the unused track authoritative.
+        context.addPath(fillPath)
+        context.clip()
+        let todayColor = tokenColor(for: percent).blended(withFraction: 0.32, of: .white)
+            ?? tokenColor(for: percent)
+        let earlier = percent - today
+        let boundary = start - 2 * .pi * earlier / 100
+        if filled {
+            context.setFillColor(todayColor.cgColor)
+            context.move(to: center)
+        } else {
+            context.setStrokeColor(todayColor.cgColor)
+        }
+        context.addArc(center: center, radius: radius, startAngle: boundary,
+                       endAngle: start - 2 * .pi * progress, clockwise: true)
         if filled {
             context.closePath()
             context.fillPath()
         } else {
             context.strokePath()
         }
+        guard today >= 0.5, earlier >= 0.5 else { return }
+        let innerRadius = filled ? 0 : radius - lineWidth / 2
+        let outerRadius = filled ? radius : radius + lineWidth / 2
+        context.setStrokeColor(NSColor.labelColor.withAlphaComponent(0.8).cgColor)
+        context.setLineWidth(0.75)
+        context.move(to: CGPoint(x: center.x + cos(boundary) * innerRadius,
+                                y: center.y + sin(boundary) * innerRadius))
+        context.addLine(to: CGPoint(x: center.x + cos(boundary) * outerRadius,
+                                   y: center.y + sin(boundary) * outerRadius))
+        context.strokePath()
     }
 
     private static func drawPie(in ctx: CGContext, rect: CGRect, percent: Double) {

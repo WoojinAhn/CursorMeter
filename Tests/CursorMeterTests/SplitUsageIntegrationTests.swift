@@ -216,4 +216,79 @@ final class SplitUsageIntegrationTests: XCTestCase {
         XCTAssertNil(vm.usageData?.splitUsage)
     }
 
+    func testAmountCollectionWaitsForHistoryButPrimaryPublishesImmediately() async throws {
+        actor Calls {
+            var count = 0
+            func collect() -> CycleCollectionResult {
+                count += 1
+                return .init(status: .transportFailure, snapshot: nil, pageCount: 0, byteCount: 0)
+            }
+        }
+        let calls = Calls()
+        let controller = SplitUsageController(collectToday: { _, _, _, _, _, _ in await calls.collect() })
+        let vm = vm(controller: controller)
+        defer { vm.stopAutoRefreshForTests() }
+        let handler = MockURLProtocol.requestHandler!
+        let entered = expectation(description: "history entered")
+        let release = DispatchSemaphore(value: 0)
+        MockURLProtocol.requestHandler = { request in
+            if request.url!.path == "/api/dashboard/get-filtered-usage-events" {
+                entered.fulfill()
+                release.wait()
+            }
+            return try handler(request)
+        }
+        let refresh = Task { await vm.refresh() }
+        await fulfillment(of: [entered], timeout: 2)
+        XCTAssertNotNil(controller.primarySnapshot)
+        XCTAssertNotNil(vm.lastSuccessAt)
+        let before = await calls.count
+        XCTAssertEqual(before, 0)
+        release.signal()
+        await refresh.value
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while await calls.count == 0, ContinuousClock.now < deadline { await Task.yield() }
+        let after = await calls.count
+        XCTAssertEqual(after, 1)
+    }
+
+    func testLiveHistoryChangeAndFailedHistoryEachProduceNewSupportingDemand() async throws {
+        actor Calls {
+            var count = 0
+            func collect(_ snapshot: SplitUsageSnapshot) -> CycleCollectionResult {
+                count += 1
+                var amounts = CycleAmountSnapshot(identity: snapshot.identity, capturedAt: snapshot.capturedAt)
+                amounts.coverage.complete = true
+                amounts.status = .estimatedAttribution
+                amounts.residualCents = 0
+                amounts.cursorCents = 100; amounts.otherCents = 18100
+                return .init(status: .complete, snapshot: amounts, pageCount: 1, byteCount: 0)
+            }
+        }
+        var time = Date()
+        let calls = Calls()
+        let controller = SplitUsageController(now: { time }, collectToday: { snapshot, _, _, _, _, _ in await calls.collect(snapshot) })
+        let vm = vm(controller: controller)
+        defer { vm.stopAutoRefreshForTests() }
+        let base = MockURLProtocol.requestHandler!
+        for (index, total) in [0, 0, 1, -1, -1].enumerated() {
+            time = time.addingTimeInterval(60)
+            MockURLProtocol.requestHandler = { request in
+                if request.url!.path == "/api/dashboard/get-filtered-usage-events" {
+                    let status = total < 0 ? 503 : 200
+                    return (HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!,
+                            Data("{\"usageEventsDisplay\":[],\"totalUsageEventsCount\":\(max(0, total))}".utf8))
+                }
+                return try base(request)
+            }
+            await vm.refresh()
+            let expected = index == 0 ? 1 : index
+            let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+            while await calls.count < expected, ContinuousClock.now < deadline { await Task.yield() }
+            for _ in 0..<30 { await Task.yield() }
+            let count = await calls.count
+            XCTAssertEqual(count, expected, "Batch \(index): identical revision coalesces; each failure uses its own network ID")
+        }
+    }
+
 }

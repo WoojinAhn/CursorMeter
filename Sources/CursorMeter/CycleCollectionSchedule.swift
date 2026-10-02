@@ -1,5 +1,20 @@
 import Foundation
 
+enum CycleEventEvidence: Equatable, Sendable {
+    case revision(String)
+    case primaryRefresh(UInt64)
+}
+
+struct CycleCollectionDemand: Equatable, Sendable {
+    let summaryFingerprint: String
+    let day: TodayUsageDay
+    let eventEvidence: CycleEventEvidence
+
+    var key: String {
+        UsageRevisionIdentity.digest("\(summaryFingerprint):\(day.start.timeIntervalSince1970):\(eventEvidence)")
+    }
+}
+
 /// Admission for independent amount enrichment; primary polling never waits here.
 struct CycleCollectionSchedule: Sendable {
     enum Outcome: Sendable {
@@ -15,6 +30,7 @@ struct CycleCollectionSchedule: Sendable {
         let manual: Bool
         let fingerprint: String?
         let pageAllowance: Int
+        let todayDemand: String?
     }
     private struct PageCharge: Sendable {
         let date: Date
@@ -28,10 +44,13 @@ struct CycleCollectionSchedule: Sendable {
     private var serial: UInt64 = 0
     var currentAttemptID: UInt64? { active?.id }
     private var lastFingerprint: String?
+    private var lastTodayDemand: String?
+    private var lastStartedAt: Date?
     private var lastFinishedAt: Date?
     private var lastOutcome: Outcome?
     private var reachedCycleBudget = false
     private var nextAutomaticAt: Date?
+    private var nextSuccessfulTodayAt: Date?
     private var serverRetryAt: Date?
     private var unstableFailures = 0
     private var transportFailures = 0
@@ -48,7 +67,7 @@ struct CycleCollectionSchedule: Sendable {
         return max(0, 300 - used - reserved)
     }
 
-    func availability(at now: Date, manual: Bool) -> Availability {
+    func availability(at now: Date, manual: Bool, todayDemand: String? = nil) -> Availability {
         guard active == nil else { return .collecting }
         if let serverRetryAt, now < serverRetryAt { return .waiting(until: serverRetryAt) }
         if manual {
@@ -66,25 +85,50 @@ struct CycleCollectionSchedule: Sendable {
             }
             return .collecting
         }
-        if case .complete = lastOutcome, fingerprint == lastFingerprint { return .unchanged }
+        if case .complete = lastOutcome {
+            if let todayDemand {
+                if todayDemand == lastTodayDemand { return .unchanged }
+            } else if fingerprint == lastFingerprint { return .unchanged }
+        }
         if let nextAutomaticAt, now < nextAutomaticAt {
+            if todayDemand != nil, case .complete = lastOutcome {
+                return todayStartAvailability(at: now)
+            }
             if case .unstable = lastOutcome, stableObservations >= 2,
                let lastFinishedAt, now >= lastFinishedAt.addingTimeInterval(60) {
                 return .ready
             }
             return .waiting(until: nextAutomaticAt)
         }
+        return todayDemand == nil ? .ready : todayStartAvailability(at: now)
+    }
+
+    private func todayStartAvailability(at now: Date) -> Availability {
+        var deadline = lastStartedAt?.addingTimeInterval(60)
+        if case .complete = lastOutcome, let nextSuccessfulTodayAt {
+            deadline = max(deadline ?? nextSuccessfulTodayAt, nextSuccessfulTodayAt)
+        }
+        if let deadline, now < deadline {
+            return .waiting(until: deadline)
+        }
         return .ready
     }
 
+    mutating func invalidateCompletedTodayDemand() {
+        guard case .complete = lastOutcome else { return }
+        lastTodayDemand = nil
+    }
+
     /// Returns a page budget for this attempt, or nil when callers should coalesce/wait.
-    mutating func begin(at now: Date, manual: Bool) -> Int? {
-        guard availability(at: now, manual: manual) == .ready else { return nil }
+    mutating func begin(at now: Date, manual: Bool, todayDemand: String? = nil) -> Int? {
+        guard availability(at: now, manual: manual, todayDemand: todayDemand) == .ready else { return nil }
         pageCharges.removeAll { now.timeIntervalSince($0.date) >= 3600 }
         // A reduced hourly allowance must not become a terminal cycle budget failure.
         let allowance = 100
         serial &+= 1
-        active = Attempt(id: serial, manual: manual, fingerprint: fingerprint, pageAllowance: allowance)
+        active = Attempt(id: serial, manual: manual, fingerprint: fingerprint, pageAllowance: allowance,
+                         todayDemand: manual ? nil : todayDemand)
+        lastStartedAt = now
         return allowance
     }
 
@@ -99,6 +143,7 @@ struct CycleCollectionSchedule: Sendable {
         active = nil
         charge(attempt, pages: pages, at: now)
         lastFingerprint = attempt.fingerprint
+        lastTodayDemand = attempt.todayDemand
         lastFinishedAt = now
         lastOutcome = outcome
         stableObservations = 0
@@ -107,6 +152,12 @@ struct CycleCollectionSchedule: Sendable {
             reachedCycleBudget = false
             unstableFailures = 0; transportFailures = 0
             nextAutomaticAt = now.addingTimeInterval(600)
+            if !attempt.manual {
+                let chargedPages = min(attempt.pageAllowance, max(0, pages))
+                // Preserve room for the next full attempt, measured from ledger charge time.
+                let delay = max(60, Double(chargedPages) * 3600 / (300 - 100))
+                nextSuccessfulTodayAt = now.addingTimeInterval(delay)
+            }
         case .budgetPartial:
             reachedCycleBudget = true
             unstableFailures = 0; transportFailures = 0
@@ -172,7 +223,9 @@ struct CycleCollectionSchedule: Sendable {
         if let attempt = active { retired[attempt.id] = attempt }
         active = nil
         fingerprint = nil; lastFingerprint = nil
+        lastTodayDemand = nil; lastStartedAt = nil
         lastFinishedAt = nil; lastOutcome = nil; nextAutomaticAt = nil
+        nextSuccessfulTodayAt = nil
         reachedCycleBudget = false
         stableObservations = 0; unstableFailures = 0; transportFailures = 0
     }

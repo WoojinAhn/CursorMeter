@@ -4,6 +4,41 @@ import XCTest
 
 @MainActor
 final class SplitUsageUITests: XCTestCase {
+    func testTodayPopoverKeepsVisibleValuesAndExplainsOnlyEligiblePoolRows() async throws {
+        let defaults = UserDefaults.standard
+        let keys = ["popoverValueMode", "estimatedLimitsEnabled", "splitOuterPool"]
+        let saved = Dictionary(uniqueKeysWithValues: keys.map { ($0, defaults.object(forKey: $0)) })
+        defer { for key in keys { if let value = saved[key] ?? nil { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) } } }
+        let vm = try await makeTodayViewModel()
+        let vc = MenuBarPopoverViewController(viewModel: vm, onLogin: {}, onSettings: {})
+        _ = vc.view
+        for placement in UsagePoolID.allCases {
+            vm.splitOuterPool = placement
+            vc.updateUI()
+            let views = allViews(vc.view)
+            let circle = try XCTUnwrap(views.compactMap { $0 as? NSImageView }
+                .first { $0.image?.size == NSSize(width: 112, height: 112) })
+            XCTAssertEqual(circle.toolTip, "Lighter segment: today (KST).\nEstimated from included usage costs.")
+            XCTAssertFalse(circle.isAccessibilityElement())
+            let rows = views.compactMap { $0.accessibilityLabel() }
+            XCTAssertTrue(rows.contains { $0.hasPrefix("Cursor Models:") && $0.contains("about 4.0 percentage points") })
+            XCTAssertTrue(rows.contains { $0.hasPrefix("Other Models:") && $0.contains("about 8.0 percentage points") })
+            XCTAssertFalse(labels(vc.view).contains { $0.contains("Today (KST)") || $0.contains("estimated from") })
+            XCTAssertFalse(try XCTUnwrap(vm.splitPresentation).tooltip.contains("Today (KST)"))
+            XCTAssertLessThanOrEqual(vc.testHook_contentFittingWidth(), 280)
+        }
+        let values = labels(vc.view)
+        let tomorrow = try XCTUnwrap(vm.splitUsage.amounts?.todayUsage?.day.end)
+        vm.splitUsage.reevaluateToday(at: tomorrow)
+        vc.updateUI()
+        XCTAssertNil(vm.splitUsage.todayPercentagePoints)
+        XCTAssertEqual(labels(vc.view), values)
+        XCTAssertFalse(allViews(vc.view).compactMap { $0.accessibilityLabel() }.contains { $0.contains("Today (KST)") })
+        let circle = try XCTUnwrap(allViews(vc.view).compactMap { $0 as? NSImageView }
+            .first { $0.image?.size == NSSize(width: 112, height: 112) })
+        XCTAssertEqual(circle.toolTip, vm.splitPresentation?.tooltip)
+    }
+
     func testSplitPopoverUsesNamedPoolsAnd300PointsWithoutLegacyDenominator() throws {
         let vm = makeViewModel()
         try publishSplit(to: vm)
@@ -151,14 +186,14 @@ final class SplitUsageUITests: XCTestCase {
         let defaults = UserDefaults.standard
         let saved = Dictionary(uniqueKeysWithValues: keys.map { ($0, defaults.object(forKey: $0)) })
         defer { for key in keys { if let value = saved[key] ?? nil { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) } } }
-        let vm = try await makeRecordedViewModel(mode: .both, estimates: false)
+        let vm = try await makeTodayViewModel()
         vm.notificationEnabled = true
         let legacyVM = makeViewModel()
         legacyVM.notificationEnabled = true
-        let estimatedVM = try await makeRecordedViewModel(mode: .both, estimates: true)
-        let dollarsVM = try await makeRecordedViewModel(mode: .dollars, estimates: true)
-        let percentVM = try await makeRecordedViewModel(mode: .percent, estimates: false)
-        let noChartVM = try await makeRecordedViewModel(mode: .both, estimates: false)
+        let estimatedVM = try await makeTodayViewModel(mode: .both, estimates: true)
+        let dollarsVM = try await makeTodayViewModel(mode: .dollars, estimates: true)
+        let percentVM = try await makeTodayViewModel(mode: .percent, estimates: false)
+        let noChartVM = try await makeTodayViewModel()
         noChartVM.weeklyChartEnabled = false
         let periodVM = try await makePeriodViewModel()
         let pausedVM = try await makePausedViewModel(sleeping: false)
@@ -337,23 +372,38 @@ final class SplitUsageUITests: XCTestCase {
         return vm
     }
 
-    private func makeRecordedViewModel(mode: PopoverValueMode, estimates: Bool) async throws -> UsageViewModel {
-        let controller = SplitUsageController(collect: { snapshot, _, _, _, _ in
+    private func makeTodayViewModel(mode: PopoverValueMode = .both, estimates: Bool = false) async throws -> UsageViewModel {
+        let instant = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-10-02T03:00:00Z"))
+        let controller = SplitUsageController(now: { instant }, collectToday: { snapshot, _, _, _, context, _ in
+            guard let context else {
+                return CycleCollectionResult(status: .endpointFailure, snapshot: nil, pageCount: 0, byteCount: 0)
+            }
             let amounts = CycleAmountSnapshot(identity: snapshot.identity, capturedAt: snapshot.capturedAt,
-                cursorCents: 10000, otherCents: 8200, botCents: 340, paidCents: 200,
+                cursorCents: 6000, otherCents: 21000, botCents: 340, paidCents: 200,
                 unknownCents: 0, unknownCount: 0, residualCents: 0,
                 coverage: CycleCoverage(complete: true, pageCount: 2, eventCount: 180),
-                status: .estimatedAttribution, estimatedCursorLimitCents: 10000 / (10.123456 / 100),
-                estimatedOtherLimitCents: 20000, sourceCursorPercent: 10.123456, sourceOtherPercent: 41)
+                status: .estimatedAttribution, estimatedCursorLimitCents: 50000,
+                estimatedOtherLimitCents: 50000, sourceCursorPercent: 12, sourceOtherPercent: 42,
+                todayUsage: .init(day: context.day, evidenceAt: context.admittedAt,
+                                  cursorCents: 2000, otherCents: 4000, sourceIncludedTotalCents: 27000))
             return CycleCollectionResult(status: .complete, snapshot: amounts, pageCount: 2, byteCount: 100)
         })
         let vm = makeViewModel(splitUsage: controller)
-        let summary = try publishSplit(to: vm, cursorPercent: 10.123456)
-        controller.requestAmounts(summary: summary, cookieHeader: "synthetic")
-        for _ in 0..<100 where controller.amountState == .refreshing {
+        let json = #"{"billingCycleStart":"2026-10-01T00:00:00Z","billingCycleEnd":"2026-11-01T00:00:00Z","membershipType":"ultra","individualUsage":{"plan":{"enabled":true,"used":27000,"limit":40000,"autoPercentUsed":12,"apiPercentUsed":42},"onDemand":{"enabled":false,"used":0,"limit":1000}}}"#
+        let summary = try JSONDecoder().decode(UsageSummaryResponse.self, from: Data(json.utf8))
+        let usage = UsageResponse(models: [:], startOfMonth: nil)
+        let user = UserInfoResponse(email: "demo@example.com", name: "Demo User", sub: "synthetic-ui")
+        vm.usageData = UsageDisplayData.from(summary: summary, usage: usage, userInfo: user)
+        let identity = try XCTUnwrap(controller.accept(summary: summary, usage: usage, userInfo: user,
+                                                      generation: 1, enterpriseScope: false))
+        controller.requestAmounts(summary: summary, cookieHeader: "synthetic", primaryIdentity: identity,
+                                  eventEvidence: .revision("synthetic-today"), historyEpoch: controller.historyEpoch)
+        for _ in 0..<100 where controller.todayPercentagePoints == nil {
             try await Task.sleep(for: .milliseconds(2))
         }
         XCTAssertEqual(controller.amountState, .ready)
+        XCTAssertEqual(controller.todayPercentagePoints?[.cursor] ?? -1, 4, accuracy: 0.0001)
+        XCTAssertEqual(controller.todayPercentagePoints?[.other] ?? -1, 8, accuracy: 0.0001)
         vm.setPopoverValueMode(mode)
         vm.setEstimatedLimitsEnabled(estimates)
         let now = Date()

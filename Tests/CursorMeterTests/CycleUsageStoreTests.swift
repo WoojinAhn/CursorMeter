@@ -26,6 +26,99 @@ final class CycleUsageStoreTests: XCTestCase, @unchecked Sendable {
         let invalid = await store.load(operation: operation, now: now)
         XCTAssertNil(invalid)
     }
+
+    func testOptionalDayDetailSurvivesSnapshotCoding() throws {
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(snapshot())) as? [String: Any])
+        object["todayUsage"] = [
+            "day": ["start": Date(timeIntervalSince1970: -32_400).timeIntervalSinceReferenceDate,
+                    "end": Date(timeIntervalSince1970: 54_000).timeIntervalSinceReferenceDate],
+            "evidenceAt": now.timeIntervalSinceReferenceDate,
+            "cursorCents": 2.5, "otherCents": 0, "sourceIncludedTotalCents": 10
+        ]
+        let decoded = try JSONDecoder().decode(CycleAmountSnapshot.self, from: JSONSerialization.data(withJSONObject: object))
+        let encoded = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(decoded)) as? [String: Any])
+        XCTAssertNotNil(encoded["todayUsage"], "Valid optional day evidence must survive coding")
+        XCTAssertEqual(decoded.cursorCents, 10)
+    }
+
+    func testMissingAndMalformedOptionalDayDetailPreserveParentAmounts() throws {
+        let parent = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(snapshot())) as? [String: Any])
+        for detail: Any? in [nil, NSNull(), "invalid", 123, [], ["cursorCents": 2]] {
+            var object = parent
+            object["todayUsage"] = detail
+            let decoded = try JSONDecoder().decode(CycleAmountSnapshot.self, from: JSONSerialization.data(withJSONObject: object))
+            XCTAssertEqual(decoded.cursorCents, 10)
+            XCTAssertEqual(decoded.status, .estimatedAttribution)
+            XCTAssertNil(decoded.todayUsage)
+        }
+    }
+
+    func testInvalidBoundedDayDetailIsDiscardedDuringDecoding() throws {
+        var sample = snapshot()
+        sample.todayUsage = validDayDetail()
+        let parent = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(sample)) as? [String: Any])
+        let validDetail = try XCTUnwrap(parent["todayUsage"] as? [String: Any])
+        let changes: [(String, Any)] = [
+            ("cursorCents", -1), ("cursorCents", 11), ("otherCents", 1),
+            ("sourceIncludedTotalCents", -1), ("evidenceAt", now.addingTimeInterval(86_400).timeIntervalSinceReferenceDate),
+            ("day", ["start": now.timeIntervalSinceReferenceDate, "end": now.addingTimeInterval(86_400).timeIntervalSinceReferenceDate]),
+            ("day", ["start": now.timeIntervalSinceReferenceDate, "end": now.timeIntervalSinceReferenceDate])
+        ]
+        for (key, value) in changes {
+            var object = parent
+            var detail = validDetail
+            detail[key] = value
+            object["todayUsage"] = detail
+            let decoded = try JSONDecoder().decode(CycleAmountSnapshot.self, from: JSONSerialization.data(withJSONObject: object))
+            XCTAssertEqual(decoded.cursorCents, 10)
+            XCTAssertNil(decoded.todayUsage, key)
+        }
+    }
+
+    func testOptionalDayDetailPersistsInVersionOneAndRestoresOnlyAsCache() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: url) }
+        var sample = snapshot()
+        sample.todayUsage = validDayDetail()
+        let writer = CycleUsageStore(fileURL: url)
+        let operation = try await activate(writer, snapshot: sample, subject: sample.identity.accountDigest, epoch: 1)
+        try await writer.save(sample, operation: operation)
+        let envelope = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        XCTAssertEqual(envelope["version"] as? Int, 1)
+        let reader = CycleUsageStore(fileURL: url)
+        let reading = try await activate(reader, snapshot: sample, subject: sample.identity.accountDigest, epoch: 1)
+        let restored = await reader.load(operation: reading, now: now)
+        XCTAssertEqual(restored?.todayUsage, sample.todayUsage)
+        XCTAssertEqual(restored?.isCached, true)
+    }
+
+    func testInvalidOptionalDayDetailDoesNotRejectMemoryOrDiskAmounts() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: url) }
+        var sample = snapshot()
+        sample.todayUsage = validDayDetail()
+        sample.todayUsage?.cursorCents = 11
+        let writer = CycleUsageStore(fileURL: url)
+        let operation = try await activate(writer, snapshot: sample, subject: sample.identity.accountDigest, epoch: 1)
+        try await writer.save(sample, operation: operation)
+        let memory = await writer.load(operation: operation, now: now)
+        XCTAssertEqual(memory?.cursorCents, 10)
+        XCTAssertNil(memory?.todayUsage)
+        var envelope = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        var parent = try XCTUnwrap(envelope["snapshot"] as? [String: Any])
+        parent["todayUsage"] = ["day": "bad"]
+        envelope["snapshot"] = parent
+        try JSONSerialization.data(withJSONObject: envelope).write(to: url)
+        let reader = CycleUsageStore(fileURL: url)
+        let reading = try await activate(reader, snapshot: sample, subject: sample.identity.accountDigest, epoch: 1)
+        let disk = await reader.load(operation: reading, now: now)
+        XCTAssertEqual(disk?.cursorCents, 10)
+        XCTAssertNil(disk?.todayUsage)
+    }
+
+    private func validDayDetail() -> TodayUsageAggregate {
+        .init(day: TodayUsageDay(containing: now)!, evidenceAt: now, cursorCents: 2.5, sourceIncludedTotalCents: 10)
+    }
     func testOutdatedClassifierCacheIsRejectedAndReplaced() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

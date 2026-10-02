@@ -3,6 +3,7 @@ import Foundation
 struct UsageEventCollection: Sendable {
     let recent: RecentUsageCandidate?
     let weekly: Result<[UsageEvent], Error>
+    var liveRevision: String? = nil
 
     static func collect(
         apiClient: CursorAPIClient,
@@ -21,6 +22,7 @@ struct UsageEventCollection: Sendable {
             to: calendar.startOfDay(for: today)
         )!
         var recent: RecentUsageCandidate?
+        var liveRevision: String?
         var collected: [UsageEvent] = []
         do {
             for page in 1...maxPages {
@@ -34,6 +36,10 @@ struct UsageEventCollection: Sendable {
                 )
                 try Task.checkCancellation()
                 if page == 1 {
+                    let encoder = JSONEncoder()
+                    encoder.outputFormatting = .sortedKeys
+                    liveRevision = (try? encoder.encode(response)).map { String(decoding: $0, as: UTF8.self) }
+                    liveRevision = liveRevision.map(UsageRevisionIdentity.digest)
                     recent = RecentUsageCandidate(response: response, cachedAt: now())
                 }
                 let events = response.usageEventsDisplay
@@ -44,7 +50,7 @@ struct UsageEventCollection: Sendable {
                 if oldest < cutoff { break }
             }
             try Task.checkCancellation()
-            return Self(recent: recent, weekly: .success(collected))
+            return Self(recent: recent, weekly: .success(collected), liveRevision: liveRevision)
         } catch {
             let preservesRecent: Bool
             switch error {

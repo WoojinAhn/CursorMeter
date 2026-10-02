@@ -99,6 +99,12 @@ struct CycleAmountSnapshot: Codable, Equatable, Sendable {
     var provenance: [CycleAttributionProvenance] = []
     var sourceCursorPercent: Double? = nil
     var sourceOtherPercent: Double? = nil
+    var todayUsage: TodayUsageAggregate? = nil
+    private enum CodingKeys: String, CodingKey {
+        case identity, capturedAt, cursorCents, otherCents, botCents, paidCents, unknownCents, unknownCount
+        case residualCents, coverage, status, estimatedCursorLimitCents, estimatedOtherLimitCents, isCached
+        case classifierVersion, cursorObservedPlaces, otherObservedPlaces, provenance, sourceCursorPercent, sourceOtherPercent, todayUsage
+    }
     func amountCents(for pool: UsagePoolID) -> Decimal { pool == .cursor ? cursorCents : otherCents }
     func estimatedLimitCents(for pool: UsagePoolID) -> Decimal? { pool == .cursor ? estimatedCursorLimitCents : estimatedOtherLimitCents }
     static func formattedUSD(cents: Decimal) -> String {
@@ -110,6 +116,35 @@ struct CycleAmountSnapshot: Codable, Equatable, Sendable {
         formatter.minimumFractionDigits = 2; formatter.maximumFractionDigits = 2
         formatter.positiveFormat = "$#,##0.00"; formatter.negativeFormat = "-$#,##0.00"
         return formatter.string(from: NSDecimalNumber(decimal: rounded)) ?? "$—"
+    }
+}
+
+extension CycleAmountSnapshot {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        identity = try c.decode(UsageRevisionIdentity.self, forKey: .identity)
+        capturedAt = try c.decode(Date.self, forKey: .capturedAt)
+        cursorCents = try c.decode(Decimal.self, forKey: .cursorCents)
+        otherCents = try c.decode(Decimal.self, forKey: .otherCents)
+        botCents = try c.decode(Decimal.self, forKey: .botCents)
+        paidCents = try c.decode(Decimal.self, forKey: .paidCents)
+        unknownCents = try c.decode(Decimal.self, forKey: .unknownCents)
+        unknownCount = try c.decode(Int.self, forKey: .unknownCount)
+        residualCents = try c.decodeIfPresent(Decimal.self, forKey: .residualCents)
+        coverage = try c.decode(CycleCoverage.self, forKey: .coverage)
+        status = try c.decode(CycleAmountStatus.self, forKey: .status)
+        estimatedCursorLimitCents = try c.decodeIfPresent(Decimal.self, forKey: .estimatedCursorLimitCents)
+        estimatedOtherLimitCents = try c.decodeIfPresent(Decimal.self, forKey: .estimatedOtherLimitCents)
+        isCached = try c.decode(Bool.self, forKey: .isCached)
+        classifierVersion = try c.decode(Int.self, forKey: .classifierVersion)
+        cursorObservedPlaces = try c.decode(Int.self, forKey: .cursorObservedPlaces)
+        otherObservedPlaces = try c.decode(Int.self, forKey: .otherObservedPlaces)
+        provenance = try c.decode([CycleAttributionProvenance].self, forKey: .provenance)
+        sourceCursorPercent = try c.decodeIfPresent(Double.self, forKey: .sourceCursorPercent)
+        sourceOtherPercent = try c.decodeIfPresent(Double.self, forKey: .sourceOtherPercent)
+        // Day detail is optional evidence; corruption must not retire otherwise valid cycle costs.
+        todayUsage = try? c.decodeIfPresent(TodayUsageAggregate.self, forKey: .todayUsage)
+        if todayUsage?.isValid(for: self) == false { todayUsage = nil }
     }
 }
 

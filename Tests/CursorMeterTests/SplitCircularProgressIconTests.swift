@@ -64,6 +64,167 @@ final class SplitCircularProgressIconTests: XCTestCase {
         }
     }
 
+    func testTodayDefaultAndKnownZeroPreserveOriginalRendering() throws {
+        let original = CircularProgressIcon.makeSplitImage(cursorPercent: 12, otherPercent: 42)
+        for points: [UsagePoolID: Double] in [[:], [.cursor: 0, .other: 0]] {
+            let image = CircularProgressIcon.makeSplitImage(
+                cursorPercent: 12, otherPercent: 42, todayPercentagePoints: points)
+            XCTAssertEqual(try pixels(original), try pixels(image))
+        }
+    }
+
+    func testTodayPortionsFollowPoolWhenPlacementSwaps() throws {
+        let swapped = CircularProgressIcon.makeSplitImage(
+            cursorPercent: 12, otherPercent: 42, outerPool: .cursor,
+            todayPercentagePoints: [.cursor: 4, .other: 8])
+        let equivalent = CircularProgressIcon.makeSplitImage(
+            cursorPercent: 42, otherPercent: 12,
+            todayPercentagePoints: [.cursor: 8, .other: 4])
+        XCTAssertEqual(try pixels(swapped), try pixels(equivalent))
+    }
+
+    func testTodayOccupiesTheEndingAngleAndDividerIsAtTheSharedBoundary() throws {
+        let appearance = try XCTUnwrap(NSAppearance(named: .aqua))
+        try withAppearance(appearance) {
+            let original = try bitmap(CircularProgressIcon.makeSplitImage(cursorPercent: 42, otherPercent: 42))
+            let highlighted = try bitmap(CircularProgressIcon.makeSplitImage(
+                cursorPercent: 42, otherPercent: 42,
+                todayPercentagePoints: [.cursor: 8, .other: 8]))
+            // Independent samples: 20% is earlier, 38% is today, 34% is their boundary.
+            for radius in [15.0, 30.0] {
+                func color(_ image: NSBitmapImageRep, at fraction: Double) throws -> NSColor {
+                    let angle = fraction * 2 * Double.pi
+                    return try XCTUnwrap(image.colorAt(
+                        x: Int((36 + sin(angle) * radius).rounded()),
+                        y: Int((36 - cos(angle) * radius).rounded()))?.usingColorSpace(.deviceRGB))
+                }
+                XCTAssertEqual(try color(highlighted, at: 0.20), try color(original, at: 0.20))
+                XCTAssertGreaterThan(try color(highlighted, at: 0.38).redComponent,
+                                     try color(original, at: 0.38).redComponent + 0.1)
+                XCTAssertLessThan(try color(highlighted, at: 0.34).greenComponent,
+                                  try color(original, at: 0.34).greenComponent - 0.1)
+            }
+        }
+    }
+
+    func testInvalidTodayInputAndSpilloverCannotExtendTheFill() throws {
+        let original = CircularProgressIcon.makeSplitImage(cursorPercent: 12, otherPercent: 42)
+        for invalid in [-1, Double.nan, .infinity, 43] {
+            let image = CircularProgressIcon.makeSplitImage(
+                cursorPercent: 12, otherPercent: 42, todayPercentagePoints: [.other: invalid])
+            XCTAssertEqual(try pixels(original), try pixels(image))
+        }
+        for (cursor, other) in [(100.0, 42.0), (12.0, 101.0)] {
+            let baseline = CircularProgressIcon.makeSplitImage(cursorPercent: cursor, otherPercent: other)
+            let image = CircularProgressIcon.makeSplitImage(
+                cursorPercent: cursor, otherPercent: other,
+                todayPercentagePoints: [.cursor: 4, .other: 8])
+            XCTAssertEqual(try pixels(baseline), try pixels(image))
+        }
+    }
+
+    func testTodayKeepsTrackAndSeparationAcrossSeverityAndAppearance() throws {
+        for name in [NSAppearance.Name.aqua, .darkAqua, .accessibilityHighContrastAqua,
+                     .accessibilityHighContrastDarkAqua] {
+            let appearance = try XCTUnwrap(NSAppearance(named: name))
+            try withAppearance(appearance) {
+                for percent in [42.0, 75.0, 95.0] {
+                    let original = try bitmap(CircularProgressIcon.makeSplitImage(
+                        cursorPercent: percent, otherPercent: percent))
+                    let highlighted = try bitmap(CircularProgressIcon.makeSplitImage(
+                        cursorPercent: percent, otherPercent: percent,
+                        todayPercentagePoints: [.cursor: 8, .other: 8]))
+                    var changed = 0
+                    for y in 0..<72 {
+                        for x in 0..<72 {
+                            let before = try XCTUnwrap(original.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB))
+                            let after = try XCTUnwrap(highlighted.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB))
+                            if before != after { changed += 1 }
+                            if before.alphaComponent == 0 {
+                                XCTAssertEqual(after.alphaComponent, 0, "Outside geometry changed at \(x),\(y)")
+                            }
+                            if before.alphaComponent > 0.1,
+                               before.redComponent == before.greenComponent,
+                               before.greenComponent == before.blueComponent {
+                                XCTAssertEqual(after, before, "Unused track changed at \(x),\(y)")
+                            }
+                        }
+                    }
+                    XCTAssertGreaterThan(changed, 0, "Expected today color in \(name), \(percent)")
+                }
+            }
+        }
+        if let directory = ProcessInfo.processInfo.environment["CM_UI_ARTIFACT_DIR"] {
+            try exportTodayAppearanceMatrix(to: directory)
+        }
+    }
+
+    func testTinyAndAlmostAllTodayDoNotReceiveAnOverpoweringDivider() throws {
+        let appearance = try XCTUnwrap(NSAppearance(named: .aqua))
+        try withAppearance(appearance) {
+            let original = try bitmap(CircularProgressIcon.makeSplitImage(cursorPercent: 42, otherPercent: 42))
+            for (today, expectsDivider) in [(0.2, false), (41.8, false), (42.0, false), (8.0, true)] {
+                let highlighted = try bitmap(CircularProgressIcon.makeSplitImage(
+                    cursorPercent: 42, otherPercent: 42,
+                    todayPercentagePoints: [.cursor: today, .other: today]))
+                var darkenedInterior = false
+                for y in 0..<72 {
+                    for x in 0..<72 {
+                        let before = try XCTUnwrap(original.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB))
+                        let after = try XCTUnwrap(highlighted.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB))
+                        if before.alphaComponent > 0.99,
+                           after.greenComponent + 0.02 < before.greenComponent {
+                            darkenedInterior = true
+                        }
+                    }
+                }
+                XCTAssertEqual(darkenedInterior, expectsDivider, "Today = \(today)pp")
+            }
+        }
+    }
+
+    private func withAppearance(_ appearance: NSAppearance, _ body: () throws -> Void) throws {
+        var failure: Error?
+        appearance.performAsCurrentDrawingAppearance {
+            do { try body() } catch { failure = error }
+        }
+        if let failure { throw failure }
+    }
+
+    private func exportTodayAppearanceMatrix(to directory: String) throws {
+        let names: [(String, NSAppearance.Name)] = [
+            ("Light", .aqua), ("Dark", .darkAqua),
+            ("High contrast light", .accessibilityHighContrastAqua),
+            ("High contrast dark", .accessibilityHighContrastDarkAqua),
+        ]
+        let appearances = try names.map { try XCTUnwrap(NSAppearance(named: $0.1)) }
+        let matrix = NSImage(size: NSSize(width: 600, height: 465), flipped: false) { _ in
+            for (column, appearance) in appearances.enumerated() {
+                appearance.performAsCurrentDrawingAppearance {
+                    for (row, percent) in [42.0, 75.0, 95.0].enumerated() {
+                        let cell = NSRect(x: column * 150, y: (2 - row) * 155, width: 150, height: 155)
+                        NSColor.windowBackgroundColor.setFill()
+                        cell.fill()
+                        CircularProgressIcon.makeSplitImage(
+                            cursorPercent: percent, otherPercent: percent, size: NSSize(width: 112, height: 112),
+                            todayPercentagePoints: [.cursor: 8, .other: 8])
+                            .draw(in: NSRect(x: cell.minX + 19, y: cell.minY + 30, width: 112, height: 112))
+                        let label = NSAttributedString(string: "\(names[column].0) · \(Int(percent))%", attributes: [
+                            .font: NSFont.systemFont(ofSize: 10), .foregroundColor: NSColor.labelColor,
+                        ])
+                        label.draw(at: NSPoint(x: cell.midX - label.size().width / 2, y: cell.minY + 10))
+                    }
+                }
+            }
+            return true
+        }
+        let png = try XCTUnwrap(matrix.tiffRepresentation.flatMap(NSBitmapImageRep.init(data:))?
+            .representation(using: .png, properties: [:]))
+        let folder = URL(fileURLWithPath: directory, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try png.write(to: folder.appendingPathComponent("today-appearance-matrix.png"))
+    }
+
     private func pixels(_ image: NSImage) throws -> [UInt8] {
         let bitmap = try bitmap(image)
         return Array(UnsafeBufferPointer(start: try XCTUnwrap(bitmap.bitmapData), count: bitmap.bytesPerRow * bitmap.pixelsHigh))

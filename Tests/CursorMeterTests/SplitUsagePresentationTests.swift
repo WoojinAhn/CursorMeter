@@ -3,6 +3,44 @@ import XCTest
 @testable import CursorMeter
 
 final class SplitUsagePresentationTests: XCTestCase {
+    func testRetainedLiveReceiptCanBeMarkedEarlierWithoutChangingCacheProvenance() {
+        let current = snapshot(cursor: 10, other: 41)
+        var amounts = estimatedAmounts(for: current)
+        amounts.isCached = false
+        let result = SplitUsagePresentation.make(snapshot: current, amounts: amounts,
+            amountState: .ready, amountsAreEarlier: true)
+        XCTAssertTrue(result.detailLines.contains("Showing earlier costs"))
+        XCTAssertFalse(amounts.isCached)
+        XCTAssertEqual(result.pools.first { $0.id == .cursor }?.amountText, "$10.00")
+    }
+
+    func testTodayHelpOnlyChangesPopoverAndPreservesUnavailableFallback() {
+        let total = SplitUsagePresentation.make(snapshot: snapshot(cursor: 12, other: 42))
+        let pool = total.pools[0]
+        XCTAssertEqual(PopoverTodayUsagePresentation.tooltip(total: total.tooltip, points: nil), total.tooltip)
+        XCTAssertEqual(PopoverTodayUsagePresentation.tooltip(total: total.tooltip, points: [.cursor: 0, .other: 0]), total.tooltip)
+        XCTAssertEqual(PopoverTodayUsagePresentation.tooltip(total: total.tooltip, points: [.cursor: .nan]), total.tooltip)
+        XCTAssertEqual(PopoverTodayUsagePresentation.rowLabel(pool, todayPoints: nil), pool.line)
+        XCTAssertEqual(PopoverTodayUsagePresentation.tooltip(total: total.tooltip, points: [.other: 8]),
+                       "Lighter segment: today (KST).\nEstimated from included usage costs.")
+        XCTAssertEqual(PopoverTodayUsagePresentation.rowLabel(pool, todayPoints: 8),
+                       pool.line + ". Today (KST): about 8.0 percentage points, estimated from included costs.")
+        XCTAssertFalse(total.tooltip.contains("Today"))
+        XCTAssertFalse(pool.line.contains("Today"))
+    }
+
+    func testTodayAccessibilityDistinguishesKnownZeroFromTinyAndInvalidValues() {
+        let pool = SplitUsagePresentation.make(snapshot: snapshot(cursor: 12, other: 42)).pools[0]
+        XCTAssertTrue(PopoverTodayUsagePresentation.rowLabel(pool, todayPoints: 0).contains("about 0.0 percentage points"))
+        for tiny in [Double.leastNonzeroMagnitude, 0.099] {
+            XCTAssertTrue(PopoverTodayUsagePresentation.rowLabel(pool, todayPoints: tiny)
+                .contains("less than 0.1 percentage points"))
+        }
+        for invalid in [-1, Double.nan, .infinity] {
+            XCTAssertEqual(PopoverTodayUsagePresentation.rowLabel(pool, todayPoints: invalid), pool.line)
+        }
+    }
+
     func testHealthyHoverKeepsNamedPoolsAndReadablePercentWithoutDiagnostics() {
         let current = snapshot(cursor: 135.25, other: 0)
         let result = SplitUsagePresentation.make(snapshot: current)

@@ -59,7 +59,8 @@ struct SplitUsagePresentation: Sendable {
         outerPool: UsagePoolID = .other,
         amountState: SplitAmountPresentationState = .pending, percentIsStale: Bool = false,
         paid: SplitPaidPresentation? = nil, timeZone: TimeZone = .current,
-        valueMode: PopoverValueMode = .both, showEstimatedLimits: Bool = false
+        valueMode: PopoverValueMode = .both, showEstimatedLimits: Bool = false,
+        amountsAreEarlier: Bool = false
     ) -> Self {
         let coherentAmounts = amounts.flatMap { $0.identity.sameScope(as: snapshot.identity) ? $0 : nil }
         let attributed = coherentAmounts.flatMap { $0.status == .estimatedAttribution ? $0 : nil }
@@ -96,7 +97,7 @@ struct SplitUsagePresentation: Sendable {
                 details.append("Bot activity: \(usd(amounts.botCents))")
             }
             let costsAreOld = attributed.map { amounts in
-                amounts.isCached || UsagePoolID.allCases.contains { pool in
+                amountsAreEarlier || amounts.isCached || UsagePoolID.allCases.contains { pool in
                     let source = pool == .cursor ? amounts.sourceCursorPercent : amounts.sourceOtherPercent
                     guard let source = SplitUsageSnapshot.validPercent(source),
                           let current = SplitUsageSnapshot.validPercent(snapshot[pool]) else { return true }
@@ -145,5 +146,20 @@ struct SplitUsagePresentation: Sendable {
             return "Paid spending: \(actual) / \(usd(limit))"
         }
         return "Paid spending: \(actual)"
+    }
+}
+
+enum PopoverTodayUsagePresentation {
+    static func tooltip(total: String, points: [UsagePoolID: Double]?) -> String {
+        guard let points, points.values.contains(where: { $0.isFinite && $0 > 0 }) else { return total }
+        return "Lighter segment: today (KST).\nEstimated from included usage costs."
+    }
+
+    static func rowLabel(_ pool: SplitPoolPresentation, todayPoints: Double?) -> String {
+        guard let points = todayPoints, points.isFinite, points >= 0 else { return pool.line }
+        let amount = points > 0 && points < 0.1
+            ? "less than 0.1"
+            : "about " + String(format: "%.1f", locale: Locale(identifier: "en_US_POSIX"), points)
+        return pool.line + ". Today (KST): \(amount) percentage points, estimated from included costs."
     }
 }
