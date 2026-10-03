@@ -35,6 +35,7 @@ private enum SettingsKey: String {
     case activityRefreshEnabled
     case recentUsageTimeZone
     case splitOuterPool
+    case splitMenuBarPercentagesEnabled
     case splitAlertTargets
     case splitAlertThresholds
     case popoverValueMode
@@ -140,6 +141,7 @@ final class UsageViewModel {
     let notificationManager: NotificationManager
     @ObservationIgnored private let splitAlerts: SplitUsageAlertDispatcher
     var splitOuterPool: UsagePoolID = .other
+    private(set) var splitMenuBarPercentagesEnabled = false
     var splitAlertTargets: Set<SplitAlertScope> = [.cursor, .other, .onDemand]
     private(set) var splitAlertThresholds: [SplitAlertScope: SplitAlertThresholds] = [:]
     private(set) var popoverValueMode: PopoverValueMode = .both
@@ -160,6 +162,13 @@ final class UsageViewModel {
             showEstimatedLimits: splitUsage.eligibility == .eligible && estimatedLimitsEnabled,
             amountsAreEarlier: splitUsage.amountsAreEarlier)
     }
+    var splitMenuBarReadout: SplitMenuBarReadout? {
+        SplitMenuBarReadout.make(
+            enabled: splitMenuBarPercentagesEnabled, isLoggedIn: authState == .loggedIn,
+            hasUsageData: usageData != nil, suppressesLegacyMeter: splitUsage.suppressesLegacyMeter,
+            presentation: splitPresentation)
+    }
+
     var effectiveMenuBarDisplayMode: Int {
         splitUsage.suppressesLegacyMeter ? 0 : Self.resolvedMenuBarDisplayMode(
             isPercentOnly: usageData?.isPercentOnly ?? false, setting: menuBarDisplayMode)
@@ -1677,6 +1686,10 @@ final class UsageViewModel {
         splitOuterPool = pool
         UserDefaults.standard.set(pool.rawValue, for: .splitOuterPool)
     }
+    func setSplitMenuBarPercentagesEnabled(_ enabled: Bool) {
+        splitMenuBarPercentagesEnabled = enabled
+        UserDefaults.standard.set(enabled, for: .splitMenuBarPercentagesEnabled)
+    }
     func setSplitAlertTarget(_ scope: SplitAlertScope, enabled: Bool) {
         guard scope != .included else { return }
         if enabled { splitAlertTargets.insert(scope) } else { splitAlertTargets.remove(scope) }
@@ -1912,6 +1925,7 @@ final class UsageViewModel {
         warningThreshold = thresholds.warning
         criticalThreshold = thresholds.critical
         splitOuterPool = (defaults.object(for: .splitOuterPool) as? String).flatMap(UsagePoolID.init(rawValue:)) ?? .other
+        splitMenuBarPercentagesEnabled = defaults.object(for: .splitMenuBarPercentagesEnabled) as? Bool ?? false
         if let targets = defaults.object(for: .splitAlertTargets) as? [String] {
             splitAlertTargets = Set(targets.compactMap(SplitAlertScope.init(rawValue:))).intersection([.cursor, .other, .onDemand])
         }
