@@ -109,47 +109,83 @@ final class SplitMenuBarRendererTests: XCTestCase {
         XCTAssertGreaterThan(brightness[1] - brightness[0], 0.5)
     }
 
-    func testLongDarkTextMatchesUnclippedPaddedReference() throws {
-        let readout = SplitMenuBarReadout(upper: "123456789012345.6%", lower: "100.0%")
-        let layout = SplitMenuBarRenderer.layout(readout: readout)
-        let appearance = try XCTUnwrap(NSAppearance(named: .darkAqua))
-        try withAppearance(appearance) {
-            for scale in [1, 2] {
-                let emptyIcon = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { _ in true }
-                let actual = try bitmap(SplitMenuBarRenderer.image(icon: emptyIcon, readout: readout), scale: scale)
-                let padding: CGFloat = 4
-                let referenceImage = NSImage(size: NSSize(width: layout.size.width + padding * 2,
-                                                         height: layout.size.height + padding * 2), flipped: false) { _ in
-                    guard let context = NSGraphicsContext.current?.cgContext else { return false }
-                    context.textMatrix = .identity
-                    for (text, origin) in [(readout.upper, layout.upperTextOrigin), (readout.lower, layout.lowerTextOrigin)] {
-                        let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [
-                            .font: NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .medium),
-                            NSAttributedString.Key(kCTForegroundColorAttributeName as String): NSColor.labelColor.cgColor,
-                        ]))
-                        context.textPosition = NSPoint(x: origin.x + padding, y: origin.y + padding)
-                        CTLineDraw(line, context)
-                    }
-                    return true
+    func testImageCanBeDrawnOnBackgroundThread() async {
+        let icon = NSImage(size: NSSize(width: 18, height: 18))
+        let image = SplitMenuBarRenderer.image(icon: icon, readout: .init(upper: "43.2%", lower: "3.0%"))
+        let transfer = ImageTransfer(image: image)
+        let rendered = await Task.detached {
+            let image = transfer.image
+            guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil,
+                pixelsWide: Int(image.size.width) * 2, pixelsHigh: Int(image.size.height) * 2,
+                bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
+                  let context = NSGraphicsContext(bitmapImageRep: bitmap) else { return false }
+            bitmap.size = image.size
+            NSGraphicsContext.saveGraphicsState()
+            defer { NSGraphicsContext.restoreGraphicsState() }
+            NSGraphicsContext.current = context
+            image.draw(in: NSRect(origin: .zero, size: image.size))
+            return (0..<bitmap.pixelsHigh).contains { y in
+                (0..<bitmap.pixelsWide).contains { x in
+                    (bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.1
                 }
-                let reference = try bitmap(referenceImage, scale: scale)
-                let referenceBounds = try XCTUnwrap(inkBounds(in: reference,
-                    region: NSRect(origin: .zero, size: referenceImage.size), scale: scale))
-                    .offsetBy(dx: -padding, dy: -padding)
-                let actualBounds = try XCTUnwrap(inkBounds(in: actual,
-                    region: NSRect(origin: .zero, size: layout.size), scale: scale))
-                XCTAssertGreaterThan(referenceBounds.minX, layout.iconRect.maxX)
-                XCTAssertLessThan(referenceBounds.maxX, layout.size.width)
-                XCTAssertGreaterThan(referenceBounds.minY, 0)
-                XCTAssertLessThan(referenceBounds.maxY, layout.size.height)
-                XCTAssertEqual(actualBounds, referenceBounds)
-                let upper = try XCTUnwrap(inkBounds(in: actual, region: layout.upperRowRect, scale: scale))
-                let lower = try XCTUnwrap(inkBounds(in: actual, region: layout.lowerRowRect, scale: scale))
-                let gap = NSRect(x: 22, y: lower.maxY, width: layout.size.width - 22,
-                                 height: upper.minY - lower.maxY)
-                XCTAssertGreaterThanOrEqual(gap.height, 1)
-                XCTAssertNil(try inkBounds(in: actual, region: gap, scale: scale))
-                print("Split menu bar \(scale)x dark: upper ink \(upper), lower ink \(lower), empty gap \(gap.height) pt; padded reference bounds match")
+            }
+        }.value
+        XCTAssertTrue(rendered)
+    }
+
+    // A single background consumer draws the immutable image; there is no concurrent mutation.
+    private struct ImageTransfer: @unchecked Sendable { let image: NSImage }
+
+    func testBoundaryAndLongTextMatchUnclippedPaddedReference() throws {
+        let readouts = [
+            SplitMenuBarReadout(upper: "123456789012345.6%", lower: "100.0%"),
+            .init(upper: "<100.0%", lower: ">100.0%"),
+            .init(upper: "—", lower: "<0.1%"),
+        ]
+        for name in [NSAppearance.Name.aqua, .darkAqua, .accessibilityHighContrastAqua,
+                     .accessibilityHighContrastDarkAqua] {
+            let appearance = try XCTUnwrap(NSAppearance(named: name))
+            try withAppearance(appearance) {
+                for readout in readouts {
+                    let layout = SplitMenuBarRenderer.layout(readout: readout)
+                    for scale in [1, 2] {
+                        let emptyIcon = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { _ in true }
+                        let actual = try bitmap(SplitMenuBarRenderer.image(icon: emptyIcon, readout: readout), scale: scale)
+                        let padding: CGFloat = 4
+                        let referenceImage = NSImage(size: NSSize(width: layout.size.width + padding * 2,
+                                                                 height: layout.size.height + padding * 2), flipped: false) { _ in
+                            guard let context = NSGraphicsContext.current?.cgContext else { return false }
+                            context.textMatrix = .identity
+                            for (text, origin) in [(readout.upper, layout.upperTextOrigin), (readout.lower, layout.lowerTextOrigin)] {
+                                let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [
+                                    .font: NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .medium),
+                                    NSAttributedString.Key(kCTForegroundColorAttributeName as String): NSColor.labelColor.cgColor,
+                                ]))
+                                context.textPosition = NSPoint(x: origin.x + padding, y: origin.y + padding)
+                                CTLineDraw(line, context)
+                            }
+                            return true
+                        }
+                        let reference = try bitmap(referenceImage, scale: scale)
+                        let referenceBounds = try XCTUnwrap(inkBounds(in: reference,
+                            region: NSRect(origin: .zero, size: referenceImage.size), scale: scale))
+                            .offsetBy(dx: -padding, dy: -padding)
+                        let actualBounds = try XCTUnwrap(inkBounds(in: actual,
+                            region: NSRect(origin: .zero, size: layout.size), scale: scale))
+                        XCTAssertGreaterThan(referenceBounds.minX, layout.iconRect.maxX)
+                        XCTAssertLessThanOrEqual(referenceBounds.maxX, layout.size.width)
+                        XCTAssertGreaterThan(referenceBounds.minY, 0)
+                        XCTAssertLessThan(referenceBounds.maxY, layout.size.height)
+                        XCTAssertEqual(actualBounds, referenceBounds)
+                        let upper = try XCTUnwrap(inkBounds(in: actual, region: layout.upperRowRect, scale: scale))
+                        let lower = try XCTUnwrap(inkBounds(in: actual, region: layout.lowerRowRect, scale: scale))
+                        let gap = NSRect(x: 22, y: lower.maxY, width: layout.size.width - 22,
+                                         height: upper.minY - lower.maxY)
+                        XCTAssertGreaterThanOrEqual(gap.height, 1)
+                        XCTAssertNil(try inkBounds(in: actual, region: gap, scale: scale))
+                    }
+                }
             }
         }
     }

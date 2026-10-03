@@ -1,7 +1,6 @@
 import AppKit
 import CoreText
 
-@MainActor
 enum SplitMenuBarRenderer {
     struct Layout: Sendable {
         let size: NSSize
@@ -17,7 +16,8 @@ enum SplitMenuBarRenderer {
     }
 
     private static let reservedStrings = ["0.0%", "99.9%", "100.0%", "<0.1%", "<100.0%", ">100.0%", "—"]
-    private static let font = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .medium)
+    // NSImage drawing handlers may run off-main; keep non-Sendable font state local.
+    private static var font: NSFont { .monospacedDigitSystemFont(ofSize: 10, weight: .medium) }
 
     static func layout(readout: SplitMenuBarReadout) -> Layout {
         let reserved = reservedStrings.map { line($0) }
