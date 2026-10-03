@@ -199,19 +199,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     }
 
     private func updateStatusItem() {
+        if let jumpCoordinator { jumpCoordinator.redraw() }
+        else { renderStatusItem(activeJump: nil) }
+    }
+
+    private func renderStatusItem(activeJump: ActiveJump?) {
         guard let button = statusItem?.button else { return }
-        // Emoji owns the pixels temporarily; hover and accessibility stay current.
-        if jumpCoordinator?.isSwapping != true { button.image = currentRingImage() }
+        button.image = currentStatusImage(activeJump: activeJump)
         let text = viewModel.splitPresentation?.tooltip ?? viewModel.usageData?.usageText ?? "CursorMeter"
         button.toolTip = text
         button.setAccessibilityLabel("CursorMeter usage")
         button.setAccessibilityValue(viewModel.splitPresentation?.accessibilityValue ?? text)
     }
 
+    private func currentStatusImage(activeJump: ActiveJump?) -> NSImage {
+        if let activeJump {
+            return CircularProgressIcon.makeEmojiImage(
+                emoji: activeJump.emoji, size: activeJump.fallbackSize, glow: activeJump.glow)
+        }
+        return currentRingImage()
+    }
+
     /// Builds the ring/idle image that should currently occupy the menu bar slot,
     /// based on the latest `UsageDisplayData` and the user's display-mode setting.
-    /// Pure read of view-model state — no side effects. Reused by the
-    /// `JumpEffectCoordinator` to restore the slot after an emoji swap.
+    /// Pure read of view-model state — no side effects.
     private func currentRingImage() -> NSImage {
         guard let data = viewModel.usageData else {
             return viewModel.authState == .loginRequired
@@ -413,10 +424,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
 
     private func setupJumpCoordinator() {
         let coordinator = JumpEffectCoordinator(
-            statusItem: statusItem,
             viewModel: viewModel,
-            restoreImage: { [weak self] in
-                self?.currentRingImage() ?? CircularProgressIcon.idleImage()
+            render: { [weak self] in self?.renderStatusItem(activeJump: $0) },
+            fallbackImageSize: { [weak self] in
+                guard let self else { return NSSize(width: 22, height: 22) }
+                if self.viewModel.usageData != nil, self.viewModel.splitUsage.suppressesLegacyMeter {
+                    return NSSize(width: 18, height: 18)
+                }
+                return self.statusItem?.button?.image?.size ?? NSSize(width: 22, height: 22)
             }
         )
         jumpCoordinator = coordinator
