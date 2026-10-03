@@ -7,7 +7,8 @@ final class SplitMenuBarSettingsTests: XCTestCase {
     private var savedDefaults: [String: Any] = [:]
 
     override func setUp() async throws {
-        XCTAssertNotEqual(Bundle.main.bundleIdentifier, "com.woojin.CursorMeter")
+        try XCTSkipIf(Bundle.main.bundleIdentifier == "com.woojin.CursorMeter",
+                      "Requires a separate XCTest defaults domain")
         for key in SplitMenuBarTestFixtures.preferenceKeys {
             savedDefaults[key] = UserDefaults.standard.object(forKey: key)
         }
@@ -15,6 +16,7 @@ final class SplitMenuBarSettingsTests: XCTestCase {
     }
 
     override func tearDown() async throws {
+        guard Bundle.main.bundleIdentifier != "com.woojin.CursorMeter" else { return }
         SplitMenuBarTestFixtures.restoreDefaults(savedDefaults)
     }
 

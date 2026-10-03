@@ -8,11 +8,13 @@ final class JumpEffectCoordinatorTests: XCTestCase {
     private var savedDefaults: [String: Any] = [:]
 
     override func setUp() async throws {
-        XCTAssertNotEqual(Bundle.main.bundleIdentifier, "com.woojin.CursorMeter")
+        try XCTSkipIf(Bundle.main.bundleIdentifier == "com.woojin.CursorMeter",
+                      "Requires a separate XCTest defaults domain")
         for key in preferenceKeys { savedDefaults[key] = UserDefaults.standard.object(forKey: key) }
     }
 
     override func tearDown() async throws {
+        guard Bundle.main.bundleIdentifier != "com.woojin.CursorMeter" else { return }
         for key in preferenceKeys {
             if let value = savedDefaults[key] { UserDefaults.standard.set(value, forKey: key) }
             else { UserDefaults.standard.removeObject(forKey: key) }
