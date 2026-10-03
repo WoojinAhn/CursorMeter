@@ -43,6 +43,17 @@ Run through these scenarios after each feature change or before release.
 - [ ] "Show usage text" setting OFF → icon only
 - [ ] "Show usage text" setting ON → "189/500" text next to icon
 
+## Split Menu Bar Percentages (#132)
+
+- [ ] Existing installs keep the compact circle until Display → Show percentages is enabled
+- [ ] Enabled → outer-pool percentage above center-pool percentage, with unchanged named hover text
+- [ ] Changing Outer ring swaps the circle assignment and the two rows together
+- [ ] Toggling the option updates both the menu bar and open Settings preview without a refresh
+- [ ] Missing values show `—`; `0.0%`, `<0.1%`, `<100.0%`, and `>100.0%` remain distinct
+- [ ] During a jump, the emoji replaces only the circle; percentages stay current and the restore deadline does not restart
+- [ ] Logout/ownership retirement removes the new numbers; a legacy plan hides the switch while preserving its value
+- [ ] Light/dark and high-contrast appearances remain readable without clipping
+
 ## Notifications (#2)
 
 - [ ] First notification request prompts macOS permission dialog

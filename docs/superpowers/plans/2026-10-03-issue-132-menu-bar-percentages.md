@@ -52,11 +52,11 @@ instantiates the real notification center. Never access the real Keychain or IDE
 - Create `Tests/CursorMeterTests/SplitMenuBarPresentationTests.swift`.
 - Create `Tests/CursorMeterTests/SplitMenuBarRendererTests.swift`.
 
-- [ ] Write focused failing tests for the visibility truth table, ordered pool
+- [x] Write focused failing tests for the visibility truth table, ordered pool
   strings, checking fallback, formatter boundaries, and independence from Dollars/
   Both. Use synthetic `SplitUsageSnapshot` fixtures copied in shape from existing
   `SplitUsagePresentationTests`, not real account/cycle values.
-- [ ] Implement the pure state seam using this contract:
+- [x] Implement the pure state seam using this contract:
 
 ```swift
 struct SplitMenuBarReadout: Equatable, Sendable {
@@ -89,21 +89,21 @@ XCTAssertEqual(SplitMenuBarReadout.make(
     SplitMenuBarReadout(upper: "—", lower: "—"))
 ```
 
-- [ ] Add a renderer with `image(icon: NSImage, readout: SplitMenuBarReadout) ->
+- [x] Add a renderer with `image(icon: NSImage, readout: SplitMenuBarReadout) ->
   NSImage` and a pure measured layout description. Use an 18 pt icon slot, 4 pt gap,
   22 pt height, 10 pt medium monospaced digits, complete formatter strings, and
   trailing-aligned rows. Measure ordinary + boundary reserve strings using the same
   font; take max(reserve, upper width, lower width). Add optical end padding if
   native glyph bounds require it. Use the existing NSImage drawing-handler pattern
   and current dynamic label color.
-- [ ] Add geometry and rendered-ink tests at available 1×/2× scales: stable ordinary
+- [x] Add geometry and rendered-ink tests at available 1×/2× scales: stable ordinary
   width; larger value expansion; nil/zero distinction; both rows inside canvas;
   ordinary and high-contrast light/dark appearances; icon pixels do not extend into
   text. Do not assert OS-specific exact glyph bitmaps or reuse the legacy integer
   formatter.
-- [ ] Run `swift test --filter 'SplitMenuBar(Presentation|Renderer)Tests'` and verify
+- [x] Run `swift test --filter 'SplitMenuBar(Presentation|Renderer)Tests'` and verify
   passing assertions. Keep the new helper files independent of networking/persistence.
-- [ ] Coordinator checks spec compliance, then code quality before committing the
+- [x] Coordinator checks spec compliance, then code quality before committing the
   coherent tested unit with `[#132] feat: add compact split menu-bar rendering`.
 
 ## Task 2: Narrow jump ownership and deterministic orchestration tests
@@ -114,19 +114,19 @@ XCTAssertEqual(SplitMenuBarReadout.make(
 - Modify the constructor wiring in `Sources/CursorMeter/CursorMeterApp.swift` only
   as needed to keep the build coherent before the later integration task.
 
-- [ ] Introduce a small active-glyph value (emoji, glow, captured fallback size).
+- [x] Introduce a small active-glyph value (emoji, glow, captured fallback size).
   It must contain no snapshot, percentage strings, account identity, or composite.
-- [ ] Replace the concrete status-item dependency with three narrow injected
+- [x] Replace the concrete status-item dependency with three narrow injected
   operations: `render(activeGlyph?)`, `fallbackImageSize()`, and
   `scheduleRestore(delay, action) -> cancelClosure`. Use MainActor closures and a
   production Timer scheduler; use a captured action/cancellation counter in tests.
-- [ ] Add `redraw()` to call `render(activeGlyph)` without touching the timer.
+- [x] Add `redraw()` to call `render(activeGlyph)` without touching the timer.
   `restore()` cancels/clears active state before rendering nil; no recursive image
   provider or stale cached-image restoration. A new jump alone starts a new timer.
-- [ ] Capture split fallback size as 18×18 at jump start, even when numeric canvas
-  is wider. Legacy starts capture the existing image size (22×22 fallback), retaining
-  current legacy behavior through presentation changes.
-- [ ] Write a deterministic sequence test using mutable synthetic current readout
+- [x] Capture split fallback size as 18×18 at jump start, even when numeric canvas
+  is wider. The initial legacy shim captures the existing image; Task 3 replaces
+  that sample with the base meter size before wide composites become possible.
+- [x] Write a deterministic sequence test using mutable synthetic current readout
   state in the injected renderer:
 
 ```swift
@@ -139,16 +139,16 @@ XCTAssertEqual(cancelCount, 0)
 // Invoke the saved restore action: the final rendering must use current values.
 ```
 
-- [ ] Cover disabled effects/auth cancellation, logged-in ownership retirement
+- [x] Cover disabled effects/auth cancellation, logged-in ownership retirement
   clearing numeric data while the glyph keeps its deadline, repeated event
   deduplication, fallback size, and restoring after preference off/on. Keep all
   existing tier/style/duration tests.
-- [ ] Run `swift test --filter 'JumpEffectCoordinatorTests|SplitMenuBar'`.
-- [ ] Coordinator compliance/quality pass, then **Checkpoint A:** fresh read-only
+- [x] Run `swift test --filter 'JumpEffectCoordinatorTests|SplitMenuBar'`.
+- [x] Coordinator compliance/quality pass, then **Checkpoint A:** fresh read-only
   Grok `grok-4.7-xhigh`, Gemini `gemini-3.8-flash-high`, and Opus
   `claude-opus-5-5-max` reviews of this core diff plus spec. Resolve factual findings,
   discuss disagreements in targeted follow-ups, and record Astra's disposition.
-- [ ] Commit the coherent passing integration as `[#132] refactor: preserve split
+- [x] Commit the coherent passing integration as `[#132] refactor: preserve split
   readouts during jump effects` once checkpoint findings are closed.
 
 ## Task 3: Preference, Settings, and live observation integration
@@ -159,7 +159,7 @@ XCTAssertEqual(cancelCount, 0)
 - Modify `Sources/CursorMeter/CursorMeterApp.swift`.
 - Add `Tests/CursorMeterTests/SplitMenuBarSettingsTests.swift` and relevant UI cases.
 
-- [ ] Add the new key, default-false property, setter, and load value using existing
+- [x] Add the new key, default-false property, setter, and load value using existing
   persistence conventions:
 
 ```swift
@@ -175,26 +175,31 @@ splitMenuBarPercentagesEnabled = defaults.object(for: .splitMenuBarPercentagesEn
     as? Bool ?? false
 ```
 
-- [ ] Add a computed `splitMenuBarReadout` delegating to Task 1's pure maker. Do not
+- [x] Add a computed `splitMenuBarReadout` delegating to Task 1's pure maker. Do not
   store current or prior percentages independently. Preserve the setting through
   account/logout resets and legacy fallback.
-- [ ] Add the switch after Outer ring with label/AX label `Show percentages` and
+- [x] Add the switch after Outer ring with label/AX label `Show percentages` and
   existing split-only row visibility. Bind it to the setter. Preview uses the same
   circle/readout renderer, never the active glyph; maintain a 28 pt ring and reserve
   approximately 35 pt container height. Preserve the exact outer/center legend.
-- [ ] App renderer uses current readout for both normal and active-glyph paths.
+- [x] App renderer uses current readout for both normal and active-glyph paths.
   Keep legacy/idle/login base selection intact. All final image writes flow through
   the coordinator redraw sink once initialized; tooltip/AX remains unchanged.
-- [ ] Add the new preference/readout dependencies to BOTH `observeStatusItem()` and
+- [x] Checkpoint A refinement (Grok, Gemini, Opus and Astra): legacy jump starts
+  measure `currentRingImage().size`, not the button's possibly transient composite.
+  Keep the explicit 18 pt split fallback. An existing active glyph retains its
+  captured fallback until the next event/restore; a split numeric composition always
+  creates a fresh 18 pt slot emoji, even after a wide legacy jump.
+- [x] Add the new preference/readout dependencies to BOTH `observeStatusItem()` and
   `observeSettings()` re-arm blocks. Ensure observation handles data retirement
   during a swap without rescheduling it.
-- [ ] Test default-off/load/save with saved/restored keys in the verified separate
+- [x] Test default-off/load/save with saved/restored keys in the verified separate
   test-host domain, or an isolated suite if unavailable. Test setting independence,
   legacy-hidden controls, checking-operable control, unchanged tooltip, partial
   missing values, retained no-cookie login-required data, and valid degraded-profile
   data. No production auth changes are needed to create these fixtures.
-- [ ] Run `swift test --filter 'SplitMenuBar|SplitUsageUI|SplitUsagePresentation|JumpEffectCoordinator'`.
-- [ ] Coordinator compliance/quality checks, then commit this coherent passing unit
+- [x] Run `swift test --filter 'SplitMenuBar|SplitUsageUI|SplitUsagePresentation|JumpEffectCoordinator'`.
+- [x] Coordinator compliance/quality checks, then commit this coherent passing unit
   as `[#132] feat: expose stacked percentages in display settings`.
 
 ## Task 4: Native evidence and user documentation
@@ -217,7 +222,7 @@ splitMenuBarPercentagesEnabled = defaults.object(for: .splitMenuBarPercentagesEn
 - [ ] Update README feature/hover descriptions in both languages; describe the new
   default-off switch and preserve hover. Sweep old icon-only claims and clarify the
   superseding opt-in exception without changing unrelated prior designs.
-- [ ] Run the safe broad Swift suite, `swift build -c release`, and installer tests.
+- [x] Run the safe broad Swift suite, `swift build -c release`, and installer tests.
   Capture exact command results and failures; do not claim native checks from HTML.
 - [ ] **Checkpoint B:** the same three fresh Cursor models review the full integrated
   diff, test evidence, and any remaining native limitations. Astra independently

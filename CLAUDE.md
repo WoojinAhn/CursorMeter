@@ -105,7 +105,7 @@ Popover/Settings live checks run through `osascript` System Events — **element
 | `LoginWindow.swift` | WKWebView login + two-tier domain whitelist + cookie capture validation |
 | `KeychainStore.swift` | Credential storage (Data Protection Keychain) |
 | `LogRedactor.swift` | Sensitive data redaction for logs |
-| `JumpEffectCoordinator.swift` | Observes `UsageViewModel.lastJump`, swaps `statusItem.button.image` to ⚡/🚀 emoji glyphs on tier 1/2; gates Bold + tier 2 system notification |
+| `JumpEffectCoordinator.swift` | Observes `UsageViewModel.lastJump`, owns the active emoji and restore deadline, and requests current-state image composition; usage notifications remain in the refresh pipeline |
 | `ExternalURL.swift` | Host-validated wrapper around `NSWorkspace.open` for GitHub URLs derived from the Releases API |
 | `CursorActivityWatcher.swift` | Watches Cursor's conversation-search WAL (DispatchSource); debounced event-driven refresh trigger |
 
