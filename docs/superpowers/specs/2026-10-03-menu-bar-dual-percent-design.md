@@ -1,12 +1,13 @@
 # Optional stacked menu-bar percentages
 
-Status: Reviewed v1.0, ready for owner document review. All three models approved
-draft v0.1 without blocking findings; this revision incorporates the coordinator's
-adjudicated clarifications. It does not authorize application implementation.
+Status: Reviewed v1.0, implementation authorized by the owner under issue #132.
+All three models approved draft v0.1 without blocking findings; this revision
+incorporates the coordinator's adjudicated clarifications.
 Date: 2026-10-03.
 Baseline: `origin/main` at `8c71cbb5159c9a73b6c4c73fe00b6e5a3dcb4c30`.
 Owner-approved layout: A, two stacked percentages to the right of the existing circle.
-Local visual reference: `docs/mockup-menu-bar-dual-percent.html` (not a release asset).
+Local visual reference: `docs/mockup-132.html` (not a committed release asset).
+Implementation issue: https://github.com/WoojinAhn/CursorMeter/issues/132.
 
 ## 1. Intent and authority
 
@@ -24,9 +25,10 @@ This feature adds an opt-in exception to the split-plan icon-only rule in the
 contracts from that spec, including account isolation and authoritative percentage
 sources, remain intact.
 
-This task delivers a specification and Grok, Gemini, and Opus reviews. It does not
-implement, install, release, merge, or change a live account's settings. Register a
-feature issue before subsequent application implementation, per workspace policy.
+The owner subsequently authorized implementation, checkpoint and PR reviews by
+the same three models, and coordinator-led merge after verification. Issue #132
+was registered before source changes. Installation, release, and changes to a live
+account's settings remain outside this task.
 
 ## 2. Scope
 
