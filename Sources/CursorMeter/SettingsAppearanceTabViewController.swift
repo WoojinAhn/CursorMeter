@@ -16,8 +16,10 @@ final class SettingsAppearanceTabViewController: NSViewController {
 
     private var menuBarDisplayPopUp = NSPopUpButton()
     private let outerPoolPopUp = NSPopUpButton()
+    private let splitMenuBarPercentagesToggle = NSSwitch()
     private let poolLegend = SettingsCardFactory.makeCaption("")
     private let poolPreview = NSImageView()
+    private var poolPreviewWidth: NSLayoutConstraint?
     private var legacyTextRow = NSView()
     private var splitPlacementRows = NSView()
     private var menuBarSection = NSView()
@@ -156,12 +158,21 @@ final class SettingsAppearanceTabViewController: NSViewController {
         }
         outerPoolPopUp.selectItem(at: viewModel.splitOuterPool == .other ? 0 : 1)
         outerPoolPopUp.isEnabled = viewModel.splitUsage.eligibility != .legacy
+        splitMenuBarPercentagesToggle.state = viewModel.splitMenuBarPercentagesEnabled ? .on : .off
         let center: UsagePoolID = viewModel.splitOuterPool == .other ? .cursor : .other
         poolLegend.stringValue = "Outer: \(viewModel.splitOuterPool.displayName)\nCenter: \(center.displayName)"
-        poolPreview.image = CircularProgressIcon.makeSplitImage(
+        let circle = CircularProgressIcon.makeSplitImage(
             cursorPercent: viewModel.splitUsage.snapshot?.cursorPercent,
             otherPercent: viewModel.splitUsage.snapshot?.otherPercent,
             outerPool: viewModel.splitOuterPool)
+        if let readout = viewModel.splitMenuBarReadout {
+            let image = SplitMenuBarRenderer.image(icon: circle, readout: readout)
+            poolPreview.image = image
+            poolPreviewWidth?.constant = image.size.width * 28 / 18
+        } else {
+            poolPreview.image = circle
+            poolPreviewWidth?.constant = 28
+        }
         poolPreview.setAccessibilityLabel(poolLegend.stringValue)
 
         jumpEffectToggle.state = viewModel.jumpEffectEnabled ? .on : .off
@@ -229,9 +240,13 @@ final class SettingsAppearanceTabViewController: NSViewController {
         outerPoolPopUp.target = self
         outerPoolPopUp.action = #selector(outerPoolChanged)
         outerPoolPopUp.setAccessibilityLabel("Outer ring")
+        splitMenuBarPercentagesToggle.target = self
+        splitMenuBarPercentagesToggle.action = #selector(splitMenuBarPercentagesChanged)
+        splitMenuBarPercentagesToggle.setAccessibilityLabel("Show percentages")
         poolPreview.imageScaling = .scaleProportionallyUpOrDown
-        poolPreview.widthAnchor.constraint(equalToConstant: 28).isActive = true
-        poolPreview.heightAnchor.constraint(equalToConstant: 28).isActive = true
+        poolPreviewWidth = poolPreview.widthAnchor.constraint(equalToConstant: 28)
+        poolPreviewWidth?.isActive = true
+        poolPreview.heightAnchor.constraint(equalToConstant: ceil(22 * 28 / 18)).isActive = true
         let legend = NSStackView(views: [poolPreview, poolLegend, SettingsCardFactory.makeSpacer()])
         legend.orientation = .horizontal
         legend.spacing = 12
@@ -242,6 +257,7 @@ final class SettingsAppearanceTabViewController: NSViewController {
         legacyTextRow = SettingsCardFactory.makeCardRow(title: "Usage text", control: menuBarDisplayPopUp)
         let placement = NSStackView(views: [
             SettingsCardFactory.makeCardRow(title: "Outer ring", control: outerPoolPopUp),
+            SettingsCardFactory.makeCardRow(title: "Show percentages", control: splitMenuBarPercentagesToggle),
             SettingsCardFactory.makeFullWidthCardRow(legend),
         ])
         placement.orientation = .vertical
@@ -415,6 +431,11 @@ final class SettingsAppearanceTabViewController: NSViewController {
 
     @objc private func outerPoolChanged() {
         viewModel.setSplitOuterPool(outerPoolPopUp.indexOfSelectedItem == 0 ? .other : .cursor)
+        updateUI()
+    }
+
+    @objc private func splitMenuBarPercentagesChanged() {
+        viewModel.setSplitMenuBarPercentagesEnabled(splitMenuBarPercentagesToggle.state == .on)
         updateUI()
     }
 

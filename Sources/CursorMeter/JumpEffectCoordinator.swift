@@ -1,37 +1,46 @@
 import AppKit
 import Observation
 
-/// Orchestrates the menu-bar icon swap when the view model publishes a new jump.
-/// Usage notifications are composed once by the refresh pipeline.
-///
-/// - Observes `viewModel.lastJump` via Swift Observation tracking (re-arm pattern).
-/// - On a relevant tier (per `JumpIntensity` policy), swaps `statusItem.button.image`
-///   to a fixed-size emoji glyph rendered by `CircularProgressIcon.makeEmojiImage`.
-/// - Schedules a `Timer` to restore the original ring image via the injected
-///   `restoreImage` closure.
+struct ActiveJump: Equatable {
+    let emoji: String
+    let glow: Bool
+    let fallbackSize: NSSize
+}
+
+/// Owns the transient glyph and deadline; the renderer reads current usage on every redraw.
 @MainActor
 final class JumpEffectCoordinator {
-    private let statusItem: NSStatusItem
-    private let viewModel: UsageViewModel
-    private let restoreImage: () -> NSImage
+    typealias CancelRestore = @MainActor () -> Void
+    typealias ScheduleRestore = @MainActor (TimeInterval, @escaping @MainActor @Sendable () -> Void) -> CancelRestore
 
-    private var swapTimer: Timer?
+    private let viewModel: UsageViewModel
+    private let render: @MainActor (ActiveJump?) -> Void
+    private let fallbackImageSize: @MainActor () -> NSSize
+    private let scheduleRestore: ScheduleRestore
+
+    private var cancelRestore: CancelRestore?
+    private var restoreGeneration: UInt64 = 0
     private var isObserving = false
     private var handledEvent: JumpEvent?
+    private(set) var activeJump: ActiveJump?
 
-    /// True while an emoji is currently displayed in the status item and the
-    /// restore timer is still pending. Callers can consult this to avoid
-    /// clobbering the emoji with a stale ring image.
-    var isSwapping: Bool { swapTimer != nil }
+    var isSwapping: Bool { activeJump != nil }
 
     init(
-        statusItem: NSStatusItem,
         viewModel: UsageViewModel,
-        restoreImage: @escaping () -> NSImage
+        render: @escaping @MainActor (ActiveJump?) -> Void,
+        fallbackImageSize: @escaping @MainActor () -> NSSize,
+        scheduleRestore: ScheduleRestore? = nil
     ) {
-        self.statusItem = statusItem
         self.viewModel = viewModel
-        self.restoreImage = restoreImage
+        self.render = render
+        self.fallbackImageSize = fallbackImageSize
+        self.scheduleRestore = scheduleRestore ?? { delay, action in
+            let timer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { _ in
+                Task { @MainActor in action() }
+            }
+            return { timer.invalidate() }
+        }
     }
 
     /// Begin observing `viewModel.lastJump`. Idempotent — calling twice is a no-op.
@@ -47,9 +56,10 @@ final class JumpEffectCoordinator {
     /// `isObserving == false` and bail out.
     func stop() {
         isObserving = false
-        swapTimer?.invalidate()
-        swapTimer = nil
+        restore()
     }
+
+    func redraw() { render(activeJump) }
 
     // MARK: - Observation (Combine-free, @Observable-compatible)
 
@@ -70,7 +80,6 @@ final class JumpEffectCoordinator {
 
     private func handleLastJumpChange() {
         guard viewModel.jumpEffectEnabled, viewModel.authState == .loggedIn else {
-            swapTimer?.invalidate()
             restore()
             handledEvent = viewModel.lastJump
             return
@@ -88,24 +97,26 @@ final class JumpEffectCoordinator {
     // MARK: - Image swap
 
     private func performSwap(emoji: String, glow: Bool, durationMs: Int) {
-        guard let button = statusItem.button else { return }
-        let size = button.image?.size ?? NSSize(width: 22, height: 22)
-        button.image = CircularProgressIcon.makeEmojiImage(emoji: emoji, size: size, glow: glow)
-
-        swapTimer?.invalidate()
-        swapTimer = Timer.scheduledTimer(
-            withTimeInterval: TimeInterval(durationMs) / 1000.0,
-            repeats: false
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.restore()
-            }
+        cancelScheduledRestore()
+        activeJump = ActiveJump(emoji: emoji, glow: glow, fallbackSize: fallbackImageSize())
+        redraw()
+        let generation = restoreGeneration
+        cancelRestore = scheduleRestore(TimeInterval(durationMs) / 1000) { [weak self] in
+            guard let self, self.restoreGeneration == generation else { return }
+            self.restore()
         }
     }
 
     private func restore() {
-        statusItem.button?.image = restoreImage()
-        swapTimer = nil
+        cancelScheduledRestore()
+        activeJump = nil
+        redraw()
+    }
+
+    private func cancelScheduledRestore() {
+        restoreGeneration &+= 1
+        cancelRestore?()
+        cancelRestore = nil
     }
 
     // MARK: - Intensity policy (pure, testable)
