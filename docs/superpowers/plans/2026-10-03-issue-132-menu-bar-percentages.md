@@ -210,35 +210,41 @@ splitMenuBarPercentagesEnabled = defaults.object(for: .splitMenuBarPercentagesEn
 - Add narrowly scoped synthetic test/capture hooks only if current fixtures cannot
   exercise the new surface safely. Coordinator owns all docs/shared files.
 
-- [ ] Use a synthetic AppKit fixture in its own process/domain, with no production
+- [x] Use a synthetic AppKit fixture in its own process/domain, with no production
   startup/auth/session check, to verify a real status item, Settings, and Observation
   wiring. Do not run the installation/capture script that kills/replaces the app.
-- [ ] Inspect AX-addressed native captures: toggle off/on, both placements, normal/
+- [x] Inspect AX-addressed native captures: toggle off/on, both placements, normal/
   near-100/missing readouts, jump redraw/restore, light/dark/high contrast, available
   backing scales, Settings preview shape, tooltip, and named accessibility value.
   Do not use screen-coordinate clicks. Keep private test captures local.
-- [ ] Refresh the committed Display screenshot with synthetic account data, retaining
+- [x] Refresh the committed Display screenshot with synthetic account data, retaining
   current repository screenshot framing and inspecting the image before staging.
-- [ ] Update README feature/hover descriptions in both languages; describe the new
+- [x] Update README feature/hover descriptions in both languages; describe the new
   default-off switch and preserve hover. Sweep old icon-only claims and clarify the
   superseding opt-in exception without changing unrelated prior designs.
 - [x] Run the safe broad Swift suite, `swift build -c release`, and installer tests.
   Capture exact command results and failures; do not claim native checks from HTML.
-- [ ] **Checkpoint B:** the same three fresh Cursor models review the full integrated
+- [x] **Checkpoint B:** the same three fresh Cursor models review the full integrated
   diff, test evidence, and any remaining native limitations. Astra independently
   adjudicates, implements valid findings, and seeks focused agreement as needed.
-- [ ] Commit docs/screenshots and any review fixes as meaningful separate commits.
+- [x] Commit docs/screenshots and any review fixes as meaningful separate commits.
+
+Native evidence completed on October 4 at 2× backing scale: actual menu-bar
+light/dark theme changes without a usage refresh, jump/live-update transitions,
+click-to-popover, and pool-named AX values. High-contrast Settings captures and
+1×/2× renderer tests supplement this; system-wide high contrast and spoken
+VoiceOver audio were not exercised. The Display capture uses synthetic data.
 
 ## Task 5: PR, independent review, CI, and merge
 
-- [ ] Push the feature branch and create an English PR closing #132. Include behavior,
+- [x] Push the feature branch and create an English PR closing #132. Include behavior,
   spec link, test counts, native evidence, local Keychain-test exclusions versus CI,
   and scope limits. Keep local HTML/review logs out of the PR.
-- [ ] Check the exact head CI on both `macos-15` and `macos-15-intel`.
-- [ ] **Checkpoint C:** all three Cursor models review the complete PR diff versus
+- [x] Check the exact head CI on both `macos-15` and `macos-15-intel`.
+- [x] **Checkpoint C:** all three Cursor models review the complete PR diff versus
   fresh `origin/main`, not merely the latest commit. Astra also performs an
   independent frontier review and posts the adjudicated summary to the PR.
-- [ ] Resolve every actionable finding against facts; use targeted tests and review
+- [x] Resolve every actionable finding against facts; use targeted tests and review
   follow-ups. Re-run checks for changed code; do not relaunch failed model inference
   silently or substitute models. Recover a proven completed result when runtime
   metadata is stale; record success/exit provenance.

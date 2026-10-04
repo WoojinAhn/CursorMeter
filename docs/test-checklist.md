@@ -52,7 +52,9 @@ Run through these scenarios after each feature change or before release.
 - [ ] Missing values show `—`; `0.0%`, `<0.1%`, `<100.0%`, and `>100.0%` remain distinct
 - [ ] During a jump, the emoji replaces only the circle; percentages stay current and the restore deadline does not restart
 - [ ] Logout/ownership retirement removes the new numbers; a legacy plan hides the switch while preserving its value
-- [ ] Light/dark and high-contrast appearances remain readable without clipping
+- [ ] Light/dark and high-contrast appearances remain readable without clipping; theme changes update digits without a usage refresh
+- [ ] The enlarged status item remains one click target opening the popover; VoiceOver names both pools and their values
+- [ ] During an active jump, switching percentages off/on preserves the deadline; login-required with retained data hides numbers but keeps existing tooltip/base-image behavior
 
 ## Notifications (#2)
 

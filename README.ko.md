@@ -34,7 +34,7 @@ Cursor는 [2026년 2월 11일 개인 요금제의 사용량 풀 분리를 공식
 - **최근 사용 내역** — 설정 → Usage에서 최근 요청 최대 30건의 모델·시각·유형·토큰·달러 금액을 확인할 수 있습니다. Included 금액은 추가 청구액이 아니라 요금제에 포함된 사용 가치입니다. **Local**(기본값: 이 Mac의 시간대)과 **UTC**를 선택할 수 있으며, **Open Cursor**로 전체 내역과 청구 대시보드를 엽니다.
 - **이 Mac에 저장** — 최대 30건의 스냅샷 하나를 재시작 후에도 유지하며 원래 캐시 날짜와 시각을 표시합니다. 갱신에 실패해도 사용 가능한 저장 내역은 유지됩니다. Mac마다 캐시와 갱신 일정이 별도로 동작하며, 전체 이력 보관이나 기기 간 동기화 기능은 아닙니다.
 - **공통 새로고침** — 팝오버와 Usage 탭은 진행 중인 갱신 하나와 새 갱신 시작 사이의 최소 3초 간격을 공유하며, 진행 피드백을 최소 1.3초 표시합니다. 목록은 기존 주간 이벤트 응답을 재사용합니다. 탭을 열거나 시간대를 바꾸는 동작은 요청을 보내지 않습니다.
-- 분리 플랜은 작은 메뉴바 아이콘을 유지하고 hover에서 두 계열, 클릭으로 상세 정보를 표시합니다. 단일 플랜은 기존 아이콘·분수·퍼센트 모드와 저장된 선택을 유지합니다.
+- 분리 플랜은 기본적으로 작은 메뉴바 아이콘을 유지합니다. Settings → Display에서 **Show percentages**를 켜면 원 옆에 바깥 계열은 위, 안쪽 계열은 아래로 두 사용률을 표시합니다. hover에서는 계속 두 계열의 이름을 확인하고, 클릭하면 상세 정보를 볼 수 있습니다. 단일 플랜은 기존 아이콘·분수·퍼센트 모드와 저장된 선택을 유지합니다.
 - 설정 UI (새로고침 간격, 알림 임계치, 메뉴바 표시 형식, 점프 이펙트 강도, 주간 차트 스타일, 최근 사용 내역)
 - 로그인 시 자동 실행 지원
 - 앱 내 업데이트 확인
@@ -122,7 +122,7 @@ swift test    # 전체 테스트 실행 (Xcode 필요)
   </tr>
   <tr>
     <td align="center" valign="top"><a href="docs/screenshots/popover-weekly.png"><img src="docs/screenshots/popover-weekly.png" alt="중앙 원의 Cursor Models와 바깥 링의 Other Models, 사용량 수치와 주간 차트" width="300"></a></td>
-    <td align="center" valign="top"><a href="docs/screenshots/settings-display.png"><img src="docs/screenshots/settings-display.png" alt="안팎 배치, 퍼센트와 달러, 선택적 추정 한도와 점프 이펙트 설정" width="300"></a></td>
+    <td align="center" valign="top"><a href="docs/screenshots/settings-display.png"><img src="docs/screenshots/settings-display.png" alt="메뉴바의 두 사용률, 안팎 배치, 팝오버 수치, 선택적 추정 한도와 점프 이펙트 설정" width="300"></a></td>
   </tr>
   <tr>
     <td align="center">두 계열의 사용량과 한 주의 흐름.</td>

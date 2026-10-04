@@ -34,7 +34,7 @@ The split meter currently has **one visual layout: a center pie and an outer rin
 - **Recent usage** — Settings → Usage shows up to the latest 30 requests, with model, time, type, tokens, and USD value. Included amounts represent usage covered by your plan, not additional charges. Choose **Local** (this Mac’s time zone, the default) or **UTC**; **Open Cursor** leads to the full history and billing dashboard.
 - **Saved on this Mac** — one bounded snapshot survives restarts and shows its original cache date and time. A failed refresh keeps eligible saved data. Each Mac has its own cache and refresh schedule; this is not a local archive or device synchronization service.
 - **Shared refresh** — the popover and Usage tab share one in-flight refresh and a minimum 3-second interval between accepted starts, with at least 1.3 seconds of progress feedback. The list reuses the existing weekly event response. Opening the tab or changing time zones makes no request.
-- Split plans keep the menu bar icon compact and reveal both pools on hover; click for details. Single-pool plans retain icon-only, fraction, and percentage modes, including your saved preference.
+- Split plans keep the menu bar icon compact by default. Turn on **Show percentages** in Settings → Display to place both usage percentages beside the circle: outer pool above, center pool below. Hover still names both pools; click for details. Single-pool plans retain icon-only, fraction, and percentage modes, including your saved preference.
 - Settings UI (refresh interval, notification thresholds, menu bar display format, jump-effect intensity, weekly-chart style, recent usage)
 - Launch at login support
 - In-app update checker
@@ -122,7 +122,7 @@ Found a bug or have an idea? [Open an issue](https://github.com/WoojinAhn/Cursor
   </tr>
   <tr>
     <td align="center" valign="top"><a href="docs/screenshots/popover-weekly.png"><img src="docs/screenshots/popover-weekly.png" alt="Center pie for Cursor Models, outer ring for Other Models, usage values and weekly chart" width="300"></a></td>
-    <td align="center" valign="top"><a href="docs/screenshots/settings-display.png"><img src="docs/screenshots/settings-display.png" alt="Display settings for ring placement, percentages or dollars, optional estimates and jump effects" width="300"></a></td>
+    <td align="center" valign="top"><a href="docs/screenshots/settings-display.png"><img src="docs/screenshots/settings-display.png" alt="Display settings for stacked menu bar percentages, ring placement, popover values, optional estimates and jump effects" width="300"></a></td>
   </tr>
   <tr>
     <td align="center">Both allowances and the week’s activity.</td>
