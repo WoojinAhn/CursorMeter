@@ -1,5 +1,7 @@
 # Optional stacked menu-bar percentages
 
+Follow-up: [#134 compact-spacing correction](2026-10-04-menu-bar-spacing-correction.md) supersedes the boundary-width reservation below; the rest of this contract is unchanged.
+
 Status: Reviewed v1.0, implementation authorized by the owner under issue #132.
 All three models approved draft v0.1 without blocking findings; this revision
 incorporates the coordinator's adjudicated clarifications.
