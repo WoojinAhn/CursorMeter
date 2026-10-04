@@ -5,9 +5,9 @@ import XCTest
 
 @MainActor
 final class SplitMenuBarRendererTests: XCTestCase {
-    func testOrdinaryAndBoundaryValuesReserveStableGeometry() {
+    func testOrdinaryValuesReserveCompactStableGeometry() {
         let baseline = SplitMenuBarRenderer.layout(readout: .init(upper: "0.0%", lower: "—"))
-        for text in ["0.0%", "9.9%", "99.9%", "100.0%", "<0.1%", "<100.0%", ">100.0%", "135.3%", "—"] {
+        for text in ["0.0%", "9.9%", "99.9%", "<0.1%", "—"] {
             let layout = SplitMenuBarRenderer.layout(readout: .init(upper: text, lower: text))
             XCTAssertEqual(layout.size, baseline.size, text)
             XCTAssertEqual(layout.size.height, 22)
@@ -18,6 +18,24 @@ final class SplitMenuBarRendererTests: XCTestCase {
             XCTAssertEqual(layout.upperRowRect.minY, layout.lowerRowRect.maxY)
             XCTAssertTrue(layout.upperRowRect.contains(layout.upperInkBounds), text)
             XCTAssertTrue(layout.lowerRowRect.contains(layout.lowerInkBounds), text)
+        }
+        let ordinary = SplitMenuBarRenderer.layout(readout: .init(upper: "54.9%", lower: "3.7%"))
+        XCTAssertLessThanOrEqual(ordinary.upperInkBounds.minX - ordinary.iconRect.maxX, 6)
+    }
+
+    func testLongerBoundaryValuesExpandWithoutMovingBaselines() {
+        let ordinary = SplitMenuBarRenderer.layout(readout: .init(upper: "54.9%", lower: "3.7%"))
+        for text in ["100.0%", "<100.0%", ">100.0%", "135.3%"] {
+            for readout in [SplitMenuBarReadout(upper: text, lower: "3.7%"),
+                            .init(upper: "54.9%", lower: text)] {
+                let expanded = SplitMenuBarRenderer.layout(readout: readout)
+                XCTAssertGreaterThan(expanded.size.width, ordinary.size.width, text)
+                XCTAssertEqual(expanded.upperTextOrigin.y, ordinary.upperTextOrigin.y)
+                XCTAssertEqual(expanded.lowerTextOrigin.y, ordinary.lowerTextOrigin.y)
+                XCTAssertEqual(expanded.iconRect, ordinary.iconRect)
+                XCTAssertTrue(expanded.upperRowRect.contains(expanded.upperInkBounds), text)
+                XCTAssertTrue(expanded.lowerRowRect.contains(expanded.lowerInkBounds), text)
+            }
         }
     }
 

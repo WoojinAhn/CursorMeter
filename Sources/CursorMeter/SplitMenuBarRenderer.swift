@@ -15,22 +15,22 @@ enum SplitMenuBarRenderer {
         let lowerInkBounds: NSRect
     }
 
-    private static let reservedStrings = ["0.0%", "99.9%", "100.0%", "<0.1%", "<100.0%", ">100.0%", "—"]
+    private static let baselineStrings = ["0.0%", "99.9%", "100.0%", "<0.1%", "<100.0%", ">100.0%", "—"]
     // NSImage drawing handlers may run off-main; keep non-Sendable font state local.
     private static var font: NSFont { .monospacedDigitSystemFont(ofSize: 10, weight: .medium) }
 
     static func layout(readout: SplitMenuBarReadout) -> Layout {
-        let reserved = reservedStrings.map { line($0) }
+        let baselineLines = baselineStrings.map { line($0) }
         let upper = line(readout.upper)
         let lower = line(readout.lower)
         let upperWidth = CGFloat(CTLineGetTypographicBounds(upper, nil, nil, nil))
         let lowerWidth = CGFloat(CTLineGetTypographicBounds(lower, nil, nil, nil))
-        let reservedWidth = reserved.map { CGFloat(CTLineGetTypographicBounds($0, nil, nil, nil)) }.max() ?? 0
+        let reservedWidth = CGFloat(CTLineGetTypographicBounds(line("99.9%"), nil, nil, nil))
         let textWidth = ceil(max(reservedWidth, upperWidth, lowerWidth))
         let upperRow = NSRect(x: 22, y: 11, width: textWidth, height: 11)
         let lowerRow = NSRect(x: 22, y: 0, width: textWidth, height: 11)
         // AppKit's 13 pt line height exceeds each row; center glyph ink on a shared baseline instead.
-        let referenceInk = reserved.map { CTLineGetBoundsWithOptions($0, .useGlyphPathBounds) }
+        let referenceInk = baselineLines.map { CTLineGetBoundsWithOptions($0, .useGlyphPathBounds) }
             .reduce(CGRect.null) { $0.union($1) }
         let upperOrigin = NSPoint(x: upperRow.maxX - upperWidth, y: upperRow.midY - referenceInk.midY)
         let lowerOrigin = NSPoint(x: lowerRow.maxX - lowerWidth, y: lowerRow.midY - referenceInk.midY)
