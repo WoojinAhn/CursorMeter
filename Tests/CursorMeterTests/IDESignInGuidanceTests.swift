@@ -63,7 +63,7 @@ final class IDESignInGuidanceTests: XCTestCase {
     private func makeViewModel(box: CredentialBox) -> UsageViewModel {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [MockURLProtocol.self]
-        let vm = UsageViewModel(
+        let vm = makeTestUsageViewModel(
             apiClient: CursorAPIClient(configuration: config),
             refreshFeedback: RefreshFeedback(timing: .immediate)
         )
@@ -229,14 +229,18 @@ final class IDESignInGuidanceTests: XCTestCase {
     func test_watch_stopsWhenLoggedInViaBrowser() async {
         let box = CredentialBox()
         let vm = makeViewModel(box: box)
+        var savedCookies: [String] = []
+        vm.keychainSaveHandler = { savedCookies.append($0) }
         MockURLProtocol.requestHandler = Self.successHandler
         vm.ideAppLauncher = { completion in completion(true) }
 
         vm.openIDEAndWatch()
         try? await Task.sleep(for: .milliseconds(60))
         vm.onLoginSuccess(cookieHeader: "WorkosCursorSessionToken=browser")   // browser login mid-poll
+        XCTAssertEqual(savedCookies, ["WorkosCursorSessionToken=browser"])
 
         await waitUntil { vm.authState == .loggedIn }
+        XCTAssertEqual(vm.authState, .loggedIn)
         try? await Task.sleep(for: .milliseconds(80))   // let the watch observe loggedIn
         let countAfterStop = box.readCountSnapshot()
         try? await Task.sleep(for: .milliseconds(100))
@@ -353,12 +357,12 @@ final class BrowserLoginDeprecationTests: XCTestCase {
     }
 
     func test_browserLoginEnabled_defaultsOffAndRoundTrips() {
-        let vm1 = UsageViewModel(apiClient: CursorAPIClient(configuration: .ephemeral))
+        let vm1 = makeTestUsageViewModel()
         vm1.updateCheckRunner = { .upToDate }
         XCTAssertFalse(vm1.browserLoginEnabled, "deprecated path must default off")
 
         vm1.setBrowserLoginEnabled(true)
-        let vm2 = UsageViewModel(apiClient: CursorAPIClient(configuration: .ephemeral))
+        let vm2 = makeTestUsageViewModel()
         vm2.updateCheckRunner = { .upToDate }
         XCTAssertTrue(vm2.browserLoginEnabled, "setting must persist across instances")
     }

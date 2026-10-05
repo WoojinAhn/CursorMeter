@@ -96,7 +96,7 @@ final class UsageViewModelTests: XCTestCase {
 
     @MainActor
     func test_latch_activatesWhenQuotaExhausted() async {
-        let vm = UsageViewModel()
+        let vm = makeTestUsageViewModel()
         let base = makeFixture(
             requestsUsed: 600, requestsLimit: 500,
             onDemandUsedCents: 100, onDemandLimitCents: 4000, onDemandEnabled: true,
@@ -107,7 +107,7 @@ final class UsageViewModelTests: XCTestCase {
 
     @MainActor
     func test_latch_doesNotActivate_belowQuota() async {
-        let vm = UsageViewModel()
+        let vm = makeTestUsageViewModel()
         let base = makeFixture(
             requestsUsed: 400, requestsLimit: 500,
             onDemandUsedCents: 0, onDemandLimitCents: 4000, onDemandEnabled: true,
@@ -118,7 +118,7 @@ final class UsageViewModelTests: XCTestCase {
 
     @MainActor
     func test_latch_oscillationGuard_doesNotResetNotifications() async {
-        let vm = UsageViewModel()
+        let vm = makeTestUsageViewModel()
         // First: cross the threshold → latched + reset
         let over = makeFixture(
             requestsUsed: 600, requestsLimit: 500,
@@ -138,7 +138,7 @@ final class UsageViewModelTests: XCTestCase {
 
     @MainActor
     func test_latch_resetsOnLogout() async {
-        let vm = UsageViewModel()
+        let vm = makeTestUsageViewModel()
         vm.keychainDeleteHandler = {}  // #82: logout() must not touch the real Keychain
         let base = makeFixture(
             requestsUsed: 600, requestsLimit: 500,
@@ -158,7 +158,7 @@ final class UsageViewModelTests: XCTestCase {
 
     @MainActor
     func test_latch_rolloverIntoFreshCycle_immediatelyUnlatches() async {
-        let vm = UsageViewModel()
+        let vm = makeTestUsageViewModel()
         let cycle1 = Date(timeIntervalSince1970: 1_700_000_000)
         let cycle2 = Date(timeIntervalSince1970: 1_702_678_400)
 

@@ -363,7 +363,7 @@ final class SplitUsageUITests: XCTestCase {
     private func makeViewModel(splitUsage: SplitUsageController? = nil) -> UsageViewModel {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [MockURLProtocol.self]
-        let vm = UsageViewModel(apiClient: CursorAPIClient(configuration: config), splitUsage: splitUsage)
+        let vm = makeTestUsageViewModel(apiClient: CursorAPIClient(configuration: config), splitUsage: splitUsage)
         vm.updateCheckRunner = { .upToDate }
         vm.notificationEnabled = false
         vm.keychainDeleteHandler = {}

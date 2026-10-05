@@ -162,7 +162,7 @@ final class UsabilityAlertsTests: XCTestCase {
     private func makeViewModel(manager: NotificationManager? = nil) throws -> UsageViewModel {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [MockURLProtocol.self]
-        let vm = UsageViewModel(apiClient: CursorAPIClient(configuration: config), notificationManager: manager)
+        let vm = makeTestUsageViewModel(apiClient: CursorAPIClient(configuration: config), notificationManager: manager)
         vm.keychainDeleteHandler = {}
         vm.sessionExpiredNotifier = {}
         vm.notificationEnabled = true

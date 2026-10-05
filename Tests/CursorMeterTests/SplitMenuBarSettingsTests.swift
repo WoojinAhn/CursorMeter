@@ -158,7 +158,7 @@ enum SplitMenuBarTestFixtures {
     static func makeViewModel() -> UsageViewModel {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MockURLProtocol.self]
-        let vm = UsageViewModel(apiClient: CursorAPIClient(configuration: configuration))
+        let vm = makeTestUsageViewModel(apiClient: CursorAPIClient(configuration: configuration))
         vm.updateCheckRunner = { .upToDate }
         vm.notificationEnabled = false
         vm.keychainDeleteHandler = {}

@@ -671,7 +671,7 @@ final class WeeklyUsageTests: XCTestCase {
     @MainActor
     func testWeeklyChartSettingsDefaults() {
         clearWeeklyChartDefaults()
-        let vm = UsageViewModel()
+        let vm = makeTestUsageViewModel()
         XCTAssertTrue(vm.weeklyChartEnabled)
         XCTAssertEqual(vm.weeklyChartStyle, .outline)
     }
@@ -679,26 +679,26 @@ final class WeeklyUsageTests: XCTestCase {
     @MainActor
     func testSetWeeklyChartEnabledPersists() {
         clearWeeklyChartDefaults()
-        let vm = UsageViewModel()
+        let vm = makeTestUsageViewModel()
         vm.setWeeklyChartEnabled(false)
 
         XCTAssertFalse(vm.weeklyChartEnabled)
         XCTAssertEqual(UserDefaults.standard.bool(forKey: "weeklyChartEnabled"), false)
 
-        let reloaded = UsageViewModel()
+        let reloaded = makeTestUsageViewModel()
         XCTAssertFalse(reloaded.weeklyChartEnabled)
     }
 
     @MainActor
     func testSetWeeklyChartStylePersists() {
         clearWeeklyChartDefaults()
-        let vm = UsageViewModel()
+        let vm = makeTestUsageViewModel()
         vm.setWeeklyChartStyle(.both)
 
         XCTAssertEqual(vm.weeklyChartStyle, .both)
         XCTAssertEqual(UserDefaults.standard.integer(forKey: "weeklyChartStyle"), WeeklyChartStyle.both.rawValue)
 
-        let reloaded = UsageViewModel()
+        let reloaded = makeTestUsageViewModel()
         XCTAssertEqual(reloaded.weeklyChartStyle, .both)
     }
 
@@ -719,7 +719,7 @@ final class PersonalWeeklyPathTests: XCTestCase {
     private func makeViewModel() -> UsageViewModel {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [MockURLProtocol.self]
-        let vm = UsageViewModel(
+        let vm = makeTestUsageViewModel(
             apiClient: CursorAPIClient(configuration: config),
             refreshFeedback: RefreshFeedback(timing: .immediate)
         )
@@ -976,7 +976,7 @@ final class WeeklyModeInvalidationTests: XCTestCase {
     private func makeViewModel() -> UsageViewModel {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [MockURLProtocol.self]
-        let vm = UsageViewModel(
+        let vm = makeTestUsageViewModel(
             apiClient: CursorAPIClient(configuration: config),
             refreshFeedback: RefreshFeedback(timing: .immediate)
         )

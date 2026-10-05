@@ -203,7 +203,7 @@ final class JumpEffectCoordinatorTests: XCTestCase {
     private func makeViewModel() -> UsageViewModel {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [MockURLProtocol.self]
-        let vm = UsageViewModel(apiClient: CursorAPIClient(configuration: config),
+        let vm = makeTestUsageViewModel(apiClient: CursorAPIClient(configuration: config),
             notificationManager: NotificationManager(requestAuthorization: { false }, deliver: { _ in }))
         vm.updateCheckRunner = { .upToDate }
         vm.keychainDeleteHandler = {}
@@ -369,14 +369,14 @@ final class JumpEffectCoordinatorTests: XCTestCase {
         UserDefaults.standard.removeObject(forKey: "jumpGlyphStyle")
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [MockURLProtocol.self]
-        let vm = UsageViewModel(apiClient: CursorAPIClient(configuration: config))
+        let vm = makeTestUsageViewModel(apiClient: CursorAPIClient(configuration: config))
         vm.updateCheckRunner = { .upToDate }
         XCTAssertEqual(vm.jumpGlyphStyle, .classic, "default is classic for back-compat")
 
         vm.setJumpGlyphStyle(.dollar)
         XCTAssertEqual(UserDefaults.standard.integer(forKey: "jumpGlyphStyle"), JumpGlyphStyle.dollar.rawValue)
 
-        let reloaded = UsageViewModel(apiClient: CursorAPIClient(configuration: config))
+        let reloaded = makeTestUsageViewModel(apiClient: CursorAPIClient(configuration: config))
         reloaded.updateCheckRunner = { .upToDate }
         XCTAssertEqual(reloaded.jumpGlyphStyle, .dollar)
 

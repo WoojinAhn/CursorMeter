@@ -11,7 +11,7 @@ final class WeeklyChartFreshnessTests: XCTestCase {
     private func makeViewModel(withCapturedCookie: Bool = true) -> UsageViewModel {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MockURLProtocol.self]
-        let vm = UsageViewModel(
+        let vm = makeTestUsageViewModel(
             apiClient: CursorAPIClient(configuration: configuration),
             refreshFeedback: RefreshFeedback(timing: .immediate)
         )

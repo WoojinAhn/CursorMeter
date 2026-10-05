@@ -24,7 +24,7 @@ final class SplitUsageIntegrationTests: XCTestCase {
         }
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [MockURLProtocol.self]
-        let vm = UsageViewModel(apiClient: CursorAPIClient(configuration: config), refreshFeedback: RefreshFeedback(timing: .immediate),
+        let vm = makeTestUsageViewModel(apiClient: CursorAPIClient(configuration: config), refreshFeedback: RefreshFeedback(timing: .immediate),
             notificationManager: manager ?? NotificationManager(requestAuthorization: { false }, deliver: { _ in }),
             splitUsage: controller ?? SplitUsageController())
         vm.updateCheckRunner = { .upToDate }

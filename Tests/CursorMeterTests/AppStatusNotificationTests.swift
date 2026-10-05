@@ -58,7 +58,7 @@ final class AppStatusNotificationTests: XCTestCase {
     /// the real check runs from `init` and could nondeterministically write
     /// `lastNotifiedUpdateVersion` mid-suite (test host version is "0.0.0").
     private func makeViewModel() -> UsageViewModel {
-        let vm = UsageViewModel()
+        let vm = makeTestUsageViewModel()
         vm.updateCheckRunner = { .upToDate }
         return vm
     }
@@ -150,7 +150,7 @@ final class AppStatusNotificationTests: XCTestCase {
     private func makeFailingViewModel(spy: Spy) -> UsageViewModel {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [MockURLProtocol.self]
-        let vm = UsageViewModel(
+        let vm = makeTestUsageViewModel(
             apiClient: CursorAPIClient(configuration: config),
             refreshFeedback: RefreshFeedback(timing: .immediate)
         )

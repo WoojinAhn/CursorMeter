@@ -142,7 +142,7 @@ final class UsageViewModelJumpTests: XCTestCase {
 
     @MainActor
     func testLegacyJumpCapturesExactReferenceAndCurrentBeforeLaterRefreshes() {
-        let vm = UsageViewModel()
+        let vm = makeTestUsageViewModel()
         vm.updateCheckRunner = { .upToDate }
         vm.testHook_updateJumpState(from: makeFixture(serverPercentUsed: 26.123))
         vm.testHook_updateJumpState(from: makeFixture(serverPercentUsed: 41.234))
@@ -157,7 +157,7 @@ final class UsageViewModelJumpTests: XCTestCase {
 
     @MainActor
     func testLegacyCorrectionKeepsExistingLastRefreshComparison() {
-        let vm = UsageViewModel()
+        let vm = makeTestUsageViewModel()
         vm.updateCheckRunner = { .upToDate }
         vm.testHook_updateJumpState(from: makeFixture(serverPercentUsed: 50))
         vm.testHook_updateJumpState(from: makeFixture(serverPercentUsed: 40))
@@ -174,14 +174,14 @@ final class UsageViewModelJumpTests: XCTestCase {
     func testJumpSettingsDefaults() {
         UserDefaults.standard.removeObject(forKey: "jumpEffectEnabled")
         UserDefaults.standard.removeObject(forKey: "jumpIntensity")
-        let vm = UsageViewModel()
+        let vm = makeTestUsageViewModel()
         XCTAssertTrue(vm.jumpEffectEnabled)
         XCTAssertEqual(vm.jumpIntensity, .normal)
     }
 
     @MainActor
     func testJumpSettingsSettersPersist() {
-        let vm = UsageViewModel()
+        let vm = makeTestUsageViewModel()
         vm.setJumpEffectEnabled(false)
         vm.setJumpIntensity(.bold)
         XCTAssertFalse(vm.jumpEffectEnabled)
@@ -202,7 +202,7 @@ final class UsageViewModelJumpTests: XCTestCase {
     }
 
     func test_updateJumpState_transitionRequestToOnDemand_skipsDelta() async {
-        let vm = await MainActor.run { UsageViewModel() }
+        let vm = await MainActor.run { makeTestUsageViewModel() }
         let d1 = makeFixture(
             requestsUsed: 400, requestsLimit: 500,
             onDemandUsedCents: 0, onDemandLimitCents: 4000, onDemandEnabled: true,
@@ -223,7 +223,7 @@ final class UsageViewModelJumpTests: XCTestCase {
     }
 
     func test_updateJumpState_subsequentOnDemand_firesJump() async {
-        let vm = await MainActor.run { UsageViewModel() }
+        let vm = await MainActor.run { makeTestUsageViewModel() }
         let baseline = makeFixture(
             onDemandUsedCents: 500, onDemandLimitCents: 4000, onDemandEnabled: true,
             isOnDemandActive: true
@@ -248,7 +248,7 @@ final class UsageViewModelJumpTests: XCTestCase {
     /// delta against the prior user's value. After clearing on logout, the
     /// next first refresh is treated as a baseline-set (no jump emitted).
     func test_logout_clearsJumpBaselines() async {
-        let vm = await MainActor.run { UsageViewModel() }
+        let vm = await MainActor.run { makeTestUsageViewModel() }
         await MainActor.run { vm.keychainDeleteHandler = {} }  // #82: no real Keychain in tests
         let baseline = makeFixture(requestsUsed: 100, requestsLimit: 500)
         let next = makeFixture(requestsUsed: 150, requestsLimit: 500)

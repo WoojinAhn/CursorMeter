@@ -22,7 +22,7 @@ final class DevBuildGateTests: XCTestCase {
     private func makeViewModel() async -> UsageViewModel {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [MockURLProtocol.self]
-        let vm = UsageViewModel(
+        let vm = makeTestUsageViewModel(
             apiClient: CursorAPIClient(configuration: config),
             refreshFeedback: RefreshFeedback(timing: .immediate)
         )
@@ -63,6 +63,26 @@ final class DevBuildGateTests: XCTestCase {
         default:
             return (HTTPURLResponse(url: url, statusCode: 404, httpVersion: nil, headerFields: nil)!, Data("{}".utf8))
         }
+    }
+
+    // MARK: - Startup path
+
+    func testStartupCheckUsesInjectedRunner() async {
+        var calls = 0
+        let expected = UpdateCheckResult.failed(reason: "startup fixture")
+        let vm = makeTestUsageViewModel(updateCheckRunner: {
+            calls += 1
+            return expected
+        })
+        vm.devBuildCommit = nil
+
+        for _ in 0..<100_000 {
+            if vm.lastUpdateCheckResult != nil { break }
+            await Task.yield()
+        }
+
+        XCTAssertEqual(calls, 1)
+        XCTAssertEqual(vm.lastUpdateCheckResult, expected)
     }
 
     // MARK: - Manual path

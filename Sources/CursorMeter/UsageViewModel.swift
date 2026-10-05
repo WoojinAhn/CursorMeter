@@ -341,6 +341,11 @@ final class UsageViewModel {
     @ObservationIgnored private var activeNetworkTask: Task<Void, Never>?
     @ObservationIgnored private var lastRequestScope: RecentUsageRequestScope?
 
+    /// Keychain saving, injectable for tests — the default writes the real
+    /// `com.cursormeter.session` item, which tests must never touch.
+    @ObservationIgnored internal var keychainSaveHandler: (String) throws -> Void =
+        KeychainStore.saveCookieHeader
+
     /// Keychain deletion, injectable for tests — the default deletes the real
     /// `com.cursormeter.session` item, which tests must never touch.
     @ObservationIgnored internal var keychainDeleteHandler: () throws -> Void =
@@ -600,7 +605,7 @@ final class UsageViewModel {
         // membership flag until the next logout/login round-trip.
         resetPerAccountState()
         do {
-            try KeychainStore.saveCookieHeader(cookieHeader)
+            try keychainSaveHandler(cookieHeader)
             Log.info("Cookie header saved to Keychain")
         } catch {
             Log.error("Failed to save cookie: \(error)")

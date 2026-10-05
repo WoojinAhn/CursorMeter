@@ -25,7 +25,7 @@ final class Profile404MitigationTests: XCTestCase {
                            alertStore: SplitUsageAlertStore? = nil) -> UsageViewModel {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [MockURLProtocol.self]
-        let vm = UsageViewModel(apiClient: CursorAPIClient(configuration: config), recentUsage: recent,
+        let vm = makeTestUsageViewModel(apiClient: CursorAPIClient(configuration: config), recentUsage: recent,
             refreshFeedback: RefreshFeedback(timing: .immediate),
             notificationManager: manager ?? NotificationManager(requestAuthorization: { false }, deliver: { _ in }),
             splitUsage: SplitUsageController(), splitAlertStore: alertStore)

@@ -7,7 +7,7 @@ final class RecentUsageUITests: XCTestCase {
     private func makeViewModel(refreshFeedback: RefreshFeedback? = nil) -> UsageViewModel {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [MockURLProtocol.self]
-        let vm = UsageViewModel(apiClient: CursorAPIClient(configuration: config), refreshFeedback: refreshFeedback)
+        let vm = makeTestUsageViewModel(apiClient: CursorAPIClient(configuration: config), refreshFeedback: refreshFeedback)
         vm.updateCheckRunner = { .upToDate }
         vm.keychainDeleteHandler = {}
         vm.sessionExpiredNotifier = {}

@@ -73,7 +73,7 @@ final class MenuBarViewLayoutTests: XCTestCase {
             XCTAssertEqual(data.wouldActivateOnDemand, onDemand)
             let config = URLSessionConfiguration.ephemeral
             config.protocolClasses = [MockURLProtocol.self]
-            let vm = UsageViewModel(apiClient: CursorAPIClient(configuration: config))
+            let vm = makeTestUsageViewModel(apiClient: CursorAPIClient(configuration: config))
             vm.updateCheckRunner = { .upToDate }
             vm.authState = .loggedIn
             vm.usageData = data.withOnDemandActive(data.wouldActivateOnDemand)
@@ -112,7 +112,7 @@ final class MenuBarViewLayoutTests: XCTestCase {
     func test_staleRowVisible_contentFittingWidth_staysWithinInnerWidth() async {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [MockURLProtocol.self]
-        let vm = UsageViewModel(
+        let vm = makeTestUsageViewModel(
             apiClient: CursorAPIClient(configuration: config),
             refreshFeedback: RefreshFeedback(timing: .immediate)
         )

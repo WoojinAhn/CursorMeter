@@ -231,7 +231,7 @@ final class UsabilitySettingsTests: XCTestCase {
     private func makeViewModel() -> UsageViewModel {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [MockURLProtocol.self]
-        let vm = UsageViewModel(apiClient: CursorAPIClient(configuration: config))
+        let vm = makeTestUsageViewModel(apiClient: CursorAPIClient(configuration: config))
         vm.updateCheckRunner = { .upToDate }
         vm.notificationEnabled = false
         vm.keychainDeleteHandler = {}

@@ -99,7 +99,7 @@ final class UsabilityPopoverTests: XCTestCase {
     private func makeViewModel(split: Bool) throws -> UsageViewModel {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [MockURLProtocol.self]
-        let vm = UsageViewModel(apiClient: CursorAPIClient(configuration: config))
+        let vm = makeTestUsageViewModel(apiClient: CursorAPIClient(configuration: config))
         vm.authState = .loggedIn
         vm.updateCheckRunner = { .upToDate }
         let json = #"{"billingCycleStart":"2026-09-01T00:00:00Z","billingCycleEnd":"2026-10-01T00:00:00Z","membershipType":"ultra","individualUsage":{"plan":{"enabled":true,"used":18200,"limit":40000,"autoPercentUsed":135.25,"apiPercentUsed":41},"onDemand":{"enabled":false,"used":200,"limit":1000}}}"#
