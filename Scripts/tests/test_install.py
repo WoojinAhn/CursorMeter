@@ -1,4 +1,4 @@
-"""Exercise architecture selection without network access or a live app."""
+"""Exercise release parsing and installation without network access or a live app."""
 
 import hashlib
 import json
@@ -75,7 +75,8 @@ class InstallerTests(unittest.TestCase):
         self.binary.write_text("existing installation")
 
     def run_installer(self, arch="arm64", translated="", assets=None,
-                      corrupt=None, checksums=True, **config):
+                      corrupt=None, checksums=True, release_body="",
+                      tag="v0.11.0", via_stdin=False, **config):
         config.update(arch=arch, translated=translated)
         (self.root / "config.json").write_text(json.dumps(config))
         asset_dir = self.root / "assets"
@@ -89,13 +90,18 @@ class InstallerTests(unittest.TestCase):
                 digest = "0" * 64 if name == corrupt else hashlib.sha256(payload).hexdigest()
                 (asset_dir / f"{name}.sha256").write_text(f"{digest}  {name}\n")
                 names.append(f"{name}.sha256")
-        release = {"tag_name": "v0.11.0", "assets": [
+        release = {"assets": [
             {"name": name, "browser_download_url": BASE_URL + name} for name in names
         ]}
+        if tag is not None:
+            release = {"tag_name": tag, **release}
+        release["body"] = release_body
         (self.root / "release.json").write_text(json.dumps(release, indent=2))
         env = dict(os.environ, PATH=f"{self.bin}:/usr/bin:/bin:/usr/sbin:/sbin",
                    APP_DEST=str(self.app), INSTALL_TEST_ROOT=str(self.root))
-        self.result = subprocess.run(["/bin/bash", str(INSTALLER)], env=env,
+        command = ["/bin/bash"] if via_stdin else ["/bin/bash", str(INSTALLER)]
+        self.result = subprocess.run(command, env=env,
+                                     input=INSTALLER.read_text() if via_stdin else None,
                                      capture_output=True, text=True)
         self.calls = [json.loads(line) for line in (self.root / "calls.jsonl").read_text().splitlines()]
         return self.result.stdout + self.result.stderr
@@ -115,6 +121,23 @@ class InstallerTests(unittest.TestCase):
         self.run_installer()
         self.assert_installed(ARM_ZIP)
         self.assertFalse(any(call[0] == "sysctl" for call in self.calls))
+
+    def test_large_release_response(self):
+        output = self.run_installer(release_body="Release notes. " * 100000)
+        self.assert_installed(ARM_ZIP)
+        self.assertNotIn("Broken pipe", output)
+
+    def test_large_release_response_via_stdin(self):
+        output = self.run_installer(arch="x86_64", via_stdin=True,
+                                    release_body="Release notes. " * 100000)
+        self.assert_installed(INTEL_ZIP)
+        self.assertNotIn("Broken pipe", output)
+
+    def test_missing_release_tag_preserves_old_app(self):
+        output = self.run_installer(tag=None)
+        self.assert_untouched()
+        self.assertIn("Failed to parse release info", output)
+        self.assertFalse(any(call[0] == "curl" and "-o" in call for call in self.calls))
 
     def test_intel_with_absent_rosetta_key(self):
         self.run_installer(arch="x86_64")

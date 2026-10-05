@@ -58,7 +58,11 @@ if [ -z "$RELEASE_JSON" ]; then
     exit 1
 fi
 
-VERSION=$(echo "$RELEASE_JSON" | grep -m1 '"tag_name"' | sed 's/.*"tag_name": *"//;s/".*//')
+# Consume the full response: an early-exiting reader can break the producer's
+# pipe and abort installation under pipefail (#139).
+VERSION=$(echo "$RELEASE_JSON" \
+    | awk '/"tag_name"/ && !found { print; found = 1 }' \
+    | sed 's/.*"tag_name": *"//;s/".*//')
 
 if [ -z "$VERSION" ]; then
     echo "Error: Failed to parse release info."
