@@ -896,13 +896,6 @@ final class UsageViewModel {
         let selectedOwner = credentialDigest.map(CredentialOwner.exact)
         let ownsOptimisticScope = selectedOwner != nil && credentialOwner == selectedOwner
         let apiClient = self.apiClient
-        // `async let` (not unstructured `Task {}`) keeps the three calls
-        // tied to refresh()'s cancellation lifecycle; `capture` turns each
-        // outcome into a Result so the expiry check below can inspect ALL
-        // failures before any single error aborts the refresh.
-        async let summaryCapture = Self.capture { try await apiClient.fetchUsageSummary(cookieHeader: cookieHeader) }
-        async let usageCapture = Self.capture { try await apiClient.fetchUsage(cookieHeader: cookieHeader) }
-        async let userInfoCapture = Self.capture { try await apiClient.fetchUserInfo(cookieHeader: cookieHeader) }
 
         // Optimistic weekly fetch — runs in parallel with the primary batch
         // once a prior refresh established the account's weekly fetch shape
@@ -929,9 +922,8 @@ final class UsageViewModel {
             }
         }
 
-        let userInfoRes = await userInfoCapture
-        let summaryRes = await summaryCapture
-        let usageRes = await usageCapture
+        let (summaryRes, usageRes, userInfoRes) = await Self.fetchPrimaryResponses(
+            apiClient: apiClient, cookieHeader: cookieHeader)
         try requireCurrent(context)
 
         // Expiry check runs over ALL results before any decode failure can
@@ -2025,10 +2017,44 @@ final class UsageViewModel {
         }
     }
 
-    /// Runs `body` and captures its outcome as a Result. Used with `async let`
-    /// so the three primary refresh calls stay structured — cancelled together
-    /// with refresh() — while still letting the caller inspect every failure
-    /// instead of aborting on the first thrown error (#76).
+    private enum PrimaryResponse: Sendable {
+        case summary(Result<UsageSummaryResponse, Error>)
+        case usage(Result<UsageResponse, Error>)
+        case userInfo(Result<UserInfoResponse, Error>)
+    }
+
+    /// A task group preserves structured cancellation while avoiding the
+    /// async-let teardown allocator crash in affected Swift toolchains (#140).
+    nonisolated private static func fetchPrimaryResponses(
+        apiClient: CursorAPIClient, cookieHeader: String
+    ) async -> (Result<UsageSummaryResponse, Error>, Result<UsageResponse, Error>, Result<UserInfoResponse, Error>) {
+        await withTaskGroup(of: PrimaryResponse.self) { group in
+            group.addTask {
+                .summary(await capture { try await apiClient.fetchUsageSummary(cookieHeader: cookieHeader) })
+            }
+            group.addTask {
+                .usage(await capture { try await apiClient.fetchUsage(cookieHeader: cookieHeader) })
+            }
+            group.addTask {
+                .userInfo(await capture { try await apiClient.fetchUserInfo(cookieHeader: cookieHeader) })
+            }
+
+            var summary: Result<UsageSummaryResponse, Error>?
+            var usage: Result<UsageResponse, Error>?
+            var userInfo: Result<UserInfoResponse, Error>?
+            for await response in group {
+                switch response {
+                case .summary(let result): summary = result
+                case .usage(let result): usage = result
+                case .userInfo(let result): userInfo = result
+                }
+            }
+            // Each nonthrowing child returns exactly one endpoint's result, even on cancellation.
+            return (summary!, usage!, userInfo!)
+        }
+    }
+
+    /// Captures every endpoint failure so a decode error cannot hide a 401 (#76).
     nonisolated private static func capture<T: Sendable>(
         _ body: @Sendable () async throws -> T
     ) async -> Result<T, Error> {

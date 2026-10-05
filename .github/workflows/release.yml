@@ -16,6 +16,8 @@ jobs:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
       - name: Run tests
         run: swift test
+      - name: Test optimized refresh lifecycle
+        run: swift test -c release --filter 'CredentialChainTests|Profile404MitigationTests|RefreshSessionOwnershipTests'
       - name: Test installer
         run: python3 -m unittest discover -s Scripts/tests -p 'test_*.py' -v
 

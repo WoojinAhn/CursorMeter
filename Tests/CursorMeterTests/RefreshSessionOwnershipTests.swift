@@ -89,6 +89,43 @@ final class RefreshSessionOwnershipTests: XCTestCase {
         }
     }
 
+    func testParallelPrimaryRequestsCompleteAcrossResponseOrders() async throws {
+        let network = OwnershipNetwork { Self.success($0) }
+        let vm = makeViewModel(network: network)
+        defer { vm.stopAutoRefreshForTests() }
+        let orders = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]]
+
+        for order in orders {
+            let started = expectation(description: "All primary requests start before any response: \(order)")
+            started.expectedFulfillmentCount = 3
+            network.handler = { request in
+                if Self.primaryPaths.contains(request.path) {
+                    started.fulfill()
+                    return nil
+                }
+                return Self.success(request)
+            }
+            let previousCount = network.requests.count
+            let refresh = Task { await vm.refresh() }
+            await fulfillment(of: [started], timeout: 2)
+            let primary = network.requests.dropFirst(previousCount).filter { Self.primaryPaths.contains($0.path) }
+            XCTAssertEqual(primary.count, 3)
+
+            for index in order {
+                let request = try XCTUnwrap(primary.first { $0.path == Self.primaryPaths[index] })
+                XCTAssertTrue(network.respond(to: request, with: Self.success(request)))
+                await Task.yield()
+            }
+            await refresh.value
+
+            XCTAssertEqual(vm.authState, .loggedIn)
+            XCTAssertEqual(vm.usageData?.planUsedCents, 8)
+            XCTAssertNotNil(vm.lastSuccessAt)
+            XCTAssertNil(vm.errorMessage)
+            XCTAssertEqual(vm.consecutiveFailureCount, 0)
+        }
+    }
+
     func testUnbindableSuccessfulOwnerRetiresBeforeDegradedIDECredential() async throws {
         let network = OwnershipNetwork { Self.enterpriseScopeReply($0, planUsed: 2_000, teamID: 77, userID: 42) }
         let vm = makeViewModel(network: network)
