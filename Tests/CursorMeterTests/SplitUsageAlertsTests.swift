@@ -95,8 +95,13 @@ final class SplitUsageAlertsTests: XCTestCase {
     }
 
     func testFractionalPercentagePointBoundariesUseSourcePrecision() {
-        for (start, end, expectedTier) in [(7.7, 12.7, 1), (1.002, 16.002, 2),
-                                          (7.7, 12.699, 0), (1.002, 16.001, 1)] {
+        let cases: [(Double, Double, Int, Double?)] = [
+            (7.7, 12.7, 1, 5),
+            (1.002, 16.002, 2, 15),
+            (7.7, 12.699, 0, nil),
+            (1.002, 16.001, 1, 14.999),
+        ]
+        for (start, end, expectedTier, expectedDelta) in cases {
             for scope in [SplitAlertScope.cursor, .other] {
                 var engine = SplitUsageAlertEngine()
                 var previous = sample(1)
@@ -111,9 +116,7 @@ final class SplitUsageAlertsTests: XCTestCase {
                 _ = engine.accept(previous, policy: .init())
                 let jump = engine.accept(current, policy: .init()).jump
                 XCTAssertEqual(jump?.tier ?? 0, expectedTier, "\(scope): \(start) to \(end)")
-                if expectedTier > 0 {
-                    XCTAssertEqual(jump?.deltas[scope], ((end - start) * 1000).rounded() / 1000)
-                }
+                XCTAssertEqual(jump?.deltas[scope], expectedDelta, "\(scope): \(start) to \(end)")
             }
         }
     }
