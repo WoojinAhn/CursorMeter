@@ -47,8 +47,9 @@ The `teamId` variant is observed when an enterprise team is active. CursorMeter 
 
 Optional personal enrichment, with `{}` and the existing Cookie/Origin headers. Consumed fields:
 
-- Root `billingCycleStart`, `billingCycleEnd`: ISO-8601 dates, with or without fractional seconds.
+- Root `billingCycleStart`, `billingCycleEnd`: ISO-8601 dates, with or without fractional seconds, or decimal epoch-millisecond strings (observed 2026-10-06).
 - `planUsage.includedSpend`: exact Decimal USD cents. Compare with summary `plan.used` within **one cent**; `totalSpend` is not an interchangeable fallback.
+- At the legacy monetary cap, `includedSpend` can remain fixed while free `bonusSpend` increases. Complete non-Bot included history then reconciles against `planUsage.totalSpend`, but only with a verified included-plus-bonus breakdown, matching positive summary/period limits, the same cycle, and agreement of overlapping pool percentages. All three monetary fields and the limit participate in the collection's before/after source check. Missing or inconsistent evidence retains the summary-only check. Paid on-demand usage remains separate.
 - `planUsage.autoPercentUsed`, `apiPercentUsed`: supplementary percentages only when cycles and included spend agree. Existing primary fields win.
 - Root `autoBucketModels`: normalized exact model membership evidence. It is optional and does not guarantee a historical event's charged pool.
 

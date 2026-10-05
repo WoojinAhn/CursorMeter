@@ -78,6 +78,14 @@ struct CycleCoverage: Codable, Equatable, Sendable {
     var reason: String = "Collecting"
 }
 enum CycleAmountStatus: String, Codable, Sendable { case estimatedAttribution, unavailable }
+struct CycleBonusReconciliation: Codable, Equatable, Sendable {
+    let sourceIncludedCents: Decimal
+    let totalCents: Decimal
+
+    var isValid: Bool {
+        !sourceIncludedCents.isNaN && sourceIncludedCents > 0 && !totalCents.isNaN && totalCents > sourceIncludedCents
+    }
+}
 struct CycleAmountSnapshot: Codable, Equatable, Sendable {
     let identity: UsageRevisionIdentity
     let capturedAt: Date
@@ -100,10 +108,11 @@ struct CycleAmountSnapshot: Codable, Equatable, Sendable {
     var sourceCursorPercent: Double? = nil
     var sourceOtherPercent: Double? = nil
     var todayUsage: TodayUsageAggregate? = nil
+    var bonusReconciliation: CycleBonusReconciliation? = nil
     private enum CodingKeys: String, CodingKey {
         case identity, capturedAt, cursorCents, otherCents, botCents, paidCents, unknownCents, unknownCount
         case residualCents, coverage, status, estimatedCursorLimitCents, estimatedOtherLimitCents, isCached
-        case classifierVersion, cursorObservedPlaces, otherObservedPlaces, provenance, sourceCursorPercent, sourceOtherPercent, todayUsage
+        case classifierVersion, cursorObservedPlaces, otherObservedPlaces, provenance, sourceCursorPercent, sourceOtherPercent, todayUsage, bonusReconciliation
     }
     func amountCents(for pool: UsagePoolID) -> Decimal { pool == .cursor ? cursorCents : otherCents }
     func estimatedLimitCents(for pool: UsagePoolID) -> Decimal? { pool == .cursor ? estimatedCursorLimitCents : estimatedOtherLimitCents }
@@ -142,6 +151,7 @@ extension CycleAmountSnapshot {
         provenance = try c.decode([CycleAttributionProvenance].self, forKey: .provenance)
         sourceCursorPercent = try c.decodeIfPresent(Double.self, forKey: .sourceCursorPercent)
         sourceOtherPercent = try c.decodeIfPresent(Double.self, forKey: .sourceOtherPercent)
+        bonusReconciliation = try c.decodeIfPresent(CycleBonusReconciliation.self, forKey: .bonusReconciliation)
         // Day detail is optional evidence; corruption must not retire otherwise valid cycle costs.
         todayUsage = try? c.decodeIfPresent(TodayUsageAggregate.self, forKey: .todayUsage)
         if todayUsage?.isValid(for: self) == false { todayUsage = nil }

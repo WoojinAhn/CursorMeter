@@ -76,6 +76,41 @@ Dates may contain fractional seconds; accept ISO-8601 with or without them. Comp
 parsed instants exactly, not raw string formatting. An unavailable endpoint does not
 invalidate the primary session or summary. Do not treat error bodies as empty metadata.
 
+### Capped included amount and free bonus usage (2026-10-06, #141)
+
+A subsequent personal Ultra capture confirmed that summary `plan.used` and period
+`includedSpend` can stop at the legacy monetary limit while both pool percentages
+remain below 100%. Period `bonusSpend` accounts for additional free model usage;
+`totalSpend` equals included plus bonus. A complete active-cycle traversal excluding
+explicit Bot events matched that total within one cent. Summary, period, and the first
+history page were unchanged on recheck. This observation does not authorize a general
+`totalSpend` fallback or change the meaning of paid on-demand spending.
+
+The period endpoint also returned cycle boundaries as decimal epoch-millisecond
+strings matching the summary's ISO dates. Parse this wire format in period metadata
+without broadening the summary date contract. Synthetic example:
+
+```json
+{
+  "billingCycleStart": "1788220800000",
+  "billingCycleEnd": "1790812800000",
+  "planUsage": {
+    "includedSpend": 40000, "bonusSpend": 750, "totalSpend": 40750,
+    "limit": 40000, "autoPercentUsed": 12, "apiPercentUsed": 58
+  }
+}
+```
+
+The bonus reconciliation path requires a coherent cycle and included amount, a
+positive summary limit with `used == limit`, a matching period limit, nonnegative
+money, a consistent included-plus-bonus total, and matching overlapping pool
+percentages. Recheck every consumed monetary field as well as existing source fields
+after collecting history. Preserve the one-cent history tolerance, pagination/head
+checks, classification constraints, and current-session/day ownership. Persist the
+validated reconciliation receipt with the aggregate; today's source included amount
+must still exactly match the current primary snapshot. Older caches without that
+receipt continue to use the original summary-only reconciliation.
+
 ## Exact-money history and classification table
 
 Decode monthly `chargedCents` JSON numbers directly as Decimal, not from a weekly Double.

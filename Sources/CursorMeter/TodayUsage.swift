@@ -42,6 +42,8 @@ struct TodayUsageAggregate: Codable, Equatable, Sendable {
               let cycle = amounts.identity.cycle, cycle.start < day.end, day.start < cycle.end,
               [cursorCents, otherCents, sourceIncludedTotalCents].allSatisfy({ !$0.isNaN && $0 >= 0 }),
               cursorCents <= amounts.cursorCents, otherCents <= amounts.otherCents else { return false }
+        if let bonus = amounts.bonusReconciliation,
+           !bonus.isValid || bonus.sourceIncludedCents != sourceIncludedTotalCents { return false }
         return true
     }
 }
@@ -65,7 +67,7 @@ enum TodayUsageAllocation {
               today.day == TodayUsageDay(containing: now), today.evidenceAt <= now,
               let included = snapshot.includedUsedCents, !included.isNaN, included >= 0,
               today.sourceIncludedTotalCents == included,
-              abs(amounts.cursorCents + amounts.otherCents - included) <= 1,
+              abs(amounts.cursorCents + amounts.otherCents - (amounts.bonusReconciliation?.totalCents ?? included)) <= 1,
               let cursorPercent = SplitUsageSnapshot.validPercent(snapshot.cursorPercent),
               let otherPercent = SplitUsageSnapshot.validPercent(snapshot.otherPercent),
               cursorPercent < 100, otherPercent < 100,

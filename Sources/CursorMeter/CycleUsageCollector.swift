@@ -110,6 +110,7 @@ struct CycleUsageCollector: Sendable {
                     try checkBudget()
                 }
                 var aggregate = CycleAmountSnapshot(identity: snapshot.identity, capturedAt: snapshot.capturedAt)
+                aggregate.bonusReconciliation = period.response?.bonusReconciliation(with: summary)
                 aggregate.sourceCursorPercent = resolved.cursorPercent
                 aggregate.sourceOtherPercent = resolved.otherPercent
                 aggregate.cursorObservedPlaces = resolved.cursorObservedPlaces
@@ -218,7 +219,8 @@ struct CycleUsageCollector: Sendable {
                     return result(.unstable)
                 }
                 aggregate.coverage.pageCount = pages; aggregate.coverage.byteCount = bytes
-                aggregate.residualCents = snapshot.includedUsedCents.map { included - $0 }
+                let reconciliationTotal = aggregate.bonusReconciliation?.totalCents ?? snapshot.includedUsedCents
+                aggregate.residualCents = reconciliationTotal.map { included - $0 }
                 let reconciled = aggregate.residualCents.map { abs($0) <= 1 } == true
                 if !reachedCycleStart && !reconciled {
                     partial = nil
@@ -279,6 +281,9 @@ struct CycleUsageCollector: Sendable {
         var fields: [String] = []
         fields.append(period.cycle.map { "\($0.start.timeIntervalSince1970):\($0.end.timeIntervalSince1970)" } ?? "nil")
         fields.append(period.planUsage?.includedSpend.map { NSDecimalNumber(decimal: $0).stringValue } ?? "nil")
+        fields.append(period.planUsage?.totalSpend.map { NSDecimalNumber(decimal: $0).stringValue } ?? "nil")
+        fields.append(period.planUsage?.bonusSpend.map { NSDecimalNumber(decimal: $0).stringValue } ?? "nil")
+        fields.append(period.planUsage?.limit.map { NSDecimalNumber(decimal: $0).stringValue } ?? "nil")
         fields.append(period.planUsage?.autoPercentUsed.map { String($0) } ?? "nil")
         fields.append(period.planUsage?.apiPercentUsed.map { String($0) } ?? "nil")
         fields.append(period.autoBucketModels.map { $0.map(CycleModelClassifier.normalize).sorted().joined(separator: ",") } ?? "nil")

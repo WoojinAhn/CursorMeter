@@ -124,7 +124,17 @@ struct CurrentPeriodUsageResponse: Decodable, Sendable {
     let billingCycleEnd: String?
     let planUsage: CurrentPeriodPlanUsage?
     let autoBucketModels: [String]?
-    var cycle: UsageCycle? { UsageCycle(start: billingCycleStart, end: billingCycleEnd) }
+    var cycle: UsageCycle? {
+        guard let start = Self.periodDate(billingCycleStart), let end = Self.periodDate(billingCycleEnd) else { return nil }
+        return UsageCycle(start: start, end: end)
+    }
+    private static func periodDate(_ raw: String?) -> Date? {
+        if let date = UsageCycle.parse(raw) { return date }
+        // This endpoint also returns contemporary cycle dates as whole epoch milliseconds.
+        guard let raw, raw.range(of: #"\A[0-9]{13}\z"#, options: .regularExpression) != nil,
+              let milliseconds = Double(raw) else { return nil }
+        return Date(timeIntervalSince1970: milliseconds / 1000)
+    }
     enum CodingKeys: String, CodingKey { case billingCycleStart, billingCycleEnd, planUsage, autoBucketModels }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -141,17 +151,38 @@ struct CurrentPeriodUsageResponse: Decodable, Sendable {
               let included = planUsage?.includedSpend, let used = summary.individualUsage?.plan?.used, used >= 0 else { return false }
         return abs(included - Decimal(used)) <= 1
     }
+
+    func bonusReconciliation(with summary: UsageSummaryResponse) -> CycleBonusReconciliation? {
+        guard isCoherent(with: summary), let plan = summary.individualUsage?.plan,
+              let used = plan.used, let limit = plan.limit, limit > 0, used == limit,
+              let period = planUsage, period.limit == Decimal(limit),
+              let included = period.includedSpend, let bonus = period.bonusSpend, bonus > 0,
+              let total = period.totalSpend, total > Decimal(used), total >= included,
+              abs(included + bonus - total) <= 1 else { return nil }
+        for (primary, supplement) in [(plan.autoPercentUsed, period.autoPercentUsed), (plan.apiPercentUsed, period.apiPercentUsed)] {
+            if let primary, let supplement, primary != supplement { return nil }
+        }
+        return .init(sourceIncludedCents: Decimal(used), totalCents: total)
+    }
 }
 
 struct CurrentPeriodPlanUsage: Decodable, Sendable {
     let includedSpend: Decimal?
+    let totalSpend: Decimal?
+    let bonusSpend: Decimal?
+    let limit: Decimal?
     let autoPercentUsed: Double?
     let apiPercentUsed: Double?
-    enum CodingKeys: String, CodingKey { case includedSpend, autoPercentUsed, apiPercentUsed }
+    enum CodingKeys: String, CodingKey { case includedSpend, totalSpend, bonusSpend, limit, autoPercentUsed, apiPercentUsed }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        let cents = try? c.decode(Decimal.self, forKey: .includedSpend)
-        includedSpend = cents.flatMap { !$0.isNaN && $0 >= 0 ? $0 : nil }
+        func cents(_ key: CodingKeys) -> Decimal? {
+            (try? c.decode(Decimal.self, forKey: key)).flatMap { !$0.isNaN && $0 >= 0 ? $0 : nil }
+        }
+        includedSpend = cents(.includedSpend)
+        totalSpend = cents(.totalSpend)
+        bonusSpend = cents(.bonusSpend)
+        limit = cents(.limit)
         autoPercentUsed = SplitUsageSnapshot.validPercent(try? c.decode(Double.self, forKey: .autoPercentUsed))
         apiPercentUsed = SplitUsageSnapshot.validPercent(try? c.decode(Double.self, forKey: .apiPercentUsed))
     }
