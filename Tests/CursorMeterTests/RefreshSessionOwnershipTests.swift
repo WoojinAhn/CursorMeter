@@ -29,7 +29,7 @@ final class RefreshSessionOwnershipTests: XCTestCase {
         OwnershipURLProtocol.network = network
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [OwnershipURLProtocol.self]
-        let vm = UsageViewModel(
+        let vm = makeTestUsageViewModel(
             apiClient: CursorAPIClient(configuration: configuration),
             recentUsage: recentUsage,
             refreshFeedback: feedback ?? RefreshFeedback(timing: .immediate)

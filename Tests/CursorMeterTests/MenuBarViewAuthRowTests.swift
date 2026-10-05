@@ -15,7 +15,7 @@ final class MenuBarViewAuthRowTests: XCTestCase {
     }
 
     func test_updateUI_sameAuthState_keepsSameButtonInstance() {
-        let vm = UsageViewModel()
+        let vm = makeTestUsageViewModel()
         vm.authState = .loggedIn
         let vc = makeVC(vm: vm)
         vc.updateUI()
@@ -29,7 +29,7 @@ final class MenuBarViewAuthRowTests: XCTestCase {
     }
 
     func test_updateUI_authStateChange_rebuildsButton() {
-        let vm = UsageViewModel()
+        let vm = makeTestUsageViewModel()
         vm.authState = .loggedIn
         let vc = makeVC(vm: vm)
         vc.updateUI()
@@ -43,7 +43,7 @@ final class MenuBarViewAuthRowTests: XCTestCase {
     }
 
     func test_updateUI_hiddenThenLoggedIn_showsLogOut() {
-        let vm = UsageViewModel()
+        let vm = makeTestUsageViewModel()
         vm.authState = .loggedOut
         vm.browserLoginEnabled = false   // hidden: IDE presumed installed (#90)
         let vc = makeVC(vm: vm)

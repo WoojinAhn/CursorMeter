@@ -22,7 +22,7 @@ final class CredentialChainTests: XCTestCase {
     private func makeViewModel() -> UsageViewModel {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [MockURLProtocol.self]
-        let vm = UsageViewModel(
+        let vm = makeTestUsageViewModel(
             apiClient: CursorAPIClient(configuration: config),
             refreshFeedback: RefreshFeedback(timing: .immediate)
         )
@@ -230,10 +230,14 @@ final class CredentialChainTests: XCTestCase {
 
     func testBrowserLoginClearsSuppression() {
         let vm = makeViewModel()
+        var savedCookies: [String] = []
+        vm.keychainSaveHandler = { savedCookies.append($0) }
         MockURLProtocol.requestHandler = Self.successHandler { _ in }
         vm.logout()
         XCTAssertTrue(vm.ideAuthSuppressed)
         vm.onLoginSuccess(cookieHeader: "WorkosCursorSessionToken=fresh")
+        XCTAssertEqual(savedCookies, ["WorkosCursorSessionToken=fresh"])
+        XCTAssertEqual(vm.authState, .loggedIn)
         XCTAssertFalse(vm.ideAuthSuppressed, "explicit reconnect intent clears suppression")
     }
 

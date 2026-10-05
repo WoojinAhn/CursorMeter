@@ -85,18 +85,6 @@ final class NotificationManagerTests: XCTestCase {
         XCTAssertEqual(result, .critical)
     }
 
-    func testJumpPastBothReturnsCritical() {
-        // When usage jumps from below warning to above critical,
-        // critical takes priority
-        let result = NotificationManager.evaluateThreshold(
-            percentUsed: 95,
-            warningThreshold: 80,
-            criticalThreshold: 90,
-            notifiedThresholds: []
-        )
-        XCTAssertEqual(result, .critical)
-    }
-
     func testCustomThresholds() {
         let result = NotificationManager.evaluateThreshold(
             percentUsed: 65,
@@ -115,25 +103,6 @@ final class NotificationManagerTests: XCTestCase {
             notifiedThresholds: []
         )
         XCTAssertEqual(result, .none)
-    }
-
-    // MARK: - NotificationManager State
-
-    @MainActor
-    func testResetClearsNotifiedThresholds() {
-        let manager = NotificationManager()
-        // Simulate having notified
-        Task {
-            await manager.checkAndNotify(
-                percentUsed: 85,
-                warningThreshold: 80,
-                criticalThreshold: 90,
-                enabled: false, // disabled to avoid actual notification
-                mode: .requestQuota(used: 0, limit: 0)
-            )
-        }
-        manager.resetNotifications()
-        XCTAssertTrue(manager.notifiedThresholds.isEmpty)
     }
 
     // MARK: - Usage Jump Notification

@@ -20,9 +20,9 @@ final class SplitCircularProgressIconTests: XCTestCase {
         let swapped = CircularProgressIcon.makeSplitImage(
             cursorPercent: 25, otherPercent: 90, outerPool: .cursor)
         let equivalent = CircularProgressIcon.makeSplitImage(cursorPercent: 90, otherPercent: 25)
-        XCTAssertEqual(try pixels(defaultImage), try pixels(explicitlyOther))
-        XCTAssertEqual(try pixels(swapped), try pixels(equivalent))
-        XCTAssertNotEqual(try pixels(defaultImage), try pixels(swapped))
+        try assertPixels(defaultImage, explicitlyOther, areEqual: true)
+        try assertPixels(swapped, equivalent, areEqual: true)
+        try assertPixels(defaultImage, swapped, areEqual: false)
     }
 
     func testZeroHasVisibleTrackAndMissingIsDistinctInBothRegions() throws {
@@ -223,6 +223,25 @@ final class SplitCircularProgressIconTests: XCTestCase {
         let folder = URL(fileURLWithPath: directory, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         try png.write(to: folder.appendingPathComponent("today-appearance-matrix.png"))
+    }
+
+    private func assertPixels(
+        _ actualImage: NSImage, _ expectedImage: NSImage, areEqual: Bool,
+        file: StaticString = #filePath, line: UInt = #line
+    ) throws {
+        let actual = try pixels(actualImage)
+        let expected = try pixels(expectedImage)
+        guard (actual == expected) != areEqual else { return }
+        let sizes = "Image sizes: \(actualImage.size) / \(expectedImage.size); buffer sizes: \(actual.count) / \(expected.count) bytes."
+        if areEqual {
+            let difference = zip(actual, expected).enumerated().first { $0.element.0 != $0.element.1 }
+            let detail = difference.map {
+                "First difference at byte \($0.offset): \($0.element.0) / \($0.element.1)."
+            } ?? "All \(min(actual.count, expected.count)) shared bytes match."
+            XCTFail("Expected equal pixels. \(sizes) \(detail)", file: file, line: line)
+        } else {
+            XCTFail("Expected different pixels. \(sizes) All pixels match.", file: file, line: line)
+        }
     }
 
     private func pixels(_ image: NSImage) throws -> [UInt8] {

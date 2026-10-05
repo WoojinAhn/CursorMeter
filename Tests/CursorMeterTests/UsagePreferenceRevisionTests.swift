@@ -23,7 +23,7 @@ final class UsagePreferenceRevisionTests: XCTestCase {
 
     func testDisplayDefaultsAndPersistenceAreIndependentOfAlertSettings() {
         withCleanPreferences {
-            let vm = UsageViewModel()
+            let vm = makeTestUsageViewModel()
             XCTAssertEqual(vm.popoverValueMode, .both)
             XCTAssertFalse(vm.estimatedLimitsEnabled)
             XCTAssertFalse(vm.estimateExplanationSeen)
@@ -31,7 +31,7 @@ final class UsagePreferenceRevisionTests: XCTestCase {
             vm.setPopoverValueMode(.dollars)
             vm.setEstimatedLimitsEnabled(true)
             vm.markEstimateExplanationSeen()
-            let restored = UsageViewModel()
+            let restored = makeTestUsageViewModel()
             XCTAssertEqual(restored.popoverValueMode, .dollars)
             XCTAssertTrue(restored.estimatedLimitsEnabled)
             XCTAssertTrue(restored.estimateExplanationSeen)
@@ -45,7 +45,7 @@ final class UsagePreferenceRevisionTests: XCTestCase {
             defaults.set(60, forKey: "warningThreshold")
             defaults.set(85, forKey: "criticalThreshold")
             defaults.set(["cursor"], forKey: "splitAlertTargets")
-            let vm = UsageViewModel()
+            let vm = makeTestUsageViewModel()
             for scope in [SplitAlertScope.cursor, .other, .onDemand] {
                 XCTAssertEqual(vm.splitThresholds(for: scope), SplitAlertThresholds(warning: 60, critical: 85))
             }
@@ -53,7 +53,7 @@ final class UsagePreferenceRevisionTests: XCTestCase {
             vm.setSplitCriticalThreshold(90, for: .cursor)
             vm.setSplitWarningThreshold(65, for: .cursor)
             vm.setWarningThreshold(70)
-            let restored = UsageViewModel()
+            let restored = makeTestUsageViewModel()
             XCTAssertEqual(restored.splitThresholds(for: .cursor), SplitAlertThresholds(warning: 65, critical: 90))
             XCTAssertEqual(restored.splitThresholds(for: .other), SplitAlertThresholds(warning: 60, critical: 85))
             XCTAssertEqual(restored.splitThresholds(for: .onDemand), SplitAlertThresholds(warning: 60, critical: 85))
@@ -64,12 +64,12 @@ final class UsagePreferenceRevisionTests: XCTestCase {
 
     func testEstimateToggleDoesNotResetDisplayOrAcknowledgement() {
         withCleanPreferences {
-            let vm = UsageViewModel()
+            let vm = makeTestUsageViewModel()
             vm.setPopoverValueMode(.percent)
             vm.markEstimateExplanationSeen()
             vm.setEstimatedLimitsEnabled(true)
             vm.setEstimatedLimitsEnabled(false)
-            let restored = UsageViewModel()
+            let restored = makeTestUsageViewModel()
             XCTAssertEqual(restored.popoverValueMode, .percent)
             XCTAssertFalse(restored.estimatedLimitsEnabled)
             XCTAssertTrue(restored.estimateExplanationSeen)
@@ -83,7 +83,7 @@ final class UsagePreferenceRevisionTests: XCTestCase {
             defaults.set(85, forKey: "criticalThreshold")
             defaults.set(["cursor": ["warning": 30, "critical": 50], "other": "invalid"],
                          forKey: "splitAlertThresholds")
-            let vm = UsageViewModel()
+            let vm = makeTestUsageViewModel()
             XCTAssertEqual(vm.splitThresholds(for: .cursor), SplitAlertThresholds(warning: 30, critical: 50))
             XCTAssertEqual(vm.splitThresholds(for: .other), SplitAlertThresholds(warning: 60, critical: 85))
             vm.setSplitThresholds(SplitAlertThresholds(warning: 90, critical: 95), for: .included)

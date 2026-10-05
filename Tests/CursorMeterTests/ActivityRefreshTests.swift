@@ -34,7 +34,7 @@ final class ActivityRefreshTests: XCTestCase {
             let ok = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!
             return (ok, Data("{}".utf8))
         }
-        let vm = UsageViewModel(
+        let vm = makeTestUsageViewModel(
             apiClient: CursorAPIClient(configuration: config),
             refreshFeedback: RefreshFeedback(timing: .immediate)
         )

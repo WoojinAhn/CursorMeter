@@ -13,25 +13,25 @@ final class WeeklyChartPreferenceTests: XCTestCase {
 
     func testDefaultAndInvalidPreferenceUseAmount() {
         withSavedPreference {
-            XCTAssertEqual(UsageViewModel().weeklyChartMetric, .amount)
+            XCTAssertEqual(makeTestUsageViewModel().weeklyChartMetric, .amount)
             UserDefaults.standard.set("unknown", forKey: "weeklyChartMetric")
-            XCTAssertEqual(UsageViewModel().weeklyChartMetric, .amount)
+            XCTAssertEqual(makeTestUsageViewModel().weeklyChartMetric, .amount)
         }
     }
 
     func testSelectionPersistsAcrossViewModels() {
         withSavedPreference {
-            let vm = UsageViewModel()
+            let vm = makeTestUsageViewModel()
             vm.setWeeklyChartMetric(.usageUnits)
-            XCTAssertEqual(UsageViewModel().weeklyChartMetric, .usageUnits)
+            XCTAssertEqual(makeTestUsageViewModel().weeklyChartMetric, .usageUnits)
             vm.setWeeklyChartMetric(.amount)
-            XCTAssertEqual(UsageViewModel().weeklyChartMetric, .amount)
+            XCTAssertEqual(makeTestUsageViewModel().weeklyChartMetric, .amount)
         }
     }
 
     func testUnavailableAmountFallsBackWithoutOverwritingPreference() {
         withSavedPreference {
-            let vm = UsageViewModel()
+            let vm = makeTestUsageViewModel()
             let now = Date()
             let timestamp = String(Int(now.timeIntervalSince1970 * 1000))
             vm.weeklyData = [UsageEvent(timestamp: timestamp, requestsCosts: 1, chargedCents: nil)]
@@ -41,7 +41,7 @@ final class WeeklyChartPreferenceTests: XCTestCase {
             vm.weeklyData = [UsageEvent(timestamp: timestamp, requestsCosts: 1, chargedCents: 0)]
                 .sevenDayRolling(today: now)
             XCTAssertEqual(vm.effectiveWeeklyChartMetric, .amount)
-            XCTAssertEqual(UsageViewModel().weeklyChartMetric, .amount)
+            XCTAssertEqual(makeTestUsageViewModel().weeklyChartMetric, .amount)
         }
     }
 }

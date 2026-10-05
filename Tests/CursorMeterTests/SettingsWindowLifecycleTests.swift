@@ -9,7 +9,7 @@ import XCTest
 final class SettingsWindowLifecycleTests: XCTestCase {
 
     func test_injectedModelDrivesUsageFeedbackAfterSettingsReopens() throws {
-        let viewModel = UsageViewModel()
+        let viewModel = makeTestUsageViewModel()
         viewModel.updateCheckRunner = { .upToDate }
         viewModel.authState = .loggedIn
         _ = viewModel.refreshFeedback.begin(generation: 1)
@@ -35,7 +35,7 @@ final class SettingsWindowLifecycleTests: XCTestCase {
     }
 
     func test_closeSettingsWindow_clearsStrongReference() {
-        let delegate = AppDelegate()
+        let delegate = AppDelegate(viewModel: makeTestUsageViewModel())
         delegate.openSettings()
         XCTAssertNotNil(delegate.settingsWindow)
 
@@ -45,7 +45,7 @@ final class SettingsWindowLifecycleTests: XCTestCase {
     }
 
     func test_closeSettingsWindow_deallocatesWindowAndContentVC() {
-        let delegate = AppDelegate()
+        let delegate = AppDelegate(viewModel: makeTestUsageViewModel())
         weak var window: NSWindow?
         weak var contentVC: NSViewController?
         autoreleasepool {
@@ -71,7 +71,7 @@ final class SettingsWindowLifecycleTests: XCTestCase {
     /// alive until another window becomes key. The heavy part — the VC + view
     /// tree — must not wait for that: it detaches at close time.
     func test_closeSettingsWindow_deallocatesContentVCImmediately() {
-        let delegate = AppDelegate()
+        let delegate = AppDelegate(viewModel: makeTestUsageViewModel())
         weak var contentVC: NSViewController?
         autoreleasepool {
             delegate.openSettings()
@@ -83,7 +83,7 @@ final class SettingsWindowLifecycleTests: XCTestCase {
     }
 
     func test_reopenAfterClose_buildsFreshWindow() {
-        let delegate = AppDelegate()
+        let delegate = AppDelegate(viewModel: makeTestUsageViewModel())
         delegate.openSettings()
         let first = delegate.settingsWindow
         first?.close()
@@ -96,7 +96,7 @@ final class SettingsWindowLifecycleTests: XCTestCase {
     }
 
     func test_openWhileVisible_reusesSameWindow() {
-        let delegate = AppDelegate()
+        let delegate = AppDelegate(viewModel: makeTestUsageViewModel())
         delegate.openSettings()
         let first = delegate.settingsWindow
 

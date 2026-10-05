@@ -182,7 +182,7 @@ final class LegacyNotificationCompositionTests: XCTestCase {
                 })
                 let configuration = URLSessionConfiguration.ephemeral
                 configuration.protocolClasses = [MockURLProtocol.self]
-                let vm = UsageViewModel(apiClient: CursorAPIClient(configuration: configuration),
+                let vm = makeTestUsageViewModel(apiClient: CursorAPIClient(configuration: configuration),
                     refreshFeedback: RefreshFeedback(timing: .immediate), notificationManager: manager)
                 vm.updateCheckRunner = { .upToDate }
                 vm.keychainDeleteHandler = {}
@@ -295,7 +295,7 @@ final class LegacyNotificationCompositionTests: XCTestCase {
     private func makeViewModel(manager: NotificationManager) -> UsageViewModel {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MockURLProtocol.self]
-        let vm = UsageViewModel(apiClient: CursorAPIClient(configuration: configuration),
+        let vm = makeTestUsageViewModel(apiClient: CursorAPIClient(configuration: configuration),
             refreshFeedback: RefreshFeedback(timing: .immediate), notificationManager: manager)
         vm.updateCheckRunner = { .upToDate }
         vm.keychainDeleteHandler = {}

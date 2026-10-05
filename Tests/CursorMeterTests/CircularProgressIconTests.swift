@@ -3,38 +3,38 @@ import XCTest
 
 final class CircularProgressIconTests: XCTestCase {
 
-    // MARK: - ProgressLevel
+    // MARK: - Token Color
 
-    func testLevelNormalAt0() {
-        XCTAssertEqual(CircularProgressIcon.level(for: 0), .normal)
+    func testTokenColorNormalAt0() {
+        XCTAssertEqual(CircularProgressIcon.tokenColor(for: 0), CircularProgressIcon.accentColor)
     }
 
-    func testLevelNormalAt69() {
-        XCTAssertEqual(CircularProgressIcon.level(for: 69.9), .normal)
+    func testTokenColorNormalAt69() {
+        XCTAssertEqual(CircularProgressIcon.tokenColor(for: 69.9), CircularProgressIcon.accentColor)
     }
 
-    func testLevelWarningAt70() {
-        XCTAssertEqual(CircularProgressIcon.level(for: 70), .warning)
+    func testTokenColorWarningAt70() {
+        XCTAssertEqual(CircularProgressIcon.tokenColor(for: 70), CircularProgressIcon.warnColor)
     }
 
-    func testLevelWarningAt89() {
-        XCTAssertEqual(CircularProgressIcon.level(for: 89.9), .warning)
+    func testTokenColorWarningAt89() {
+        XCTAssertEqual(CircularProgressIcon.tokenColor(for: 89.9), CircularProgressIcon.warnColor)
     }
 
-    func testLevelCriticalAt90() {
-        XCTAssertEqual(CircularProgressIcon.level(for: 90), .critical)
+    func testTokenColorCriticalAt90() {
+        XCTAssertEqual(CircularProgressIcon.tokenColor(for: 90), CircularProgressIcon.critColor)
     }
 
-    func testLevelCriticalAt100() {
-        XCTAssertEqual(CircularProgressIcon.level(for: 100), .critical)
+    func testTokenColorCriticalAt100() {
+        XCTAssertEqual(CircularProgressIcon.tokenColor(for: 100), CircularProgressIcon.critColor)
     }
 
-    func testLevelNormalNegative() {
-        XCTAssertEqual(CircularProgressIcon.level(for: -10), .normal)
+    func testTokenColorNormalNegative() {
+        XCTAssertEqual(CircularProgressIcon.tokenColor(for: -10), CircularProgressIcon.accentColor)
     }
 
-    func testLevelCriticalOver100() {
-        XCTAssertEqual(CircularProgressIcon.level(for: 150), .critical)
+    func testTokenColorCriticalOver100() {
+        XCTAssertEqual(CircularProgressIcon.tokenColor(for: 150), CircularProgressIcon.critColor)
     }
 
     // MARK: - Menu Bar Image

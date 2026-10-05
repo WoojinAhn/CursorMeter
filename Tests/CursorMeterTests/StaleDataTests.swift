@@ -24,7 +24,7 @@ final class StaleDataTests: XCTestCase {
     private func makeViewModel(spy: StaleSpy) -> UsageViewModel {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [MockURLProtocol.self]
-        let vm = UsageViewModel(
+        let vm = makeTestUsageViewModel(
             apiClient: CursorAPIClient(configuration: config),
             refreshFeedback: RefreshFeedback(timing: .immediate)
         )
