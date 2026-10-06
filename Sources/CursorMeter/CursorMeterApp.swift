@@ -10,6 +10,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     // MARK: - Properties
 
     private let viewModel: UsageViewModel
+    private let releaseSmokeTest: ReleaseSmokeTest?
+    private var smokeResult: Result<ReleaseSmokeTest.Report, Error>?
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
     private(set) var settingsWindow: NSWindow?
@@ -25,7 +27,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     private var sleepObserver: NSObjectProtocol?
     private let notificationManager: NotificationManager
 
-    init(viewModel: UsageViewModel = UsageViewModel()) {
+    init(viewModel: UsageViewModel = UsageViewModel(), releaseSmokeTest: ReleaseSmokeTest? = nil) {
+        self.releaseSmokeTest = releaseSmokeTest
         self.viewModel = viewModel
         self.notificationManager = viewModel.notificationManager
         super.init()
@@ -35,22 +38,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
 
     static func main() {
         let app = NSApplication.shared
-        // Only the production entry point opens persistent usage storage.
-        let cacheURL = URL.applicationSupportDirectory
-            .appendingPathComponent("CursorMeter", isDirectory: true)
-            .appendingPathComponent("recent-usage-v1.json")
-        let apiClient = CursorAPIClient()
-        let manager = NotificationManager(permissionStateProvider: { await NotificationManager.systemPermissionState() })
-        let amountURL = cacheURL.deletingLastPathComponent().appendingPathComponent("cycle-usage-v1.json")
-        let viewModel = UsageViewModel(apiClient: apiClient, recentUsage: RecentUsageController(
-            store: RecentUsageStore(fileURL: cacheURL),
-            validityPersistence: .preferences(domain: Bundle.main.bundleIdentifier ?? "com.woojin.CursorMeter")
-        ), notificationManager: manager,
-            splitUsage: SplitUsageController(apiClient: apiClient, store: CycleUsageStore(fileURL: amountURL)),
-            splitAlertStore: SplitUsageAlertStore(directory: SplitUsageAlertStore.applicationDirectory))
-        let delegate = AppDelegate(viewModel: viewModel)
+        let smoke: ReleaseSmokeTest?
+        do {
+            smoke = try ReleaseSmokeTest.Configuration.parse(arguments: CommandLine.arguments).map(ReleaseSmokeTest.init)
+        } catch {
+            fputs("Invalid release smoke arguments\n", stderr)
+            exit(2)
+        }
+        let viewModel: UsageViewModel
+        if let smoke {
+            viewModel = smoke.viewModel
+        } else {
+            // Only the production entry point opens persistent usage storage.
+            let cacheURL = URL.applicationSupportDirectory
+                .appendingPathComponent("CursorMeter", isDirectory: true)
+                .appendingPathComponent("recent-usage-v1.json")
+            let apiClient = CursorAPIClient()
+            let manager = NotificationManager(permissionStateProvider: { await NotificationManager.systemPermissionState() })
+            let amountURL = cacheURL.deletingLastPathComponent().appendingPathComponent("cycle-usage-v1.json")
+            viewModel = UsageViewModel(apiClient: apiClient, recentUsage: RecentUsageController(
+                store: RecentUsageStore(fileURL: cacheURL),
+                validityPersistence: .preferences(domain: Bundle.main.bundleIdentifier ?? "com.woojin.CursorMeter")
+            ), notificationManager: manager,
+                splitUsage: SplitUsageController(apiClient: apiClient, store: CycleUsageStore(fileURL: amountURL)),
+                splitAlertStore: SplitUsageAlertStore(directory: SplitUsageAlertStore.applicationDirectory))
+        }
+        let delegate = AppDelegate(viewModel: viewModel, releaseSmokeTest: smoke)
         app.delegate = delegate
         app.run()
+        if let smoke {
+            do {
+                guard let result = delegate.smokeResult else { throw ReleaseSmokeTest.SmokeFailure.missingStartupRefresh }
+                try smoke.write(result.get())
+            } catch {
+                fputs("Release smoke validation failed: \(error)\n", stderr)
+                exit(1)
+            }
+        }
     }
 
     // MARK: - Application Lifecycle
@@ -58,54 +82,68 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
 
-        // #83: app-status notification seams. Wired here (not defaulted in the
-        // view model) so a nil seam in the SPM test host can never reach
-        // UNUserNotificationCenter.
-        viewModel.updateAvailableNotifier = { [manager = notificationManager] version, releaseURL in
-            await manager.notifyUpdateAvailable(version: version, releaseURL: releaseURL)
-        }
-        viewModel.refreshFailingNotifier = { [manager = notificationManager] in
-            await manager.notifyRefreshFailing()
-        }
-        viewModel.refreshFailingWithdrawer = { [manager = notificationManager] in
-            manager.withdrawRefreshFailing()
-        }
-        // #112: failures during system sleep / dark wake must not count
-        // toward the connection-trouble notification. Display power stays
-        // off through dark wake and NSWorkspace sleep events can be missed
-        // entirely (app launched lid-closed), so a direct state query beats
-        // observer flags. CGDisplayIsAsleep: macOS 10.2+, not deprecated.
-        viewModel.displayAsleepChecker = { CGDisplayIsAsleep(CGMainDisplayID()) != 0 }
-
-        // #54: IDE credential source. Wired here (nil default in the view
-        // model) so the SPM test host can never read the real state.vscdb.
-        let authReader = CursorAppAuthReader()
-        viewModel.ideCredentialProvider = { authReader.read() }
-
-        // #88: IDE app presence + launcher for the sign-in inducement.
-        viewModel.ideAppPresenceCheck = { Self.cursorIDEAppURL() != nil }
-        viewModel.ideAppLauncher = { completion in
-            guard let appURL = Self.cursorIDEAppURL() else {
-                completion(false)
-                return
+        if releaseSmokeTest == nil {
+            // #83: app-status notification seams. Wired here (not defaulted in the
+            // view model) so a nil seam in the SPM test host can never reach
+            // UNUserNotificationCenter.
+            viewModel.updateAvailableNotifier = { [manager = notificationManager] version, releaseURL in
+                await manager.notifyUpdateAvailable(version: version, releaseURL: releaseURL)
             }
-            NSWorkspace.shared.openApplication(
-                at: appURL,
-                configuration: NSWorkspace.OpenConfiguration()
-            ) { app, _ in
-                // Hoist to Bool before crossing into the task — the callback's
-                // NSRunningApplication is not Sendable under strict checking.
-                let success = app != nil
-                Task { @MainActor in completion(success) }
+            viewModel.refreshFailingNotifier = { [manager = notificationManager] in
+                await manager.notifyRefreshFailing()
             }
-        }
+            viewModel.refreshFailingWithdrawer = { [manager = notificationManager] in
+                manager.withdrawRefreshFailing()
+            }
+            // #112: failures during system sleep / dark wake must not count
+            // toward the connection-trouble notification. Display power stays
+            // off through dark wake and NSWorkspace sleep events can be missed
+            // entirely (app launched lid-closed), so a direct state query beats
+            // observer flags. CGDisplayIsAsleep: macOS 10.2+, not deprecated.
+            viewModel.displayAsleepChecker = { CGDisplayIsAsleep(CGMainDisplayID()) != 0 }
 
-        UNUserNotificationCenter.current().delegate = self
+            // #54: IDE credential source. Wired here (nil default in the view
+            // model) so the SPM test host can never read the real state.vscdb.
+            let authReader = CursorAppAuthReader()
+            viewModel.ideCredentialProvider = { authReader.read() }
+
+            // #88: IDE app presence + launcher for the sign-in inducement.
+            viewModel.ideAppPresenceCheck = { Self.cursorIDEAppURL() != nil }
+            viewModel.ideAppLauncher = { completion in
+                guard let appURL = Self.cursorIDEAppURL() else {
+                    completion(false)
+                    return
+                }
+                NSWorkspace.shared.openApplication(
+                    at: appURL,
+                    configuration: NSWorkspace.OpenConfiguration()
+                ) { app, _ in
+                    // Hoist to Bool before crossing into the task — the callback's
+                    // NSRunningApplication is not Sendable under strict checking.
+                    let success = app != nil
+                    Task { @MainActor in completion(success) }
+                }
+            }
+
+            UNUserNotificationCenter.current().delegate = self
+        }
 
         startMenuBarPresentation()
         setupKeyboardShortcut()
 
-        viewModel.checkExistingSession()
+        let startupRefresh = viewModel.checkExistingSession()
+        if let smoke = releaseSmokeTest {
+            Task {
+                let run = Task { try await smoke.run(startup: startupRefresh) }
+                smokeResult = await run.result
+                NSApp.stop(nil)
+                // Wake app.run so main writes the receipt after the verifier task has returned.
+                if let event = NSEvent.otherEvent(with: .applicationDefined, location: .zero,
+                    modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+                    subtype: 0, data1: 0, data2: 0) { NSApp.postEvent(event, atStart: false) }
+            }
+            return
+        }
         observeSystemPresentationChanges()
 
         activityWatcher = CursorActivityWatcher { [weak self] in

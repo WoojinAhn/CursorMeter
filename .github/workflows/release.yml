@@ -5,25 +5,18 @@ on:
     tags:
       - 'v*'
 
-jobs:
-  test:
-    strategy:
-      fail-fast: false
-      matrix:
-        runner: [macos-15, macos-15-intel]
-    runs-on: ${{ matrix.runner }}
-    steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-      - name: Run tests
-        run: swift test
-      - name: Test optimized refresh lifecycle
-        run: swift test -c release --filter 'CredentialChainTests|Profile404MitigationTests|RefreshSessionOwnershipTests'
-      - name: Test installer
-        run: python3 -m unittest discover -s Scripts/tests -p 'test_*.py' -v
+permissions:
+  contents: read
 
-  build-and-release:
-    needs: test
-    runs-on: macos-15
+jobs:
+  verify:
+    uses: ./.github/workflows/test.yml
+    with:
+      release_tag: ${{ github.ref_name }}
+
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
@@ -35,34 +28,14 @@ jobs:
         id: version
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
-      - name: Build and archive both architectures
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: verified-release
+          path: verified/
+      - name: Recheck the exact archives immediately before publication
         env:
           APP_VERSION: ${{ steps.version.outputs.version }}
-          BUILD_CHANNEL: release
-        run: |
-          for BUILD_ARCH in arm64 x86_64; do
-            export BUILD_ARCH
-            export APP_OUTPUT_DIR=".build/package-${BUILD_ARCH}"
-            bash Scripts/package_app.sh
-            ZIP_NAME="CursorMeter-${APP_VERSION}.zip"
-            if [ "$BUILD_ARCH" = x86_64 ]; then
-              ZIP_NAME="CursorMeter-${APP_VERSION}-x86_64.zip"
-            fi
-            ditto -c -k --keepParent "${APP_OUTPUT_DIR}/CursorMeter.app" "$ZIP_NAME"
-          done
-
-      # Published so a download can be checked for corruption / wrong asset
-      # (#53 M-6). NOT an authenticity guarantee: hash, zip and installer all
-      # come from this same repo, so a repo compromise moves all three.
-      # Publisher authenticity needs Developer ID signing + notarization (#31).
-      - name: Compute checksum
-        env:
-          APP_VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          shasum -a 256 "CursorMeter-${APP_VERSION}.zip" > "CursorMeter-${APP_VERSION}.zip.sha256"
-          shasum -a 256 "CursorMeter-${APP_VERSION}-x86_64.zip" > "CursorMeter-${APP_VERSION}-x86_64.zip.sha256"
-          cat "CursorMeter-${APP_VERSION}.zip.sha256"
-          cat "CursorMeter-${APP_VERSION}-x86_64.zip.sha256"
+        run: python3 Scripts/release_artifacts.py verify-publication verified --version "$APP_VERSION" --commit "$GITHUB_SHA" --ref "$GITHUB_REF"
 
       - name: Generate release notes
         id: notes
@@ -160,9 +133,11 @@ jobs:
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           files: |
-            CursorMeter-${{ steps.version.outputs.version }}.zip
-            CursorMeter-${{ steps.version.outputs.version }}.zip.sha256
-            CursorMeter-${{ steps.version.outputs.version }}-x86_64.zip
-            CursorMeter-${{ steps.version.outputs.version }}-x86_64.zip.sha256
+            verified/CursorMeter-${{ steps.version.outputs.version }}.zip
+            verified/CursorMeter-${{ steps.version.outputs.version }}.zip.sha256
+            verified/CursorMeter-${{ steps.version.outputs.version }}-x86_64.zip
+            verified/CursorMeter-${{ steps.version.outputs.version }}-x86_64.zip.sha256
+            verified/build-*.json
+            verified/smoke-*.json
           fail_on_unmatched_files: true
           body: ${{ steps.notes.outputs.body }}
