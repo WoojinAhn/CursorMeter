@@ -100,6 +100,15 @@ final class SplitUsageController {
         } else { self.collect = nil }
     }
 
+    /// Wait through admission and any follow-up collection scheduled during teardown.
+    func waitForCurrentCollection() async {
+        while admissionTask != nil || task != nil || supplementTask != nil {
+            await admissionTask?.value
+            await task?.value
+            await supplementTask?.value
+        }
+    }
+
     func reevaluateToday(at date: Date) {
         todayPercentagePoints = TodayUsageAllocation.percentagePoints(snapshot: snapshot, amounts: amounts,
             primaryIsStale: isStale,

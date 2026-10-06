@@ -4,19 +4,147 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_call:
+    inputs:
+      release_tag:
+        type: string
+        default: ''
+    outputs:
+      version:
+        value: ${{ jobs.test.outputs.version }}
+
+permissions:
+  contents: read
 
 jobs:
   test:
     strategy:
       fail-fast: false
       matrix:
-        runner: [macos-15, macos-15-intel]
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+      PYTHONDONTWRITEBYTECODE: '1'
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - name: Select artifact version
+        id: version
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          if [ -n "$RELEASE_TAG" ]; then
+            [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]
+            VERSION="${RELEASE_TAG#v}"
+          else
+            VERSION=0.0.0-ci
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
       - name: Run tests
         run: swift test
       - name: Test optimized refresh lifecycle
-        run: swift test -c release --filter 'CredentialChainTests|Profile404MitigationTests|RefreshSessionOwnershipTests'
-      - name: Test installer
+        run: swift test -c release --filter 'CredentialChainTests|Profile404MitigationTests|RefreshSessionOwnershipTests|CycleBonusReconciliationTests|ReleaseSmokeTestTests'
+      - name: Test release gates and installer
         run: python3 -m unittest discover -s Scripts/tests -p 'test_*.py' -v
+      - name: Package release executable once
+        env:
+          APP_VERSION: ${{ steps.version.outputs.version }}
+          BUILD_ARCH: ${{ matrix.arch }}
+          BUILD_CHANNEL: release
+          APP_OUTPUT_DIR: .build/package-${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          bash Scripts/package_app.sh
+          ARTIFACT_DIR=.build/release-artifacts
+          mkdir -p "$ARTIFACT_DIR"
+          ZIP_NAME="CursorMeter-${APP_VERSION}.zip"
+          if [ "$BUILD_ARCH" = x86_64 ]; then
+            ZIP_NAME="CursorMeter-${APP_VERSION}-x86_64.zip"
+          fi
+          ditto -c -k --keepParent "$APP_OUTPUT_DIR/CursorMeter.app" "$ARTIFACT_DIR/$ZIP_NAME"
+          (cd "$ARTIFACT_DIR" && shasum -a 256 "$ZIP_NAME" > "$ZIP_NAME.sha256")
+          python3 Scripts/release_artifacts.py record-build "$ARTIFACT_DIR/$ZIP_NAME" \
+            --arch "$BUILD_ARCH" --version "$APP_VERSION" --output "$ARTIFACT_DIR/build-$BUILD_ARCH.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-app-${{ matrix.arch }}
+          path: .build/release-artifacts/
+          if-no-files-found: error
+          retention-days: 14
+
+  smoke:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+          - runner: macos-26
+            arch: arm64
+          - runner: macos-26-intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-app-${{ matrix.arch }}
+          path: .build/release-artifacts/
+      - name: Run packaged app through completed refreshes
+        env:
+          APP_VERSION: ${{ needs.test.outputs.version }}
+          BUILD_ARCH: ${{ matrix.arch }}
+          RUNNER_LABEL: ${{ matrix.runner }}
+        run: |
+          ZIP_NAME="CursorMeter-${APP_VERSION}.zip"
+          if [ "$BUILD_ARCH" = x86_64 ]; then
+            ZIP_NAME="CursorMeter-${APP_VERSION}-x86_64.zip"
+          fi
+          python3 Scripts/test_release_app.py ".build/release-artifacts/$ZIP_NAME" \
+            --expected-arch "$BUILD_ARCH" --expected-version "$APP_VERSION" \
+            --report ".build/smoke-evidence/smoke-$RUNNER_LABEL.json" \
+            --timeout 60 --negative-controls --negative-timeout 5
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: smoke-evidence-${{ matrix.runner }}
+          path: .build/smoke-evidence/
+          if-no-files-found: error
+          retention-days: 14
+
+  verified-artifacts:
+    needs: [test, smoke]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: release-app-*
+          merge-multiple: true
+          path: verified/
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: smoke-evidence-*
+          merge-multiple: true
+          path: verified/
+      - name: Bind archives to all four native verification results
+        env:
+          APP_VERSION: ${{ needs.test.outputs.version }}
+        run: python3 Scripts/release_artifacts.py verify-publication verified --version "$APP_VERSION" --commit "$GITHUB_SHA" --ref "$GITHUB_REF"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: verified-release
+          path: verified/
+          if-no-files-found: error
+          retention-days: 14

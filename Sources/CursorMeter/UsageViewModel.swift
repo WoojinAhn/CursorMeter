@@ -316,6 +316,7 @@ final class UsageViewModel {
 
     private var isRefreshing = false
     private let apiClient: CursorAPIClient
+    @ObservationIgnored private let defaults: UserDefaults
     private var refreshTask: Task<Void, Never>?
     private var cachedCookieHeader: String?
 
@@ -340,6 +341,9 @@ final class UsageViewModel {
     @ObservationIgnored private var activeRefresh: ActiveRefresh?
     @ObservationIgnored private var activeNetworkTask: Task<Void, Never>?
     @ObservationIgnored private var lastRequestScope: RecentUsageRequestScope?
+
+    @ObservationIgnored internal var keychainLoadHandler: () throws -> String? =
+        KeychainStore.loadCookieHeader
 
     /// Keychain saving, injectable for tests — the default writes the real
     /// `com.cursormeter.session` item, which tests must never touch.
@@ -550,9 +554,11 @@ final class UsageViewModel {
         refreshFeedback: RefreshFeedback? = nil,
         notificationManager: NotificationManager? = nil,
         splitUsage: SplitUsageController? = nil,
-        splitAlertStore: SplitUsageAlertStore? = nil
+        splitAlertStore: SplitUsageAlertStore? = nil,
+        defaults: UserDefaults = .standard
     ) {
         self.apiClient = apiClient
+        self.defaults = defaults
         self.recentUsage = recentUsage ?? RecentUsageController()
         self.refreshFeedback = refreshFeedback ?? RefreshFeedback()
         let manager = notificationManager ?? NotificationManager()
@@ -570,27 +576,28 @@ final class UsageViewModel {
 
     // MARK: - Session
 
-    func checkExistingSession() {
+    @discardableResult
+    func checkExistingSession() -> Task<Void, Never>? {
         do {
-            if let header = try KeychainStore.loadCookieHeader() {
+            if let header = try keychainLoadHandler() {
                 cachedCookieHeader = header
-                startSession()
-                return
+                return startSession()
             }
         } catch {
             Log.error("Failed to load keychain: \(error)")
         }
         // No captured cookie — the IDE source may still authenticate (#54).
         if !ideAuthSuppressed, ideCredentialProvider != nil {
-            startSession()
+            return startSession()
         }
+        return nil
     }
 
     /// Re-enables the IDE credential source after a logout and starts a
     /// session; the chain resolves the actual credential on refresh (#54).
     func connectViaIDE() {
         ideAuthSuppressed = false
-        UserDefaults.standard.set(false, for: .ideAuthSuppressed)
+        defaults.set(false, for: .ideAuthSuppressed)
         startSession()
     }
 
@@ -598,7 +605,7 @@ final class UsageViewModel {
         cachedCookieHeader = cookieHeader
         // Explicit reconnect intent — re-enable the IDE source too (#54).
         ideAuthSuppressed = false
-        UserDefaults.standard.set(false, for: .ideAuthSuppressed)
+        defaults.set(false, for: .ideAuthSuppressed)
         // The previous session's per-account caches must not leak into the
         // new account — a user signing in to a different team would
         // otherwise see the prior team's weekly data, baselines, and
@@ -666,18 +673,20 @@ final class UsageViewModel {
         notificationManager.resetNotifications()
     }
 
-    private func startSession() {
+    @discardableResult
+    private func startSession() -> Task<Void, Never> {
         retainedProfile = nil
         invalidateRefreshSession(revokePersisted: false)
         lastRefreshAttempt = nil
         notificationManager.resetNotifications()
         authState = .loggedIn
         let generation = sessionGeneration
-        Task { [weak self] in
+        let startup = Task { [weak self] in
             guard let self, self.sessionGeneration == generation else { return }
             await self.refresh()
         }
         startAutoRefresh()
+        return startup
     }
 
     private func isCurrent(_ context: RefreshContext) -> Bool {
@@ -1613,7 +1622,7 @@ final class UsageViewModel {
         // Suppress the IDE source, or logout would silently resurrect on the
         // next refresh (#54).
         ideAuthSuppressed = true
-        UserDefaults.standard.set(true, for: .ideAuthSuppressed)
+        defaults.set(true, for: .ideAuthSuppressed)
         activeAuthSource = nil
         lastAccountEmail = nil
         lastAccountSubject = nil
@@ -1660,7 +1669,7 @@ final class UsageViewModel {
 
     func setRefreshInterval(_ interval: RefreshInterval) {
         refreshInterval = interval
-        UserDefaults.standard.set(interval.rawValue, for: .refreshInterval)
+        defaults.set(interval.rawValue, for: .refreshInterval)
         if authState == .loggedIn {
             startAutoRefresh()
         }
@@ -1668,7 +1677,7 @@ final class UsageViewModel {
 
     func setNotificationEnabled(_ enabled: Bool) {
         notificationEnabled = enabled
-        UserDefaults.standard.set(enabled, for: .notificationEnabled)
+        defaults.set(enabled, for: .notificationEnabled)
         splitAlerts.updatePolicy(splitAlertPolicy)
     }
 
@@ -1681,29 +1690,29 @@ final class UsageViewModel {
 
     func setSplitOuterPool(_ pool: UsagePoolID) {
         splitOuterPool = pool
-        UserDefaults.standard.set(pool.rawValue, for: .splitOuterPool)
+        defaults.set(pool.rawValue, for: .splitOuterPool)
     }
     func setSplitMenuBarPercentagesEnabled(_ enabled: Bool) {
         splitMenuBarPercentagesEnabled = enabled
-        UserDefaults.standard.set(enabled, for: .splitMenuBarPercentagesEnabled)
+        defaults.set(enabled, for: .splitMenuBarPercentagesEnabled)
     }
     func setSplitAlertTarget(_ scope: SplitAlertScope, enabled: Bool) {
         guard scope != .included else { return }
         if enabled { splitAlertTargets.insert(scope) } else { splitAlertTargets.remove(scope) }
-        UserDefaults.standard.set(splitAlertTargets.map(\.rawValue).sorted(), for: .splitAlertTargets)
+        defaults.set(splitAlertTargets.map(\.rawValue).sorted(), for: .splitAlertTargets)
         splitAlerts.updatePolicy(splitAlertPolicy)
     }
     func setPopoverValueMode(_ mode: PopoverValueMode) {
         popoverValueMode = mode
-        UserDefaults.standard.set(mode.rawValue, for: .popoverValueMode)
+        defaults.set(mode.rawValue, for: .popoverValueMode)
     }
     func setEstimatedLimitsEnabled(_ enabled: Bool) {
         estimatedLimitsEnabled = enabled
-        UserDefaults.standard.set(enabled, for: .estimatedLimitsEnabled)
+        defaults.set(enabled, for: .estimatedLimitsEnabled)
     }
     func markEstimateExplanationSeen() {
         estimateExplanationSeen = true
-        UserDefaults.standard.set(true, for: .estimateExplanationSeen)
+        defaults.set(true, for: .estimateExplanationSeen)
     }
     func splitThresholds(for scope: SplitAlertScope) -> SplitAlertThresholds {
         splitAlertThresholds[scope] ?? SplitAlertThresholds(warning: warningThreshold, critical: criticalThreshold)
@@ -1724,11 +1733,11 @@ final class UsageViewModel {
         let stored = Dictionary(uniqueKeysWithValues: splitAlertThresholds.map {
             ($0.key.rawValue, ["warning": $0.value.warning, "critical": $0.value.critical])
         })
-        UserDefaults.standard.set(stored, for: .splitAlertThresholds)
+        defaults.set(stored, for: .splitAlertThresholds)
     }
     private func persistThresholds() {
-        UserDefaults.standard.set(warningThreshold, for: .warningThreshold)
-        UserDefaults.standard.set(criticalThreshold, for: .criticalThreshold)
+        defaults.set(warningThreshold, for: .warningThreshold)
+        defaults.set(criticalThreshold, for: .criticalThreshold)
         splitAlerts.updatePolicy(splitAlertPolicy)
     }
     func refreshNotificationPermissionStatus() async {
@@ -1752,7 +1761,7 @@ final class UsageViewModel {
 
     func setBrowserLoginEnabled(_ enabled: Bool) {
         browserLoginEnabled = enabled
-        UserDefaults.standard.set(enabled, for: .browserLoginEnabled)
+        defaults.set(enabled, for: .browserLoginEnabled)
     }
 
     func setWarningThreshold(_ value: Int) {
@@ -1769,49 +1778,49 @@ final class UsageViewModel {
 
     func setMenuBarDisplayMode(_ mode: Int) {
         menuBarDisplayMode = mode
-        UserDefaults.standard.set(mode, for: .menuBarDisplayMode)
+        defaults.set(mode, for: .menuBarDisplayMode)
     }
 
     func setAppStatusNotificationEnabled(_ enabled: Bool) {
         appStatusNotificationEnabled = enabled
-        UserDefaults.standard.set(enabled, for: .appStatusNotificationEnabled)
+        defaults.set(enabled, for: .appStatusNotificationEnabled)
     }
 
     func setJumpEffectEnabled(_ enabled: Bool) {
         jumpEffectEnabled = enabled
-        UserDefaults.standard.set(enabled, for: .jumpEffectEnabled)
+        defaults.set(enabled, for: .jumpEffectEnabled)
         splitAlerts.updatePolicy(splitAlertPolicy)
     }
 
     func setJumpIntensity(_ intensity: JumpIntensity) {
         jumpIntensity = intensity
-        UserDefaults.standard.set(intensity.rawValue, for: .jumpIntensity)
+        defaults.set(intensity.rawValue, for: .jumpIntensity)
         splitAlerts.updatePolicy(splitAlertPolicy)
     }
 
     func setJumpGlyphStyle(_ style: JumpGlyphStyle) {
         jumpGlyphStyle = style
-        UserDefaults.standard.set(style.rawValue, for: .jumpGlyphStyle)
+        defaults.set(style.rawValue, for: .jumpGlyphStyle)
     }
 
     func setWeeklyChartEnabled(_ enabled: Bool) {
         weeklyChartEnabled = enabled
-        UserDefaults.standard.set(enabled, for: .weeklyChartEnabled)
+        defaults.set(enabled, for: .weeklyChartEnabled)
     }
 
     func setWeeklyChartStyle(_ style: WeeklyChartStyle) {
         weeklyChartStyle = style
-        UserDefaults.standard.set(style.rawValue, for: .weeklyChartStyle)
+        defaults.set(style.rawValue, for: .weeklyChartStyle)
     }
 
     func setWeeklyChartMetric(_ metric: WeeklyChartMetric) {
         weeklyChartMetric = metric
-        UserDefaults.standard.set(metric.rawValue, for: .weeklyChartMetric)
+        defaults.set(metric.rawValue, for: .weeklyChartMetric)
     }
 
     func setActivityRefreshEnabled(_ enabled: Bool) {
         activityRefreshEnabled = enabled
-        UserDefaults.standard.set(enabled, for: .activityRefreshEnabled)
+        defaults.set(enabled, for: .activityRefreshEnabled)
         if !enabled {
             activityGeneration += 1
             activityDebounceTask?.cancel()
@@ -1821,7 +1830,7 @@ final class UsageViewModel {
 
     func setRecentUsageTimeZone(_ mode: RecentUsageTimeZone) {
         recentUsageTimeZone = mode
-        UserDefaults.standard.set(mode.rawValue, for: .recentUsageTimeZone)
+        defaults.set(mode.rawValue, for: .recentUsageTimeZone)
     }
 
     func systemTimeZoneDidChange() {
@@ -1852,7 +1861,6 @@ final class UsageViewModel {
         guard source == .automatic, case .available(let release) = result,
               let updateAvailableNotifier
         else { return }
-        let defaults = UserDefaults.standard
         guard Self.shouldNotifyUpdate(
             version: release.version,
             lastNotified: defaults.object(for: .lastNotifiedUpdateVersion) as? String,
@@ -1870,7 +1878,6 @@ final class UsageViewModel {
     /// later, independent of unified-log retention. Read via:
     /// `defaults read com.woojin.CursorMeter sessionExpiryHistory`.
     private func recordSessionExpiry(at date: Date) {
-        let defaults = UserDefaults.standard
         let history = (defaults.object(for: .sessionExpiryHistory) as? [Date]) ?? []
         let updated = Self.cappedExpiryHistory(history, appending: date)
         defaults.set(updated, for: .sessionExpiryHistory)
@@ -1906,7 +1913,6 @@ final class UsageViewModel {
     // MARK: - Private
 
     private func loadSettings() {
-        let defaults = UserDefaults.standard
         recentUsageTimeZone = RecentUsageTimeZone(storedValue: defaults.object(for: .recentUsageTimeZone) as? String)
         if let raw = defaults.object(for: .refreshInterval) as? Int,
            let interval = RefreshInterval(rawValue: raw)
@@ -2259,8 +2265,11 @@ final class UsageViewModel {
 
     /// Test-only — cancels the auto-refresh loop that connectViaIDE/startSession
     /// spins up, so tests can drive refresh() deterministically.
-    internal func stopAutoRefreshForTests() {
+    @discardableResult
+    internal func stopAutoRefreshForTests() -> Task<Void, Never>? {
+        let polling = refreshTask
         stopAutoRefresh()
+        return polling
     }
 
     /// Builds a `JumpEvent` from raw delta/limit. Pure function — exposed for testing.
