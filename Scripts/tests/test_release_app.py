@@ -344,6 +344,36 @@ class ArchiveTests(unittest.TestCase):
                             for control in report["negativeControls"]))
 
 
+class NativeArchitectureTests(unittest.TestCase):
+    def probe(self, stdout, returncode=0):
+        with mock.patch.object(gate.platform, "system", return_value="Darwin"), \
+                mock.patch.object(gate.platform, "machine", return_value="x86_64"), \
+                mock.patch.object(gate.subprocess, "run", return_value=mock.Mock(
+                    returncode=returncode, stdout=stdout, stderr=""
+                )) as command:
+            architecture = gate.native_architecture()
+        command.assert_called_once_with(
+            ["/usr/sbin/sysctl", "-in", "sysctl.proc_translated"],
+            capture_output=True, text=True, timeout=5
+        )
+        return architecture
+
+    def test_intel_missing_translation_oid_is_native(self):
+        self.assertEqual(self.probe(""), "x86_64")
+
+    def test_explicit_native_result_is_intel(self):
+        self.assertEqual(self.probe("0\n"), "x86_64")
+
+    def test_rosetta_result_identifies_arm_host(self):
+        self.assertEqual(self.probe("1\n"), "arm64")
+
+    def test_failed_or_unexpected_probe_is_rejected(self):
+        for returncode, stdout in ((1, ""), (2, ""), (0, "unknown")):
+            with self.subTest(returncode=returncode, stdout=stdout):
+                with self.assertRaisesRegex(gate.GateError, "native host"):
+                    self.probe(stdout, returncode)
+
+
 class BundleInspectionTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="cursormeter-inspection-test-")

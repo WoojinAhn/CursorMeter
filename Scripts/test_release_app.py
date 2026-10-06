@@ -85,8 +85,8 @@ def native_architecture():
         )
         if translated.returncode == 0 and translated.stdout.strip() == "1":
             architecture = "arm64"
-        elif not ((translated.returncode == 0 and translated.stdout.strip() == "0")
-                  or (translated.returncode == 1 and not translated.stdout.strip())):
+        # With -i, an unavailable translation OID on Intel succeeds with no output.
+        elif translated.returncode != 0 or translated.stdout.strip() not in ("", "0"):
             raise GateError("Could not determine native host architecture")
     if architecture not in ("arm64", "x86_64"):
         raise GateError(f"Unsupported host architecture: {architecture}")
