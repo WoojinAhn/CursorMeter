@@ -8,6 +8,16 @@ APP_VERSION="${APP_VERSION:-0.1.0}"
 # channel, not APP_VERSION inference — a local APP_VERSION=x build must not
 # masquerade as a release.
 BUILD_CHANNEL="${BUILD_CHANNEL:-dev}"
+if [[ ${CM_DEV_SIGNING_IDENTITY+x} ]]; then
+    if [ "$BUILD_CHANNEL" = "release" ]; then
+        echo "Error: CM_DEV_SIGNING_IDENTITY is only supported for local dev builds." >&2
+        exit 1
+    fi
+    if [[ ! "$CM_DEV_SIGNING_IDENTITY" =~ ^[0-9A-Fa-f]{40}$ ]]; then
+        echo "Error: CM_DEV_SIGNING_IDENTITY must be a 40-digit certificate SHA-1 fingerprint." >&2
+        exit 1
+    fi
+fi
 BUILD_ARCH="${BUILD_ARCH:-$(uname -m)}"
 case "$BUILD_ARCH" in
     arm64|x86_64) ;;
@@ -104,9 +114,16 @@ cat > "$ENTITLEMENTS_PATH" << 'ENTITLEMENTS'
 </plist>
 ENTITLEMENTS
 
-# Ad-hoc sign with entitlements
-echo "Signing (ad-hoc)..."
-codesign -s - --force --deep --entitlements "$ENTITLEMENTS_PATH" "${APP_BUNDLE}"
+if [[ ${CM_DEV_SIGNING_IDENTITY+x} ]]; then
+    echo "Signing (local development identity)..."
+    codesign --sign "$CM_DEV_SIGNING_IDENTITY" --force --deep \
+        --entitlements "$ENTITLEMENTS_PATH" --timestamp=none \
+        --requirements "=designated => identifier \"com.woojin.CursorMeter\" and certificate leaf = H\"${CM_DEV_SIGNING_IDENTITY}\"" \
+        "$APP_BUNDLE"
+else
+    echo "Signing (ad-hoc)..."
+    codesign -s - --force --deep --entitlements "$ENTITLEMENTS_PATH" "$APP_BUNDLE"
+fi
 codesign --verify --deep --strict "$APP_BUNDLE"
 
 echo "Done! ${APP_BUNDLE} v${APP_VERSION} created."
