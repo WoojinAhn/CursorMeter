@@ -97,6 +97,8 @@ cp -r CursorMeter.app /Applications/
 
 Swift 6.0+ と Xcode が必要です。特定のアーキテクチャ向けにビルドするには、`BUILD_ARCH=arm64 bash Scripts/package_app.sh` または `BUILD_ARCH=x86_64 bash Scripts/package_app.sh` を実行します。どちらも `CursorMeter.app` を生成するため、別々のディレクトリに保存する場合は `APP_OUTPUT_DIR` を設定してください。
 
+ローカルビルドの入れ替え時にキーチェーンの承認を繰り返す場合は、[ローカル開発用の署名（英語）](docs/LOCAL_SIGNING.md)を参照してください。ダウンロードするリリースには影響しません。
+
 ## テスト
 
 ```bash

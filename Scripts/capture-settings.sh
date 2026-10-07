@@ -32,9 +32,9 @@ if [ "$(git rev-list --count HEAD..origin/main)" -gt 0 ] && [ "${SKIP_SYNC:-0}" 
 fi
 
 # 1. Reinstall (CLAUDE.md App Reinstall sequence)
+bash Scripts/package_app.sh
 pkill -9 -x CursorMeter || true
 rm -rf /Applications/CursorMeter.app
-bash Scripts/package_app.sh
 cp -r CursorMeter.app /Applications/
 open /Applications/CursorMeter.app
 sleep 2
