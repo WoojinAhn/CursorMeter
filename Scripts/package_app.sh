@@ -3,10 +3,10 @@ set -euo pipefail
 
 APP_NAME="CursorMeter"
 APP_VERSION="${APP_VERSION:-0.1.0}"
-# release.yml sets BUILD_CHANNEL=release; every other invocation is a dev
-# build and gets provenance keys stamped into Info.plist (#109). Explicit
-# channel, not APP_VERSION inference — a local APP_VERSION=x build must not
-# masquerade as a release.
+# Artifact verification in test.yml sets BUILD_CHANNEL=release for PR/main CI
+# (0.0.0-ci) and for tag releases called by release.yml (the tag version).
+# Other invocations default to dev and get provenance keys in Info.plist (#109).
+# Select the channel explicitly; APP_VERSION alone does not make a release build.
 BUILD_CHANNEL="${BUILD_CHANNEL:-dev}"
 if [[ ${CM_DEV_SIGNING_IDENTITY+x} ]]; then
     if [ "$BUILD_CHANNEL" = "release" ]; then
