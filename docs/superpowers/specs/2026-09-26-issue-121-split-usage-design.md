@@ -295,7 +295,12 @@ pool limits. At/above either 100% also blocks new inferred limits because spillo
 plausible. Keep authoritative percentages regardless.
 
 Reconcile sum of included non-Bot raw costs against the coherent summary included
-cents with at most 1 cent absolute tolerance (an app policy, not a guaranteed server rounding rule). Keep Bot/paid/unknown subtotals separate.
+cents, or the validated bonus receipt's included-plus-bonus total when the
+[capped-bonus contract](2026-09-26-issue-121-source-contract.md#capped-included-amount-and-free-bonus-usage-2026-10-06-141)
+is satisfied. An unvalidated period `totalSpend` is not a fallback. Keep at most
+1 cent absolute tolerance (an app policy, not a guaranteed server rounding rule)
+and preserve the existing source, coverage, classification, and ownership checks.
+Keep Bot/paid/unknown subtotals separate.
 Round each displayed subtotal independently; do not force residual into a pool or drop
 fractional cents to manufacture agreement. Keep residual and coverage in internal diagnostics, outside normal user-facing views.
 

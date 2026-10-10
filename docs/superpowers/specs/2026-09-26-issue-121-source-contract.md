@@ -154,5 +154,10 @@ Recent but not verified for monthly plan accounting: keep excluded/uncertain sep
 never silently absorb it into included. Any unknown cost-bearing kind blocks inference.
 
 One-cent reconciliation tolerance is an app policy: **1.0 in cents**, or **0.01 in USD**.
-For cents-valued Decimal totals, compare `abs(rawIncludedCents - Decimal(summaryUsed)) <= 1`.
+For cents-valued Decimal totals, compare `abs(rawIncludedCents - reconciliationTargetCents) <= 1`.
+The target is `Decimal(summaryUsed)` unless the capped-bonus conditions above produce
+a validated reconciliation receipt bound to the same cycle and primary included amount;
+then use that receipt's included-plus-bonus `totalCents`. An unvalidated period
+`totalSpend` is not a fallback, and the existing source rechecks and attribution
+requirements still apply.
 Do not accidentally use `0.01` against cents-valued totals (100 times too strict).
