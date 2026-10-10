@@ -197,7 +197,7 @@ Many `/api/dashboard/*` POST endpoints exist (e.g. `get-team-spend`, `get-curren
 
 ## Known limitations / open questions
 
-- **Personal Pro/Pro+ weekly events** — `teamId: 0` verified on free and Ultra; Pro/Pro+ remain unverified. Failure degrades to a hidden chart.
+- **Personal Pro/Pro+ weekly events** — `teamId: 0` verified on free and Ultra; Pro/Pro+ remain unverified. While logged in with the chart enabled, transient weekly fetch failures preserve cached data; two consecutive failures show the last successful update date and time. After a weekly fetch failure with no cached history available, a compact unavailable/retrying message is shown instead. Existing cache invalidation for rejected request shapes or access is unchanged.
 - **Weekly/recent pagination** — the shared weekly pipeline stops at the reported total, an empty page, or the 7-day cutoff, with a safety cap of 5 pages of 100 events. Histories exceeding that cap can be incomplete.
 - **Stability** — all paths are undocumented. Any contributor changing the consumer code should re-verify the response shape against a fresh dashboard capture.
 - **Rate limits** — server-side limits are undocumented. An ephemeral URLSession does not isolate account/server rate limits. The recent list adds no automatic requests to the existing weekly pipeline. Split cycle enrichment makes separately bounded requests, and all admission limits apply per Mac only.
