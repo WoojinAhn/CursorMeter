@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>CursorMeter #147 — Weekly usage and prepaid credits</title>
+<style>
+:root { color-scheme:light; --bg:#f5f5f7; --panel:#fff; --text:#141414; --muted:#606168; --line:#dedee0; --track:#a6a6a6; --accent:#2fb646; --link:#0066cc; --warning:#855400; --alert:#b42318; }
+body.dark { color-scheme:dark; --bg:#202124; --panel:#303134; --text:#f3f3f4; --muted:#c0c0c8; --line:#606068; --track:#55555c; --accent:#65d77b; --link:#8dc0ff; --warning:#f8c775; --alert:#ffb0a6; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--text); font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+main { max-width:1060px; padding:32px; margin:auto; }
+h1 { font-size:26px; line-height:1.25; margin:0 0 12px; letter-spacing:-.02em; }
+h2 { font-size:16px; margin:0 0 12px; }
+p { max-width:74ch; margin:0 0 18px; }
+a { color:var(--link); text-underline-offset:3px; }
+button,select { font:inherit; padding:7px 10px; color:var(--text); background:var(--panel); border:1px solid var(--line); border-radius:6px; }
+button { cursor:pointer; }
+button:hover,select:hover { border-color:var(--muted); }
+button:active { background:var(--track); }
+:focus-visible { outline:2px solid var(--link); outline-offset:3px; }
+::selection { color:var(--panel); background:var(--link); }
+.controls { display:flex; flex-wrap:wrap; gap:12px 20px; align-items:end; margin:24px 0 28px; }
+label { display:grid; gap:4px; font-weight:600; }
+select { min-width:260px; font-weight:400; }
+.comparison { display:grid; grid-template-columns:320px 320px; gap:56px; align-items:start; }
+.before { width:300px; height:auto; display:block; }
+.caption,.muted { color:var(--muted); }
+.caption { font-size:12px; margin:12px 0 0; }
+.menu-bar { width:300px; padding:5px 10px; margin-top:14px; background:var(--panel); display:flex; justify-content:flex-end; gap:7px; font-size:13px; font-variant-numeric:tabular-nums; }
+.menu-ring { width:18px; height:18px; align-self:center; }
+.menu-ring svg { width:18px; height:18px; transform:rotate(-90deg); }
+.popover { width:300px; background:var(--panel); padding:6px 10px; font-size:12px; line-height:1.4; }
+.row { display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
+.identity { padding-bottom:2px; border-bottom:1px solid var(--line); }
+.identity strong { font-size:13px; }
+.badge { font-size:10px; color:var(--text); background:var(--track); border-radius:2px; padding:0 2px; margin-left:4px; }
+.email { color:var(--muted); font-size:10px; }
+.usage-heading { height:28px; color:var(--muted); }
+.weekly { display:flex; align-items:center; gap:10px; margin:0 0 4px; }
+.ring { width:112px; height:112px; flex:none; }
+.ring svg { width:112px; height:112px; transform:rotate(-90deg); }
+.meter-track { fill:none; stroke:var(--track); stroke-width:12.44; }
+.meter-fill { fill:none; stroke:var(--accent); stroke-width:12.44; }
+.credit-track { fill:var(--track); fill-opacity:.45; stroke:var(--track); stroke-width:4.67; }
+.credit-fill { fill:var(--accent); }
+.readings { min-width:0; display:grid; gap:14px; flex:1; }
+.reading-title { font-size:11px; font-weight:600; display:flex; align-items:center; gap:4px; }
+.reading-title svg { width:10px; height:10px; flex:none; color:var(--muted); }
+.reading-value { font-size:17px; font-weight:600; line-height:1.3; margin-top:3px; }
+.remaining { font-size:11px; color:var(--muted); margin-top:2px; }
+.reset { color:var(--muted); font-size:10px; }
+.number { font-variant-numeric:tabular-nums; white-space:nowrap; }
+.metric { margin-top:4px; color:var(--muted); }
+.small { font-size:11px; }
+.notice { margin-top:4px; color:var(--warning); font-size:11px; }
+.notice.alert { color:var(--alert); }
+.status-line { margin:4px 0; color:var(--warning); font-size:11px; }
+.icon { width:14px; height:14px; color:#808084; flex:none; fill:none; stroke:currentColor; stroke-width:1.3; stroke-linecap:round; stroke-linejoin:round; }
+.icon-button { display:flex; border:0; padding:3px; background:transparent; }
+.icon-button .icon { color:var(--text); }
+.history { height:76px; padding-top:10px; margin:0; }
+.bars { display:flex; gap:8px; align-items:end; height:50px; padding:0 6px; }
+.bar { flex:1; background:var(--accent); border-radius:1px 1px 0 0; }
+.days { display:flex; justify-content:space-around; font-size:10px; color:var(--muted); }
+.history-note { height:76px; display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:11px; }
+.history-note[hidden],.history[hidden] { display:none; }
+.reset-row { display:flex; justify-content:space-between; align-items:center; margin:2px 0; }
+.interval { display:flex; align-items:center; gap:3px; min-width:0; padding:0; border:0; border-radius:0; background:transparent; font-size:10px; }
+.interval select { min-width:0; padding:0; border:0; font-size:10px; }
+.actions { border-top:1px solid var(--line); }
+.menu-action { width:100%; display:flex; align-items:center; gap:3px; color:var(--muted); text-decoration:none; height:28px; padding:0; border:0; border-radius:3px; background:transparent; font-size:13px; text-align:left; }
+.menu-action:hover { background:var(--track); color:var(--text); }
+.quit { border-top:1px solid var(--line); border-radius:0; color:var(--text); margin-top:2px; }
+.history-control { display:flex; align-items:center; gap:7px; font-weight:400; }
+.simulation { display:flex; flex-wrap:wrap; gap:8px; margin:24px 0 10px; }
+.explanation { padding-top:20px; border-top:1px solid var(--line); margin-top:24px; }
+.explanation p { margin-bottom:12px; }
+.legend { font-size:12px; color:var(--muted); }
+@media(max-width:760px) { main { padding:22px 16px; } .comparison { grid-template-columns:minmax(0,1fr); gap:28px; } .controls { align-items:start; } select { min-width:0; max-width:calc(100vw - 32px); } }
+</style>
+</head>
+<body>
+<main>
+<h1>Weekly usage and prepaid credits</h1>
+<p>CursorMeter <a href="https://github.com/WoojinAhn/CursorMeter/issues/147">#147</a> · Revised draft. Existing layout, updated billing readings.</p>
+<p class="legend">All proposed readings are synthetic. This HTML preview makes no usage, authentication, or billing requests. The left image is the committed legacy UI at efe90d0. The right panel proposes only the new billing mode.</p>
+<div class="controls">
+<label for="scenario">Account state
+<select id="scenario">
+<option value="credit">Included usage + purchased credit</option>
+<option value="included">No purchases, no monthly paid cap</option>
+<option value="disabled">Paid usage explicitly disabled</option>
+<option value="exhausted">Weekly exhausted, credit available</option>
+<option value="cap">Paid cap reached, included usage remains</option>
+<option value="both">Weekly exhausted + paid cap reached</option>
+<option value="empty">Weekly exhausted, empty wallet</option>
+<option value="auto">Empty wallet, Auto Top-up enabled</option>
+<option value="unlimited">Confirmed no monthly paid cap</option>
+<option value="partial">Weekly unavailable, wallet available</option>
+<option value="walletUnknown">Wallet and paid controls unavailable</option>
+<option value="totalUnknown">Balance available, top-up total unavailable</option>
+<option value="stale">Last known readings, refresh failed</option>
+</select></label>
+<button id="theme" type="button" aria-pressed="false">Dark preview</button>
+<label class="history-control"><input id="history-toggle" type="checkbox" checked> Show synthetic history</label>
+</div>
+<div class="comparison">
+<section>
+<h2>Before · Legacy monthly plan</h2>
+<img class="before" src="screenshots/popover-percent.png" alt="Current CursorMeter popover: separate Cursor Models and Other Models monthly usage rings, with Demo User identity.">
+<p class="caption">Existing monthly plans keep this presentation. Their two pools are not the new shared weekly pool.</p>
+</section>
+<section>
+<h2>After · Shared weekly plan</h2>
+<article class="popover" aria-label="Proposed new-plan popover" aria-live="polite">
+<svg aria-hidden="true" width="0" height="0" style="position:absolute"><defs>
+<symbol id="arrow" viewBox="0 0 16 16"><path d="M3 13 13 3M4 3h9v9"/></symbol>
+<symbol id="clock" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5"/><path d="M8 3.5V8H4.5"/></symbol>
+<symbol id="gear" viewBox="0 0 16 16"><path d="m6 1-.5 2-1.5.8-2-.5L1 6l1.5 1.3v1.5L1 10l1 2.7 2-.5 1.5.8L6 15h4l.5-2 1.5-.8 2 .5 1-2.7-1.5-1.2V7.3L15 6l-1-2.7-2 .5-1.5-.8L10 1Z"/><circle cx="8" cy="8" r="2.5"/></symbol>
+<symbol id="person" viewBox="0 0 16 16"><circle cx="8" cy="4" r="2.5"/><path d="M2 14c0-6 12-6 12 0ZM1 1l14 14"/></symbol>
+<symbol id="wallet" viewBox="0 0 16 16"><rect x="1.5" y="3" width="13" height="10" rx="1.5"/><path d="M10 6h4.5v4H10Z"/></symbol>
+<symbol id="refresh" viewBox="0 0 16 16"><path d="M12 5a5 5 0 1 0 1 5M8 5h4V1"/></symbol>
+</defs></svg>
+<div class="identity row"><span><strong>Demo User</strong><span class="badge">Premium</span></span><span class="email">demo@example.com</span></div>
+<div class="row usage-heading"><span>Usage</span><button id="refresh-preview" class="icon-button" type="button" aria-label="Refresh preview"><svg class="icon" aria-hidden="true"><use href="#refresh"/></svg></button></div>
+<div class="weekly">
+<div class="ring" aria-hidden="true"><svg viewBox="0 0 112 112"><circle id="weekly-track" class="meter-track" cx="56" cy="56" r="46.67"/><circle id="weekly-ring" class="meter-fill" cx="56" cy="56" r="46.67"/><circle id="credit-track" class="credit-track" cx="56" cy="56" r="30.24"/><path id="credit-ring" class="credit-fill"/></svg></div>
+<div class="readings">
+<div><div class="reading-title"><svg viewBox="0 0 10 10" aria-hidden="true"><circle cx="5" cy="5" r="4" fill="none" stroke="currentColor"/></svg>Grok + Cursor · weekly</div><div id="weekly-used" class="reading-value number">62.5%</div><div id="remaining" class="remaining">37.5% remaining</div></div>
+<div><div class="reading-title"><svg viewBox="0 0 10 10" aria-hidden="true"><circle cx="5" cy="5" r="4" fill="currentColor"/></svg>Prepaid credit</div><div id="credit-used" class="reading-value number">38%</div><div id="credit-remaining" class="remaining"><span id="balance">$12.40</span><span id="credit-total"> / $20.00 left</span></div></div>
+</div>
+</div>
+<div id="weekly-message" class="notice" hidden></div>
+<div class="metric row" id="paid-summary"><span>Paid this month</span><span class="number"><span id="paid-used">$3.60</span> / <span id="paid-cap">$25.00</span><span id="cap-suffix"> limit</span></span></div>
+<div class="metric row small"><span>Auto Top-up: <span id="auto-status">Off</span></span><span>Paid resets <span id="monthly-reset">Dec 1</span></span></div>
+<div id="paid-message" class="notice" hidden></div>
+<figure class="history" id="history" aria-label="Synthetic seven-day history for layout comparison only">
+<div class="bars"><span class="bar" style="height:7px"></span><span class="bar" style="height:4px"></span><span class="bar" style="height:13px"></span><span class="bar" style="height:2px"></span><span class="bar" style="height:38px;background:#ffaa00"></span><span class="bar" style="height:2px"></span><span class="bar" style="height:47px;background:#ed1c24"></span></div>
+<div class="days"><span>Sat</span><span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span></div>
+</figure>
+<div id="history-note" class="history-note" hidden>Usage history unavailable</div>
+<div class="reset-row"><span class="reset">Resets <span id="weekly-reset">Nov 23, 09:00</span></span><label class="interval"><svg class="icon" aria-hidden="true"><use href="#clock"/></svg><select aria-label="Preview refresh interval"><option>5 min</option><option>1 min</option><option>15 min</option></select></label></div>
+<div id="freshness" class="status-line" hidden></div>
+<div class="actions">
+<a class="menu-action" href="https://grok.com/dashboard/usage" target="_blank" rel="noopener"><svg class="icon" aria-hidden="true"><use href="#arrow"/></svg>Open Dashboard</a>
+<a class="menu-action" href="https://grok.com/dashboard/billing" target="_blank" rel="noopener"><svg class="icon" aria-hidden="true"><use href="#wallet"/></svg>Manage Credits...</a>
+<button class="menu-action retained" type="button"><svg class="icon" aria-hidden="true"><use href="#clock"/></svg>Recent usage</button>
+<button class="menu-action retained" type="button"><svg class="icon" aria-hidden="true"><use href="#gear"/></svg>Settings...</button>
+<button class="menu-action retained" type="button"><svg class="icon" aria-hidden="true"><use href="#person"/></svg>Log Out</button>
+<button class="menu-action retained quit" type="button">Quit</button>
+</div>
+</article>
+<p class="caption">Existing dual meter: weekly usage outside, prepaid consumption inside. Both percentages increase as usage consumes the corresponding allowance. Credit also shows remaining balance / total purchased.</p>
+<div class="menu-bar" aria-label="Proposed menu bar"><span class="menu-ring" aria-hidden="true"><svg viewBox="0 0 112 112"><circle id="menu-weekly-track" class="meter-track" cx="56" cy="56" r="46.67"/><circle id="menu-weekly-ring" class="meter-fill" cx="56" cy="56" r="46.67"/><circle id="menu-credit-track" class="credit-track" cx="56" cy="56" r="30.24"/><path id="menu-credit-ring" class="credit-fill"/></svg></span><span id="menu-value">62.5%</span></div>
+<p class="caption">Illustration with percentage text enabled. Existing text preferences remain authoritative; the icon retains both readings. No wallet amount is automatically appended.</p>
+</section>
+</div>
+<div class="explanation">
+<h2 id="scenario-heading">Included usage + purchased credit</h2>
+<p id="scenario-detail">Third-party models can use prepaid credit while included usage remains. Both readings stay visible.</p>
+<div class="simulation" aria-label="Synthetic transitions">
+<button id="topup" type="button">Simulate a $20 top-up</button>
+<button id="weeklyReset" type="button">Simulate weekly reset</button>
+<button id="monthlyReset" type="button">Simulate monthly reset</button>
+<button id="restore" type="button">Restore selected scenario</button>
+</div>
+<p id="transition" class="legend" role="status">Preview controls only. No purchase or account change.</p>
+<p class="legend">The history chart is a layout fixture, not evidence that new-plan history is available. The checkbox also previews its unavailable state. Existing app-menu buttons show a preview acknowledgement only. A top-up does not raise the paid cap; Auto Top-up does not promise payment success. Unknown values remain unknown. Native implementation and account API parity are pending.</p>
+</div>
+</main>
+<script>
+const base = {weekly:62.5,balance:12.4,purchased:20,paid:3.6,cap:25,auto:'Off',stale:false,weeklyReset:'Nov 23, 09:00',monthlyReset:'Dec 1'};
+const scenarios = {
+ credit:{detail:'Third-party models can use prepaid credit while included usage remains. Both readings stay visible.'},
+ included:{balance:0,purchased:0,paid:0,cap:'none',detail:'Included usage remains available. No credit has been purchased: the inner meter is neutral, not 100% consumed. There is no monthly paid cap.'},
+ disabled:{balance:0,purchased:0,paid:0,cap:0,detail:'The server explicitly reports a $0 paid usage cap. This is separate from never having purchased credit or having no cap.'},
+ exhausted:{weekly:100,detail:'The weekly pool is exhausted. Credit and monthly headroom remain; the app does not report an authentication error or a global usage stop.'},
+ cap:{paid:25,purchased:50,detail:'The paid usage cap is reached even though credit remains. Included weekly usage can still be used.'},
+ both:{weekly:100,paid:25,purchased:50,detail:'The weekly pool and monthly paid cap are both exhausted. Adding credit alone does not restore paid usage.'},
+ empty:{weekly:100,balance:0,paid:20,detail:'The weekly pool and purchased credit are fully consumed. Auto Top-up is off. The dashboard provides the recovery path.'},
+ auto:{weekly:100,balance:0,paid:20,auto:'On',detail:'Auto Top-up is enabled, but an empty wallet does not prove a refill succeeded. Show the current balance and offer the billing dashboard.'},
+ unlimited:{cap:'none',detail:'The server explicitly reports no monthly paid cap. The credit meter still uses total purchased credit as its denominator; the cap is independent.'},
+ partial:{weekly:null,detail:'Weekly usage is unavailable. Retain the independently fetched wallet and paid-usage values instead of hiding the whole panel or inventing 0%.'},
+ walletUnknown:{balance:null,purchased:null,paid:null,cap:null,auto:'Unknown',detail:'The weekly reading is available, but paid usage cannot be determined. An unknown cap does not mean unlimited; an unknown wallet does not mean empty.'},
+ totalUnknown:{purchased:null,detail:'The wallet balance is known but the complete top-up total is unavailable. Keep the balance visible and mark credit percentage unavailable. A new top-up does not reconstruct missing earlier purchases.'},
+ stale:{stale:true,detail:'These are last-known readings. Stale data must not imply a currently available paid allowance; the last successful refresh remains visible.'}
+};
+let state;
+const el = id => document.getElementById(id);
+const money = value => value === null ? 'Unavailable' : new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(value);
+const percent = value => new Intl.NumberFormat('en-US',{maximumFractionDigits:1}).format(value)+'%';
+function creditPercent() {
+ if(state.balance===null || state.purchased===null || state.purchased<=0 || state.balance<0 || state.balance>state.purchased) return null;
+ return (state.purchased-state.balance)/state.purchased*100;
+}
+function piePath(value) {
+ if(value===null || value<=0) return '';
+ const r=30.24, start=56+r;
+ if(value>=100) return `M ${start} 56 A ${r} ${r} 0 1 1 ${56-r} 56 A ${r} ${r} 0 1 1 ${start} 56 Z`;
+ const angle=value/100*Math.PI*2;
+ return `M 56 56 L ${start} 56 A ${r} ${r} 0 ${value>50?1:0} 1 ${56+r*Math.cos(angle)} ${56+r*Math.sin(angle)} Z`;
+}
+const meterColor = value => value>=90?'var(--alert)':value>=70?'var(--warning)':'var(--accent)';
+function loadScenario() { state={...base,...scenarios[el('scenario').value]}; render(); el('transition').textContent='Preview controls only. No purchase or account change.'; }
+function render() {
+ const exhausted=state.weekly!==null && state.weekly>=100;
+ const capped=typeof state.cap==='number' && state.paid!==null && state.paid>=state.cap;
+ el('menu-value').textContent=(state.weekly===null?'—':state.weekly+'%')+(state.stale?' · stale':'');
+ el('weekly-used').textContent=state.weekly===null?'—':state.weekly+'%';
+ const credit=creditPercent();
+ for(const prefix of ['', 'menu-']) {
+  el(prefix+'weekly-ring').style.strokeDasharray=2*Math.PI*46.67;
+  el(prefix+'weekly-ring').style.strokeDashoffset=2*Math.PI*46.67*(1-(state.weekly??0)/100);
+  el(prefix+'weekly-ring').style.stroke=meterColor(state.weekly);
+  el(prefix+'weekly-track').style.strokeDasharray=state.weekly===null?'2 3':'';
+  el(prefix+'credit-ring').setAttribute('d',piePath(credit));
+  el(prefix+'credit-ring').style.fill=meterColor(credit);
+  el(prefix+'credit-track').style.strokeDasharray=credit===null && !(state.purchased===0&&state.balance===0)?'2 3':'';
+ }
+ el('credit-used').textContent=credit===null?'—':percent(credit);
+ el('remaining').textContent=state.weekly===null?'Usage unavailable':(100-state.weekly)+'% remaining';
+ el('weekly-message').textContent=exhausted?'Weekly included usage exhausted.':state.weekly===null?'Weekly usage unavailable. Check the dashboard.':'';
+ el('weekly-message').hidden=!el('weekly-message').textContent;
+ el('weekly-reset').textContent=state.weeklyReset;
+ el('balance').textContent=money(state.balance);
+ el('credit-total').textContent=state.balance===null?'':state.purchased===null?' left · Total unknown':state.purchased===0?' · No top-ups':' left / '+money(state.purchased);
+ el('credit-remaining').title=state.purchased===null?'Total purchased credit unavailable':'Remaining prepaid balance / total purchased credit';
+ el('paid-used').textContent=money(state.paid);
+ el('paid-cap').textContent=state.cap==='none'?'No limit':money(state.cap);
+ el('cap-suffix').textContent=typeof state.cap==='number'?' limit':'';
+ el('paid-summary').title=state.cap==='none'?'No monthly cap configured':state.cap===null||state.paid===null?'Monthly allowance unavailable':state.cap===0?'Paid usage limit set to $0':money(Math.max(0,state.cap-state.paid))+' before the monthly limit';
+ el('monthly-reset').textContent=state.monthlyReset;
+ el('auto-status').textContent=state.auto;
+ let message='';
+ if (state.stale) message='Last known billing status. Current availability is unconfirmed.';
+ else if (capped) message=(state.cap===0?'Paid usage is disabled by the $0 limit.':'Monthly paid usage limit reached.')+(!exhausted&&state.weekly!==null?' Included usage remains available.':'');
+ else if (state.balance===0) message=state.auto==='On'?'Credit balance is empty. Auto Top-up is on; check billing for refill status.':state.purchased===0?'No prepaid credit purchased.':state.purchased>0?'Purchased credit is fully consumed.':'No prepaid credit available for additional usage.';
+ else if (state.balance===null||state.cap===null) message='Paid usage availability is unconfirmed. Check the billing dashboard.';
+ el('paid-message').textContent=message;
+ el('paid-message').hidden=!message;
+ el('paid-message').className='notice'+(capped&&!state.stale?' alert':'');
+ el('freshness').textContent=state.stale?'Last updated 12 min ago · Refresh failed':'';
+ el('freshness').hidden=!state.stale;
+ el('scenario-heading').textContent=el('scenario').selectedOptions[0].textContent;
+ el('scenario-detail').textContent=state.detail;
+}
+el('scenario').addEventListener('change',loadScenario);
+el('restore').addEventListener('click',loadScenario);
+el('refresh-preview').addEventListener('click',()=>{el('transition').textContent='Refresh control retained. This preview does not fetch account data.';});
+el('history-toggle').addEventListener('change',()=>{el('history').hidden=!el('history-toggle').checked;el('history-note').hidden=el('history-toggle').checked;});
+document.querySelectorAll('.retained').forEach(button=>button.addEventListener('click',()=>{el('transition').textContent=button.textContent.trim()+' is retained in the native app. This mockup does not perform that action.';}));
+el('theme').addEventListener('click',()=>{ const dark=document.body.classList.toggle('dark'); el('theme').setAttribute('aria-pressed',dark); el('theme').textContent=dark?'Light preview':'Dark preview'; });
+el('topup').addEventListener('click',()=>{ if(state.balance===null){el('transition').textContent='Unknown initial balance: a new authoritative balance is required after a top-up.';return;} state.balance+=20; if(state.purchased!==null)state.purchased+=20; render(); el('transition').textContent=(state.purchased===null?'Added $20 to the balance. The earlier purchase total and credit percentage remain unknown.':'Added $20 to the balance and known top-up total; the credit percentage recalculated.')+' Weekly usage, monthly paid usage, and the cap did not change.'; });
+el('weeklyReset').addEventListener('click',()=>{state.weekly=0;state.weeklyReset='Nov 30, 09:00';render();el('transition').textContent='Reset weekly included usage only. Prepaid balance and monthly paid usage did not change.';});
+el('monthlyReset').addEventListener('click',()=>{state.paid=0;state.monthlyReset='Jan 1';render();el('transition').textContent='Reset monthly paid usage only. Prepaid balance, weekly usage, and the configured cap did not change.';});
+loadScenario();
+</script>
+</body>
+</html>
