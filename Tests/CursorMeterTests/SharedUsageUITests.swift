@@ -129,14 +129,55 @@ final class SharedUsageUITests: XCTestCase {
                         XCTAssertFalse(try SplitMenuBarTestFixtures.pixels(emptyImage)
                                        == SplitMenuBarTestFixtures.pixels(unknownImage),
                                        "No purchases must be distinct at \(emptyImage.size) in \(appearanceName)")
-                        let bitmap = try XCTUnwrap(emptyImage.tiffRepresentation.flatMap(NSBitmapImageRep.init(data:)))
-                        let center = try XCTUnwrap(bitmap.colorAt(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 2))
+                        let bitmap = try scaledBitmap(emptyImage)
+                        let centerX = bitmap.pixelsWide / 2
+                        let centerY = bitmap.pixelsHigh / 2
+                        let center = try XCTUnwrap(bitmap.colorAt(x: centerX, y: centerY))
                         XCTAssertEqual(center.alphaComponent, 0, accuracy: 0.01, "No purchases must have no inner fill")
+                        let radius = Double(min(bitmap.pixelsWide, bitmap.pixelsHigh)) * 0.27
+                        for step in 0..<12 {
+                            let angle = Double(step) * .pi / 6
+                            let x = Int((Double(centerX) + cos(angle) * radius).rounded())
+                            let y = Int((Double(centerY) + sin(angle) * radius).rounded())
+                            let alphas = (-1...1).flatMap { dx in
+                                (-1...1).compactMap { dy in bitmap.colorAt(x: x + dx, y: y + dy)?.alphaComponent }
+                            }
+                            XCTAssertGreaterThan(alphas.max() ?? 0, 0.1,
+                                "Missing empty ring at angle \(step) for \(emptyImage.size) in \(appearanceName)")
+                        }
                     }
                 } catch { failure = error }
             }
             if let failure { throw failure }
             XCTAssertEqual(SharedUsagePresentation(mode: .sharedWeekly, snapshot: empty.sharedUsage.snapshot).credit.percentText, "—")
+        }
+    }
+
+    func testNoPurchasesSettingsPreviewMatchesStatusMeter() async throws {
+        _ = NSApplication.shared
+        let vm = await makeSharedUsageUIViewModel(.init(balance: 0, purchased: 0, monthly: 0), test: self)
+        let display = SettingsAppearanceTabViewController(viewModel: vm)
+        _ = display.view
+        let preview = try XCTUnwrap(views(display.view).compactMap { $0 as? NSImageView }
+            .first { $0.accessibilityLabel()?.hasPrefix("Outer: Weekly included") == true })
+        let app = AppDelegate(viewModel: vm)
+        for percentagesEnabled in [false, true] {
+            vm.setSplitMenuBarPercentagesEnabled(percentagesEnabled)
+            display.updateUI()
+            let previewImage = try XCTUnwrap(preview.image)
+            let statusImage = app.currentStatusImage(activeJump: nil)
+            for appearanceName in [NSAppearance.Name.aqua, .darkAqua] {
+                let appearance = try XCTUnwrap(NSAppearance(named: appearanceName))
+                var failure: Error?
+                appearance.performAsCurrentDrawingAppearance {
+                    do {
+                        XCTAssertTrue(try SplitMenuBarTestFixtures.pixels(previewImage)
+                                      == SplitMenuBarTestFixtures.pixels(statusImage),
+                                      "Empty-wallet preview must match status with percentages \(percentagesEnabled) in \(appearanceName)")
+                    } catch { failure = error }
+                }
+                if let failure { throw failure }
+            }
         }
     }
 
@@ -316,6 +357,7 @@ final class SharedUsageUITests: XCTestCase {
             ("shared-popover-exhausted-cap", popover(exhausted)),
             ("shared-popover-no-purchases", popover(empty)),
             ("shared-display", SettingsAppearanceTabViewController(viewModel: normal)),
+            ("shared-display-no-purchases", SettingsAppearanceTabViewController(viewModel: empty)),
             ("shared-alerts", SettingsNotificationsTabViewController(viewModel: normal)),
             ("shared-recent", SettingsUsageTabViewController(viewModel: normal)),
         ]
@@ -359,6 +401,19 @@ final class SharedUsageUITests: XCTestCase {
                 try data.write(to: url.appendingPathComponent("\(name).png"))
             }
         }
+    }
+
+    private func scaledBitmap(_ image: NSImage) throws -> NSBitmapImageRep {
+        let size = NSSize(width: image.size.width * 4, height: image.size.height * 4)
+        let bitmap = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil,
+            pixelsWide: Int(size.width), pixelsHigh: Int(size.height),
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        NSGraphicsContext.current = try XCTUnwrap(NSGraphicsContext(bitmapImageRep: bitmap))
+        image.draw(in: NSRect(origin: .zero, size: size))
+        return bitmap
     }
 
     private func popover(_ vm: UsageViewModel) -> MenuBarPopoverViewController {

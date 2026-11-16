@@ -185,7 +185,7 @@ final class SettingsAppearanceTabViewController: NSViewController {
         }
         let circle = shared
             ? CircularProgressIcon.makeDualPercentImage(outerPercent: sharedPresentation.weekly.percent,
-                                                        centerPercent: sharedPresentation.credit.percent)
+                                                        centerPercent: sharedPresentation.credit.percent, centerIsEmpty: sharedPresentation.creditHasNoPurchases)
             : CircularProgressIcon.makeSplitImage(cursorPercent: viewModel.splitUsage.snapshot?.cursorPercent,
                 otherPercent: viewModel.splitUsage.snapshot?.otherPercent, outerPool: viewModel.splitOuterPool)
         let readout = shared
