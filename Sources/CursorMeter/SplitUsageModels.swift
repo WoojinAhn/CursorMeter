@@ -173,7 +173,8 @@ struct CurrentPeriodPlanUsage: Decodable, Sendable {
     let limit: Decimal?
     let autoPercentUsed: Double?
     let apiPercentUsed: Double?
-    enum CodingKeys: String, CodingKey { case includedSpend, totalSpend, bonusSpend, limit, autoPercentUsed, apiPercentUsed }
+    let totalPercentUsed: Double?
+    enum CodingKeys: String, CodingKey { case includedSpend, totalSpend, bonusSpend, limit, autoPercentUsed, apiPercentUsed, totalPercentUsed }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         func cents(_ key: CodingKeys) -> Decimal? {
@@ -185,5 +186,6 @@ struct CurrentPeriodPlanUsage: Decodable, Sendable {
         limit = cents(.limit)
         autoPercentUsed = SplitUsageSnapshot.validPercent(try? c.decode(Double.self, forKey: .autoPercentUsed))
         apiPercentUsed = SplitUsageSnapshot.validPercent(try? c.decode(Double.self, forKey: .apiPercentUsed))
+        totalPercentUsed = SplitUsageSnapshot.validPercent(try? c.decode(Double.self, forKey: .totalPercentUsed))
     }
 }
