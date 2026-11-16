@@ -624,7 +624,7 @@ final class MenuBarPopoverViewController: NSViewController {
         splitPoolRows[1].update(presentation.credit, outer: false)
         splitMeter.image = CircularProgressIcon.makeDualPercentImage(
             outerPercent: presentation.weekly.percent, centerPercent: presentation.credit.percent,
-            size: NSSize(width: 112, height: 112))
+            centerIsEmpty: presentation.creditHasNoPurchases, size: NSSize(width: 112, height: 112))
         splitMeter.setAccessibilityLabel(sharedWeekly ? "Shared usage meter" : "Usage plan meter")
         splitMeter.setAccessibilityValue(presentation.accessibilityValue)
         splitMeter.toolTip = presentation.tooltip

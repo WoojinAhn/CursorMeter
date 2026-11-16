@@ -12,6 +12,7 @@ struct SharedUsagePresentation {
 
     let weekly: Reading
     let credit: Reading
+    let creditHasNoPurchases: Bool
     let detailLines: [String]
     let status: String?
     let statusItemAccessibilityLabel: String
@@ -27,6 +28,7 @@ struct SharedUsagePresentation {
         weekly = Reading(title: sharedWeekly ? "Weekly included" : "Included usage", percent: snapshot.weekly.value?.percentUsed,
             detail: weeklyDetail, accessibilityDetail: weeklyDetail, isStale: weeklyAvailability == .stale)
         let prepaid = snapshot.credit.value
+        creditHasNoPurchases = prepaid?.hasNoPurchases == true
         let balance = Self.money(prepaid?.remainingCents)
         let creditDetail: String
         if prepaid?.hasNoPurchases == true {

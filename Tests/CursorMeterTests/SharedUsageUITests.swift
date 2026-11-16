@@ -106,6 +106,40 @@ final class SharedUsageUITests: XCTestCase {
         }
     }
 
+    func testNoPurchasesMeterIsDistinctFromUnknownAtBothSizes() async throws {
+        for appearanceName in [NSAppearance.Name.aqua, .darkAqua] {
+            let empty = await makeSharedUsageUIViewModel(.init(balance: 0, purchased: 0, monthly: 0), test: self)
+            let unknown = await makeSharedUsageUIViewModel(.init(balance: 0, purchased: nil), test: self)
+            empty.setSplitMenuBarPercentagesEnabled(false)
+            unknown.setSplitMenuBarPercentagesEnabled(false)
+            let emptyPopover = popover(empty)
+            let unknownPopover = popover(unknown)
+            let emptyMeter = try XCTUnwrap(views(emptyPopover.view).compactMap { $0 as? NSImageView }
+                .first { $0.frame.width == 112 }?.image)
+            let unknownMeter = try XCTUnwrap(views(unknownPopover.view).compactMap { $0 as? NSImageView }
+                .first { $0.frame.width == 112 }?.image)
+            let pairs = [(emptyMeter, unknownMeter),
+                         (AppDelegate(viewModel: empty).currentStatusImage(activeJump: nil),
+                          AppDelegate(viewModel: unknown).currentStatusImage(activeJump: nil))]
+            let appearance = try XCTUnwrap(NSAppearance(named: appearanceName))
+            var failure: Error?
+            appearance.performAsCurrentDrawingAppearance {
+                do {
+                    for (emptyImage, unknownImage) in pairs {
+                        XCTAssertFalse(try SplitMenuBarTestFixtures.pixels(emptyImage)
+                                       == SplitMenuBarTestFixtures.pixels(unknownImage),
+                                       "No purchases must be distinct at \(emptyImage.size) in \(appearanceName)")
+                        let bitmap = try XCTUnwrap(emptyImage.tiffRepresentation.flatMap(NSBitmapImageRep.init(data:)))
+                        let center = try XCTUnwrap(bitmap.colorAt(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 2))
+                        XCTAssertEqual(center.alphaComponent, 0, accuracy: 0.01, "No purchases must have no inner fill")
+                    }
+                } catch { failure = error }
+            }
+            if let failure { throw failure }
+            XCTAssertEqual(SharedUsagePresentation(mode: .sharedWeekly, snapshot: empty.sharedUsage.snapshot).credit.percentText, "—")
+        }
+    }
+
     func testIndependentPartialAndStaleReadingsAreVisible() async {
         let partial = await makeSharedUsageUIViewModel(.init(weeklyFails: true), test: self)
         let partialLabels = labels(popover(partial).view)
@@ -275,10 +309,12 @@ final class SharedUsageUITests: XCTestCase {
         let stale = await makeSharedUsageUIViewModel(.init(purchased: nil, autoTopUp: nil), test: self)
         stale.sharedUsage.recordFailure(CursorSharedAPIError.transport)
         let exhausted = await makeSharedUsageUIViewModel(.init(weekly: 100, balance: 0, purchased: 2000, cap: 0), test: self)
+        let empty = await makeSharedUsageUIViewModel(.init(balance: 0, purchased: 0, monthly: 0), test: self)
         let surfaces: [(String, NSViewController)] = [
             ("shared-popover", popover(normal)),
             ("shared-popover-stale-unknown", popover(stale)),
             ("shared-popover-exhausted-cap", popover(exhausted)),
+            ("shared-popover-no-purchases", popover(empty)),
             ("shared-display", SettingsAppearanceTabViewController(viewModel: normal)),
             ("shared-alerts", SettingsNotificationsTabViewController(viewModel: normal)),
             ("shared-recent", SettingsUsageTabViewController(viewModel: normal)),

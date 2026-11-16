@@ -151,26 +151,31 @@ final class SharedUsageRefreshTests: XCTestCase {
         XCTAssertEqual(vm.authState, .loggedIn)
     }
 
-    func testColdUnknownScopeNeverFetchesPersonalWallet() async {
-        let provider = SharedUsageFixtureProvider()
-        let network = SharedRefreshNetwork(membership: "future-scope")
-        let vm = makeViewModel(provider: provider, network: network)
-        await vm.refresh()
-        XCTAssertEqual(vm.sharedUsage.mode, .unavailable)
-        XCTAssertNil(vm.sharedUsage.snapshot)
-        XCTAssertNil(vm.usageData)
-        let calls = await provider.calls
-        XCTAssertEqual(calls, ["plan"])
+    func testColdExplicitNonpersonalScopeNeverFetchesPersonalWallet() async {
+        for membership in ["business", "future-scope"] {
+            for detectorFails in [false, true] {
+                let provider = SharedUsageFixtureProvider()
+                if detectorFails { await provider.setFailures(plan: .transport) }
+                let network = SharedRefreshNetwork(membership: membership)
+                let vm = makeViewModel(provider: provider, network: network)
+                await vm.refresh()
+                XCTAssertEqual(vm.sharedUsage.mode, detectorFails ? .unavailable : .unsupported, membership)
+                XCTAssertNil(vm.sharedUsage.snapshot)
+                XCTAssertNil(vm.usageData)
+                let calls = await provider.calls
+                XCTAssertEqual(calls, ["plan"])
+            }
+        }
     }
 
-    func testUnknownScopeKeepsSameOwnerSharedSnapshotStaleWithoutWalletFetch() async {
+    func testMissingScopeKeepsSameOwnerSharedSnapshotStaleWithoutWalletFetch() async {
         for summaryStatus in [200, 503] {
             let provider = SharedUsageFixtureProvider()
             let network = SharedRefreshNetwork()
             let vm = makeViewModel(provider: provider, network: network)
             await vm.refresh()
             let previousCalls = await provider.calls.count
-            network.configure(membership: "future-scope", summaryStatus: summaryStatus)
+            network.configure(summaryStatus: summaryStatus, omitsMembership: true)
             await vm.refresh()
             XCTAssertEqual(vm.sharedUsage.mode, .sharedWeekly)
             XCTAssertEqual(vm.sharedUsage.snapshot?.credit.value?.remainingCents, 6200)
@@ -178,6 +183,22 @@ final class SharedUsageRefreshTests: XCTestCase {
             XCTAssertEqual(vm.authenticatedUserInfo?.sub, "shared-subject")
             let calls = await provider.calls.count
             XCTAssertEqual(calls - previousCalls, 1)
+        }
+    }
+
+    func testKnownLegacyNonpersonalScopeKeepsLegacyWhenDetectorFails() async {
+        for membership in ["business", "future-scope"] {
+            let provider = SharedUsageFixtureProvider()
+            await provider.setPlan(#"{"isMerged":false}"#)
+            let network = SharedRefreshNetwork(membership: membership)
+            let vm = makeViewModel(provider: provider, network: network)
+            await vm.refresh()
+            XCTAssertEqual(vm.sharedUsage.mode, .legacy)
+            await provider.setFailures(plan: .transport)
+            await vm.refresh()
+            XCTAssertEqual(vm.sharedUsage.mode, .legacy)
+            XCTAssertNotNil(vm.usageData)
+            XCTAssertNil(vm.sharedUsage.snapshot)
         }
     }
 
@@ -407,8 +428,8 @@ final class SharedUsageRefreshTests: XCTestCase {
         await fulfillment(of: [checked], timeout: 1)
     }
 
-    func testExplicitTeamTransitionMatrixRetiresPersonalSharedWallet() async {
-        for membership in ["team", "teams", "enterprise"] {
+    func testExplicitNonpersonalTransitionMatrixRetiresPersonalSharedWallet() async {
+        for membership in ["team", "teams", "enterprise", "business", "future-scope"] {
             for profileStatus in [200, 404] {
                 for detectorFails in [false, true] {
                     let scenario = "\(membership), profile \(profileStatus), detector failure \(detectorFails)"
@@ -453,28 +474,32 @@ private final class SharedRefreshNetwork: @unchecked Sendable {
     private var subject = "shared-subject"
     private var profileStatus = 200
     private var summaryStatus = 200
+    private var omitsMembership = false
     init(membership: String = "pro") { self.membership = membership }
     func configure(membership: String? = nil, subject: String? = nil,
-                   profileStatus: Int? = nil, summaryStatus: Int? = nil) {
+                   profileStatus: Int? = nil, summaryStatus: Int? = nil, omitsMembership: Bool? = nil) {
         lock.withLock {
             if let membership { self.membership = membership }
             if let subject { self.subject = subject }
             if let profileStatus { self.profileStatus = profileStatus }
             if let summaryStatus { self.summaryStatus = summaryStatus }
+            if let omitsMembership { self.omitsMembership = omitsMembership }
         }
     }
     var requests: [URLRequest] { lock.withLock { storedRequests } }
     func respond(_ request: URLRequest) throws -> (HTTPURLResponse, Data) {
-        let (membership, subject, profileStatus, summaryStatus) = lock.withLock {
+        let (membership, subject, profileStatus, summaryStatus, omitsMembership) = lock.withLock {
             storedRequests.append(request)
-            return (self.membership, self.subject, self.profileStatus, self.summaryStatus)
+            return (self.membership, self.subject, self.profileStatus, self.summaryStatus, self.omitsMembership)
         }
         let status = request.url!.path == "/api/auth/me" ? profileStatus
             : (request.url!.path == "/api/usage-summary" ? summaryStatus : 200)
         let json: String
         switch request.url!.path {
         case "/api/auth/me": json = "{\"email\":\"fixture@example.com\",\"name\":\"Fixture\",\"sub\":\"\(subject)\"}"
-        case "/api/usage-summary": json = "{\"membershipType\":\"\(membership)\",\"individualUsage\":{\"plan\":{\"enabled\":true,\"used\":8,\"limit\":2000,\"remaining\":1992,\"totalPercentUsed\":0.4}}}"
+        case "/api/usage-summary":
+            let membershipField = omitsMembership ? "" : "\"membershipType\":\"\(membership)\","
+            json = "{\(membershipField)\"individualUsage\":{\"plan\":{\"enabled\":true,\"used\":8,\"limit\":2000,\"remaining\":1992,\"totalPercentUsed\":0.4}}}"
         case "/api/usage": json = #"{"startOfMonth":"2026-11-01T00:00:00Z"}"#
         case "/api/dashboard/get-filtered-usage-events": json = #"{"usageEventsDisplay":[],"totalUsageEventsCount":0}"#
         case "/api/dashboard/teams": json = #"{"teams":[]}"#

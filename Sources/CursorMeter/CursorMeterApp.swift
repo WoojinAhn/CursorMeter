@@ -268,7 +268,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     func currentStatusImage(activeJump: ActiveJump?) -> NSImage {
         if let shared = sharedPresentation {
             let icon = CircularProgressIcon.makeDualPercentImage(outerPercent: shared.weekly.percent,
-                                                                centerPercent: shared.credit.percent)
+                                                                centerPercent: shared.credit.percent,
+                                                                centerIsEmpty: shared.creditHasNoPurchases)
             return viewModel.splitMenuBarPercentagesEnabled
                 ? SplitMenuBarRenderer.image(icon: icon, readout: shared.readout) : icon
         }

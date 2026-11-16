@@ -70,7 +70,7 @@ enum CircularProgressIcon {
     }
 
     static func makeDualPercentImage(
-        outerPercent: Double?, centerPercent: Double?,
+        outerPercent: Double?, centerPercent: Double?, centerIsEmpty: Bool = false,
         size: NSSize = NSSize(width: 18, height: 18),
         outerToday: Double? = nil, centerToday: Double? = nil
     ) -> NSImage {
@@ -85,7 +85,7 @@ enum CircularProgressIcon {
                             lineWidth: ringWidth, percent: outerPercent, filled: false,
                             todayPercentagePoints: outerToday)
             drawSplitRegion(in: context, center: origin, radius: centerRadius,
-                            lineWidth: diameter / 24, percent: centerPercent, filled: true,
+                            lineWidth: diameter / 24, percent: centerPercent, filled: true, isEmpty: centerIsEmpty,
                             todayPercentagePoints: centerToday)
             return true
         }
@@ -330,7 +330,7 @@ enum CircularProgressIcon {
 
     private static func drawSplitRegion(
         in context: CGContext, center: CGPoint, radius: CGFloat,
-        lineWidth: CGFloat, percent: Double?, filled: Bool,
+        lineWidth: CGFloat, percent: Double?, filled: Bool, isEmpty: Bool = false,
         todayPercentagePoints: Double? = nil
     ) {
         context.saveGState()
@@ -339,6 +339,11 @@ enum CircularProgressIcon {
                             width: radius * 2, height: radius * 2)
         context.setLineWidth(lineWidth)
         context.setLineCap(.butt)
+        if isEmpty {
+            context.setStrokeColor(NSColor.labelColor.withAlphaComponent(0.35).cgColor)
+            context.strokeEllipse(in: bounds)
+            return
+        }
         guard let percent, percent.isFinite, percent >= 0 else {
             context.setStrokeColor(NSColor.labelColor.withAlphaComponent(0.65).cgColor)
             context.setLineDash(phase: 0, lengths: [lineWidth, lineWidth])

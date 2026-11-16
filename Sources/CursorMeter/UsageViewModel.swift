@@ -1031,8 +1031,7 @@ final class UsageViewModel {
             let membership = summary?.membershipType?.lowercased()
             let personalScope = membership.map {
                 ["free", "hobby", "pro", "pro_plus", "proplus", "ultra", "student"].contains($0)
-            } ?? false
-            let teamScope = membership.map { ["enterprise", "team", "teams"].contains($0) } == true
+            }
             let allowsRetainedOwner = sharedUsage.mode == .sharedWeekly || sharedUsage.mode == .legacy
             let ownerProfile = freshProfile ?? (allowsRetainedOwner ? authenticatedUserInfo : nil)
             let owner = credentialDigest.flatMap { credential in
@@ -1040,9 +1039,9 @@ final class UsageViewModel {
                     SharedUsageOwner(generation: context.generation, credentialDigest: credential, subjectDigest: $0)
                 }
             }
-            let retainsSharedScope = !personalScope && !teamScope && sharedUsage.mode == .sharedWeekly
+            let retainsSharedScope = personalScope == nil && sharedUsage.mode == .sharedWeekly
                 && owner.map { sharedUsage.isBound(to: $0) } == true
-            let retainsSharedProfile = freshProfile == nil && !teamScope && sharedUsage.mode == .sharedWeekly
+            let retainsSharedProfile = freshProfile == nil && personalScope != false && sharedUsage.mode == .sharedWeekly
                 && owner.map { sharedUsage.isBound(to: $0) } == true
             let classification = try? planRes.get().classification
             let explicitNonSharedPlan = classification == .legacy || classification == .unsupported
@@ -1050,7 +1049,7 @@ final class UsageViewModel {
                 sharedUsage.acceptPlan(.failure(CursorSharedAPIError.invalidResponse), owner: owner, personalScope: true)
             } else {
                 sharedUsage.acceptPlan(planRes, owner: owner,
-                    personalScope: personalScope ? true : (teamScope ? false : nil),
+                    personalScope: personalScope,
                     previouslyShared: previouslyShared && !accountSwitched)
             }
             if sharedUsage.suppressesLegacyMeter {
@@ -1059,13 +1058,13 @@ final class UsageViewModel {
                 usageData = nil
                 lastSuccessAt = sharedUsage.lastCompleteSuccessAt
                 recentUsage.invalidate(generation: context.generation, revokePersisted: false)
-                lastRequestScope = personalScope || retainsSharedScope ? .personal : nil
+                lastRequestScope = personalScope == true || retainsSharedScope ? .personal : nil
                 credentialOwner = selectedOwner ?? .unbound
                 if let freshProfile {
                     retainedProfile = credentialDigest.map { (credentialDigest: $0, profile: freshProfile) }
                 }
                 let success: Bool
-                if let owner, freshProfile != nil, personalScope, sharedUsage.mode == .sharedWeekly {
+                if let owner, freshProfile != nil, personalScope == true, sharedUsage.mode == .sharedWeekly {
                     let acceptedContext = context
                     success = await sharedUsage.refresh(cookieHeader: cookieHeader, owner: owner,
                         isCurrent: { self.isCurrent(acceptedContext) })
