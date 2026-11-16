@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     private var eventMonitor: Any?
     private var popoverDismissMonitor: Any?
     private var popoverDayTimer: Timer?
+    private var sharedExpiryTimer: Timer?
     private var jumpCoordinator: JumpEffectCoordinator?
     private var activityWatcher: CursorActivityWatcher?
     private var timeZoneObserver: NSObjectProtocol?
@@ -61,6 +62,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
                 validityPersistence: .preferences(domain: Bundle.main.bundleIdentifier ?? "com.woojin.CursorMeter")
             ), notificationManager: manager,
                 splitUsage: SplitUsageController(apiClient: apiClient, store: CycleUsageStore(fileURL: amountURL)),
+                sharedUsage: SharedUsageController(provider: CursorSharedAPIClient()),
                 splitAlertStore: SplitUsageAlertStore(directory: SplitUsageAlertStore.applicationDirectory))
         }
         let delegate = AppDelegate(viewModel: viewModel, releaseSmokeTest: smoke)
@@ -160,6 +162,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         }
         removePopoverDismissMonitor()
         cancelPopoverDayTimer()
+        sharedExpiryTimer?.invalidate()
+        sharedExpiryTimer = nil
         jumpCoordinator?.stop()
         jumpCoordinator = nil
         if let observer = timeZoneObserver {
@@ -248,13 +252,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     private func renderStatusItem(activeJump: ActiveJump?) {
         guard let button = statusItem?.button else { return }
         button.image = currentStatusImage(activeJump: activeJump)
-        let text = viewModel.splitPresentation?.tooltip ?? viewModel.usageData?.usageText ?? "CursorMeter"
+        let shared = sharedPresentation
+        let text = shared?.tooltip ?? viewModel.splitPresentation?.tooltip ?? viewModel.usageData?.usageText ?? "CursorMeter"
         button.toolTip = text
-        button.setAccessibilityLabel("CursorMeter usage")
-        button.setAccessibilityValue(viewModel.splitPresentation?.accessibilityValue ?? text)
+        button.setAccessibilityLabel(shared?.statusItemAccessibilityLabel ?? "CursorMeter usage")
+        button.setAccessibilityValue(shared?.accessibilityValue ?? viewModel.splitPresentation?.accessibilityValue ?? text)
+        scheduleSharedExpiry()
+    }
+
+    private var sharedPresentation: SharedUsagePresentation? {
+        guard viewModel.authState == .loggedIn, viewModel.sharedUsage.suppressesLegacyMeter else { return nil }
+        return SharedUsagePresentation(mode: viewModel.sharedUsage.mode, snapshot: viewModel.sharedUsage.snapshot)
     }
 
     func currentStatusImage(activeJump: ActiveJump?) -> NSImage {
+        if let shared = sharedPresentation {
+            let icon = CircularProgressIcon.makeDualPercentImage(outerPercent: shared.weekly.percent,
+                                                                centerPercent: shared.credit.percent)
+            return viewModel.splitMenuBarPercentagesEnabled
+                ? SplitMenuBarRenderer.image(icon: icon, readout: shared.readout) : icon
+        }
         if let readout = viewModel.splitMenuBarReadout {
             let icon = activeJump.map {
                 CircularProgressIcon.makeEmojiImage(
@@ -270,6 +287,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     }
 
     func currentJumpFallbackSize() -> NSSize {
+        if sharedPresentation != nil { return NSSize(width: 18, height: 18) }
         if viewModel.usageData != nil, viewModel.splitUsage.suppressesLegacyMeter {
             return NSSize(width: 18, height: 18)
         }
@@ -302,6 +320,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         default:
             return CircularProgressIcon.menuBarImage(percent: data.percentUsed)
         }
+    }
+
+    private func scheduleSharedExpiry() {
+        sharedExpiryTimer?.invalidate()
+        sharedExpiryTimer = nil
+        guard viewModel.authState == .loggedIn, viewModel.sharedUsage.mode == .sharedWeekly,
+              let end = viewModel.sharedUsage.snapshot?.weekly.value?.period?.end, end > Date() else { return }
+        let timer = Timer(fire: end, interval: 0, repeats: false) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.updateStatusItem()
+                (self.settingsWindow?.contentViewController as? SettingsTabViewController)?.updateUI()
+                if self.popover?.isShown == true {
+                    (self.popover.contentViewController as? MenuBarPopoverViewController)?.updateUI()
+                }
+            }
+        }
+        sharedExpiryTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
 
     @objc private func statusItemClicked() {
@@ -498,6 +535,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     // after onChange because `withObservationTracking` is one-shot.
     private func observeStatusItem() {
         withObservationTracking {
+            _ = viewModel.sharedUsage.mode
+            _ = viewModel.sharedUsage.snapshot
+            _ = viewModel.sharedUsage.detectionError
+            _ = viewModel.sharedUsage.lastCompleteSuccessAt
+            _ = viewModel.sharedUsage.isStale
+            _ = viewModel.authenticatedUserInfo
             _ = viewModel.usageData
             _ = viewModel.splitPresentation
             _ = viewModel.splitUsage.eligibility
@@ -519,6 +562,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     // #54: the settings window is pull-based; this is its only push signal.
     private func observeSettings() {
         withObservationTracking {
+            _ = viewModel.sharedUsage.mode
+            _ = viewModel.sharedUsage.snapshot
+            _ = viewModel.sharedUsage.detectionError
+            _ = viewModel.sharedUsage.lastCompleteSuccessAt
+            _ = viewModel.sharedUsage.isStale
+            _ = viewModel.authenticatedUserInfo
             _ = viewModel.activeAuthSource
             _ = viewModel.splitAlertTargets
             _ = viewModel.splitAlertThresholds
@@ -650,6 +699,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
 
     private func observePopover() {
         withObservationTracking {
+            _ = viewModel.sharedUsage.mode
+            _ = viewModel.sharedUsage.snapshot
+            _ = viewModel.sharedUsage.detectionError
+            _ = viewModel.sharedUsage.lastCompleteSuccessAt
+            _ = viewModel.sharedUsage.isStale
+            _ = viewModel.authenticatedUserInfo
             _ = viewModel.usageData
             _ = viewModel.popoverValueMode
             _ = viewModel.estimatedLimitsEnabled

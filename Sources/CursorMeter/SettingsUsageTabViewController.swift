@@ -4,6 +4,8 @@ import AppKit
 final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSource, NSTableViewDelegate {
     private let viewModel: UsageViewModel
     private let refreshButton = RefreshFeedbackButton(style: .labeled, consumer: .recent)
+    private let caption = SettingsCardFactory.makeCaption("Included amounts show usage value covered by your plan.")
+    private let openButton = NSButton(title: "Open Cursor ↗", target: nil, action: nil)
     private let cachedLabel = NSTextField(labelWithString: "")
     private let failureColor = NSColor(name: nil) { appearance in
         appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
@@ -117,9 +119,9 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
         countRow.spacing = 7
         countRow.edgeInsets = NSEdgeInsets(top: 9, left: 14, bottom: 9, right: 14)
 
-        let caption = SettingsCardFactory.makeCaption("Included amounts show usage value covered by your plan.")
         let captionHost = SettingsCardFactory.makeFullWidthCardRow(caption)
-        let openButton = NSButton(title: "Open Cursor ↗", target: self, action: #selector(openCursor))
+        openButton.target = self
+        openButton.action = #selector(openCursor)
         openButton.isBordered = false
         openButton.font = .systemFont(ofSize: 11)
         openButton.contentTintColor = .linkColor
@@ -152,7 +154,20 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
     }
 
     func updateUI() {
-        let snapshot = viewModel.recentUsage.snapshot
+        let shared = viewModel.sharedUsage.suppressesLegacyMeter
+        let sharedWeekly = viewModel.sharedUsage.mode == .sharedWeekly
+        refreshButton.setAccessibilityLabel(shared ? (sharedWeekly ? "Refresh shared meter" : "Refresh usage") : "Refresh recent usage")
+        refreshButton.toolTip = shared
+            ? (sharedWeekly ? "Refresh updates the shared meter, not request history."
+                : "Refresh checks the usage plan and updates available usage.") : nil
+        zoneControl.isEnabled = !shared
+        openButton.title = viewModel.sharedUsage.mode == .sharedWeekly ? "Open Dashboard ↗" : "Open Cursor ↗"
+        openButton.setAccessibilityLabel(viewModel.sharedUsage.mode == .sharedWeekly ? "Open Dashboard" : "Open Cursor")
+        caption.stringValue = shared
+            ? (sharedWeekly ? "Refresh updates the shared meter. View history in the dashboard."
+                : "Refresh checks the usage plan. View history in the dashboard.")
+            : "Included amounts show usage value covered by your plan."
+        let snapshot = shared ? nil : viewModel.recentUsage.snapshot
         let candidate = snapshot?.candidate
         let mode = viewModel.recentUsageTimeZone
         let revision = viewModel.recentUsageTimeZoneRevision
@@ -165,9 +180,17 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
         }
         let authenticated = viewModel.authState == .loggedIn
         let feedback = viewModel.refreshFeedback
-        refreshButton.render(phase: feedback.phase, isReady: feedback.isReady,
+        let phase: RefreshPhase
+        if shared, case .result(let meter, _) = feedback.phase {
+            phase = .result(meter: meter, recent: meter)
+        } else {
+            phase = feedback.phase
+        }
+        refreshButton.render(phase: phase, isReady: feedback.isReady,
                              attempt: feedback.currentAttempt, isAuthenticated: authenticated,
                              reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+        zoneControl.isHidden = shared
+        zoneLabel.isHidden = shared
         zoneControl.selectedSegment = mode == .local ? 0 : 1
         zoneLabel.stringValue = RecentUsageFormatter.zoneLabel(mode: mode)
         let zoneIdentifier = RecentUsageFormatter.zoneIdentifier(mode: mode)
@@ -196,6 +219,9 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
         if !authenticated {
             placeholderLabel.stringValue = "Connect Cursor to view recent usage."
             placeholderDetail.stringValue = ""
+        } else if shared {
+            placeholderLabel.stringValue = sharedWeekly ? "Shared usage history unavailable." : "Usage history unavailable."
+            placeholderDetail.stringValue = "Open the dashboard for your full history."
         } else if candidate == nil, viewModel.recentUsage.status == .failed, feedback.phase != .updating {
             placeholderLabel.stringValue = "Unable to load recent usage."
             placeholderDetail.stringValue = "Try again later."
@@ -276,7 +302,7 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
     }
 
     @objc private func openCursor() {
-        NSWorkspace.shared.open(URL(string: "https://www.cursor.com/dashboard?tab=usage")!)
+        NSWorkspace.shared.open(SharedUsagePresentation.dashboardURL(mode: viewModel.sharedUsage.mode))
     }
 }
 

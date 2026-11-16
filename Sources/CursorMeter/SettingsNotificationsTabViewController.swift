@@ -16,6 +16,7 @@ final class SettingsNotificationsTabViewController: NSViewController {
     private var scopeCards: [SplitAlertScope: AlertCard] = [:]
     private var legacyCard: AlertCard?
     private var permissionCard = NSView()
+    private let sharedCaption = SettingsCardFactory.makeCaption("Usage thresholds apply to legacy monthly plans. Shared usage alerts are unavailable; app status notifications remain available.")
     private let screenHeight: (() -> CGFloat)?
     private let scrollView = NSScrollView()
     private var content = NSView()
@@ -44,7 +45,8 @@ final class SettingsNotificationsTabViewController: NSViewController {
             title: "Notifications blocked in macOS.", control: settingsButton)])
         let master = SettingsCardFactory.makeCard(units: [SettingsCardFactory.makeCardRow(
             title: "Usage alerts", control: notificationToggle)])
-        var cards: [NSView] = [permissionCard, master]
+        let sharedNotice = SettingsCardFactory.makeFullWidthCardRow(sharedCaption)
+        var cards: [NSView] = [permissionCard, master, sharedNotice]
         let legacy = makeAlertCard(title: "Usage", scope: nil)
         legacyCard = legacy
         cards.append(legacy.view)
@@ -107,9 +109,15 @@ final class SettingsNotificationsTabViewController: NSViewController {
     }
 
     func updateUI() {
-        let enabled = viewModel.notificationEnabled
+        let shared = viewModel.sharedUsage.suppressesLegacyMeter
+        sharedCaption.stringValue = viewModel.sharedUsage.mode == .sharedWeekly
+            ? "Usage thresholds apply to legacy monthly plans. Shared usage alerts are unavailable; app status notifications remain available."
+            : "Usage alerts are unavailable until a supported usage plan is confirmed. App status notifications remain available."
+        sharedCaption.superview?.isHidden = !shared
+        notificationToggle.isEnabled = !shared
+        let enabled = viewModel.notificationEnabled && !shared
         let split = viewModel.splitUsage.eligibility == .eligible
-        notificationToggle.state = enabled ? .on : .off
+        notificationToggle.state = viewModel.notificationEnabled ? .on : .off
         appStatusToggle.state = viewModel.appStatusNotificationEnabled ? .on : .off
         permissionCard.isHidden = viewModel.notificationPermissionStatus != "Denied in macOS Settings"
         legacyCard?.view.isHidden = viewModel.splitUsage.suppressesLegacyMeter || !enabled

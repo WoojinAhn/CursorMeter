@@ -19,16 +19,17 @@ Unlike in-editor extensions, CursorMeter runs independently as a native macOS ap
 
 Cursor [announced two usage pools for individual plans on February 11, 2026](https://cursor.com/blog/increased-agent-usage). CursorMeter now represents **Cursor Models** and **Other Models** separately, following Cursor’s reported usage percentages.
 
-The split meter currently has **one visual layout: a center pie and an outer ring**. In Settings → Display, you can swap their placement and choose whether the popover shows percentages, dollars, or both. More visual layouts are planned for future updates.
+The split meter has **one visual layout: a center pie and an outer ring**. For legacy monthly plans, Settings → Display lets you swap their placement and choose percentages, dollars, or both. Shared weekly plans keep weekly usage outside and prepaid consumption inside.
 
 ## Features
 
+- **Shared weekly usage and prepaid credit** — eligible personal shared plans use your existing Cursor login. The outer ring shows weekly included consumption; the center shows consumed credit against verified total purchases, alongside the remaining balance. Monthly paid usage/cap and Auto Top-up are separate readings. Incomplete purchase history keeps the balance visible with an unavailable percentage. Legacy usage alerts, jump effects, historical charts, and recent-request lists are unavailable in this mode.
 - **Split usage at a glance** — eligible personal paid plans show Cursor Models in the center pie and Other Models in the outer ring. Each region has its own percentage and color; choose the outer pool in Display settings. Missing data stays unavailable.
 - **Today's share in the popover** — a lighter section estimates today's contribution from recorded included costs, using midnight in Korea Standard Time (UTC+9). Hover over the large circle for its meaning. The highlight appears only with matching, validated data and is withheld when either pool reaches 100%; the total fill and alerts still use Cursor's reported percentages.
 - View usage and the reset date from the menu bar; single-pool plans also show request counts when available
 - **Clear usage alerts** — set independent warning/critical thresholds for Cursor Models, Other Models, and eligible paid budgets (default: 80%/90%). Notifications show the actual usage and configured level. A warning and a large increase from the same update share one concise notification.
 - **Usage-jump effect** — menu bar icon flashes ⚡ on a moderate jump and 🚀 on a large jump, so a sudden spike is hard to miss. Three intensity levels (Quiet / Normal / Bold) and a choice of glyph style (⚡/🚀 or 💲/💸); Bold also raises a macOS notification on tier-2 jumps, independently of usage-alert targets and their master switch. Split plans retain the $0.05/$0.30 included-usage sensitivity alongside +5/+15 percentage-point signals; the message names the measured scope without guessing the cause.
-- **Weekly usage chart** (all plans) — rolling 7-day bar graph with a choice of **Amount** (default) or **Usage units** in Settings → Display. Bar height, color, and hover tooltip use the same metric. Amount includes plan-covered and on-demand usage value, not just additional charges; if monetary data is missing, the chart uses weighted usage units (`requestsCosts`) instead. Configurable today-highlight (Outline / Dim others / Both).
+- **Weekly usage chart** (legacy plans) — rolling 7-day bar graph with a choice of **Amount** (default) or **Usage units** in Settings → Display. Bar height, color, and hover tooltip use the same metric. Amount includes plan-covered and on-demand usage value, not just additional charges; if monetary data is missing, the chart uses weighted usage units (`requestsCosts`) instead. Configurable today-highlight (Outline / Dim others / Both).
 - **Weekly chart freshness** — temporary failures keep the last chart. After two consecutive failures, a dated last-update label appears; if no history has loaded yet, a small retrying message appears instead. The existing refresh schedule retries automatically.
 - **Usage details** — the popover enlarges the dual meter and shows percentages, recorded USD costs, or both; choose the format in Display settings. Optional estimated limits are off by default and appear only when matching usage and cost data supports them. They are unofficial estimates, not billing entitlements. Total circle fill and alerts always use reported percentages. On-demand spend and Bot activity stay separate.
 - **Recent usage** — Settings → Usage shows up to the latest 30 requests, with model, time, type, tokens, and USD value. Included amounts represent usage covered by your plan, not additional charges. Choose **Local** (this Mac’s time zone, the default) or **UTC**; **Open Cursor** leads to the full history and billing dashboard.
@@ -116,6 +117,31 @@ This app uses several of Cursor's **undocumented internal endpoints** (usage, au
 Found a bug or have an idea? [Open an issue](https://github.com/WoojinAhn/CursorMeter/issues) — feedback and suggestions are always welcome. Pull requests are not accepted at this time.
 
 ## Screenshots
+
+### Shared weekly plans
+
+Synthetic native AppKit captures; the billing examples are not account data.
+
+<table>
+  <tr>
+    <th align="center">Weekly usage and purchased credit</th>
+    <th align="center">Shared-plan display settings</th>
+  </tr>
+  <tr>
+    <td align="center" valign="top"><a href="docs/screenshots/popover-shared.png"><img src="docs/screenshots/popover-shared.png" alt="Weekly usage and purchased credit" width="300"></a></td>
+    <td align="center" valign="top"><a href="docs/screenshots/settings-shared-display.png"><img src="docs/screenshots/settings-shared-display.png" alt="Shared-plan display settings" width="300"></a></td>
+  </tr>
+  <tr>
+    <th align="center">Alerts for the current plan</th>
+    <th align="center">History availability</th>
+  </tr>
+  <tr>
+    <td align="center" valign="top"><a href="docs/screenshots/settings-shared-alerts.png"><img src="docs/screenshots/settings-shared-alerts.png" alt="Alerts for the current plan" width="300"></a></td>
+    <td align="center" valign="top"><a href="docs/screenshots/settings-shared-usage.png"><img src="docs/screenshots/settings-shared-usage.png" alt="History availability" width="300"></a></td>
+  </tr>
+</table>
+
+### Legacy plans
 
 <table>
   <tr>

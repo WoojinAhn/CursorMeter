@@ -19,16 +19,17 @@
 
 Cursor [于 2026 年 2 月 11 日宣布为个人套餐引入两类使用额度](https://cursor.com/blog/increased-agent-usage)。CursorMeter 现在根据 Cursor 提供的使用百分比，分别显示 **Cursor Models** 和 **Other Models**。
 
-双额度仪表目前提供**一种视觉布局：中央饼图和外环**。在 Settings → Display 中，你可以交换两者的位置，并选择弹出面板显示百分比、美元金额或两者。后续更新计划提供更多视觉布局。
+双额度仪表提供**一种视觉布局：中央饼图和外环**。旧版月度套餐可在 Settings → Display 中交换两者位置，并选择百分比、美元金额或两者。共享每周套餐固定以外环显示每周使用量、中央显示预付余额消耗比例。
 
 ## 功能
 
+- **共享每周使用量与预付余额** — 受支持的个人共享套餐沿用现有 Cursor 登录。外环显示每周套餐内使用比例；中央根据已核实的累计充值额显示消耗比例，并同时显示余额。每月额外付费用量及上限与 Auto Top-up 分开显示。充值历史不完整时仍显示余额，但消耗比例标为不可用。此模式不提供旧版用量提醒、突增效果、历史图表或最近请求列表。
 - **双额度使用情况一目了然** — 对于受支持的个人付费套餐，中央饼图显示 Cursor Models，外环显示 Other Models。每个区域都有自己的百分比和颜色；可在 Display 设置中选择外环对应的额度。缺失的数据保持不可用状态。
 - **弹出面板中的今日用量占比** — 较浅的色块根据记录的套餐内使用金额估算今日用量的贡献，以韩国标准时间（UTC+9）午夜为日界线。将鼠标悬停在大圆上可查看其含义。只有数据相互匹配且通过验证时才会显示高亮；任一类额度达到 100% 时，高亮会隐藏。整体填充比例和提醒仍使用 Cursor 提供的百分比。
 - 在菜单栏查看使用量和重置日期；单额度套餐还会在数据可用时显示请求次数
 - **清晰的使用量提醒** — 为 Cursor Models、Other Models 和符合条件的额外付费预算分别设置警告/严重阈值（默认：80%/90%）。通知显示实际使用量和设置的级别。同一次更新中的警告与大幅增长会合并为一条简洁通知。
 - **用量突增效果** — 中等幅度增长时菜单栏图标闪现 ⚡，大幅增长时闪现 🚀，让突增不易被忽略。提供三个强度级别（Quiet / Normal / Bold）和两组图标样式（⚡/🚀 或 💲/💸）；Bold 还会在第 2 级突增时发送 macOS 通知，独立于使用量提醒的监控对象及其总开关。双额度套餐保留套餐内使用金额 $0.05/$0.30 的灵敏度，并同时使用 +5/+15 个百分点的信号；消息会注明测量范围，不猜测增长原因。
-- **每周使用量图表**（所有套餐）— 滚动显示最近 7 天的柱状图，可在 Settings → Display 中选择 **Amount**（默认）或 **Usage units**。柱高、颜色和悬停提示使用同一指标。Amount 包括套餐覆盖用量和按需用量的金额，并非仅指额外收费；若缺少金额数据，图表会改用加权使用单位（`requestsCosts`）。可配置今日高亮方式（Outline / Dim others / Both）。
+- **每周使用量图表**（旧版套餐）— 滚动显示最近 7 天的柱状图，可在 Settings → Display 中选择 **Amount**（默认）或 **Usage units**。柱高、颜色和悬停提示使用同一指标。Amount 包括套餐覆盖用量和按需用量的金额，并非仅指额外收费；若缺少金额数据，图表会改用加权使用单位（`requestsCosts`）。可配置今日高亮方式（Outline / Dim others / Both）。
 - **每周图表的数据时效** — 暂时失败时保留上一次图表。连续两次失败后显示带日期的最近更新时间；如果尚未载入任何历史数据，则显示简短的重试提示。现有刷新计划会自动重试。
 - **使用量详情** — 弹出面板放大显示双额度仪表，可显示百分比、记录的美元金额或两者；在 Display 设置中选择格式。可选的估算上限默认关闭，仅在相互匹配的使用量与金额数据足以支持时显示。这些是非官方估算值，不代表套餐计费权益。圆形的整体填充比例和提醒始终使用报告的百分比。按需支出与 Bot 活动单独统计。
 - **最近使用记录** — Settings → Usage 最多显示最近 30 次请求，包括模型、时间、类型、token 数和美元金额。Included 金额表示套餐已覆盖的用量，并非额外收费。可选择 **Local**（此 Mac 的时区，默认）或 **UTC**；**Open Cursor** 可打开完整历史记录和账单控制台。
@@ -116,6 +117,31 @@ swift test    # 运行所有测试（需要 Xcode）
 发现了问题或有新想法？欢迎[提交 issue](https://github.com/WoojinAhn/CursorMeter/issues)，我们始终欢迎反馈和建议。目前不接受 Pull Request。
 
 ## 截图
+
+### 共享每周套餐
+
+使用合成数据渲染的原生 AppKit 截图；账单示例并非真实账户数据。
+
+<table>
+  <tr>
+    <th align="center">每周使用量与充值余额</th>
+    <th align="center">共享套餐显示设置</th>
+  </tr>
+  <tr>
+    <td align="center" valign="top"><a href="docs/screenshots/popover-shared.png"><img src="docs/screenshots/popover-shared.png" alt="每周使用量与充值余额" width="300"></a></td>
+    <td align="center" valign="top"><a href="docs/screenshots/settings-shared-display.png"><img src="docs/screenshots/settings-shared-display.png" alt="共享套餐显示设置" width="300"></a></td>
+  </tr>
+  <tr>
+    <th align="center">当前套餐的提醒设置</th>
+    <th align="center">历史记录可用状态</th>
+  </tr>
+  <tr>
+    <td align="center" valign="top"><a href="docs/screenshots/settings-shared-alerts.png"><img src="docs/screenshots/settings-shared-alerts.png" alt="当前套餐的提醒设置" width="300"></a></td>
+    <td align="center" valign="top"><a href="docs/screenshots/settings-shared-usage.png"><img src="docs/screenshots/settings-shared-usage.png" alt="历史记录可用状态" width="300"></a></td>
+  </tr>
+</table>
+
+### 旧版套餐
 
 <table>
   <tr>

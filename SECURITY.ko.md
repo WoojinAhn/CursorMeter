@@ -35,6 +35,15 @@ CursorMeter는 비공개 Cursor API를 쿠키 기반 세션 자격증명으로 �
 
 로그인 WebView는 CursorMeter가 서드파티 origin을 로드하는 유일한 지점입니다. `/api/usage-summary`, `/api/usage`, `/api/auth/me`, 대시보드 이벤트 엔드포인트를 포함한 Cursor 사용량 API 요청은 `URLSessionConfiguration.ephemeral`로 `cursor.com`에 직접 HTTPS 통신합니다. HTTP 응답은 디스크에 캐시하지 않으며, 아래의 제한된 스냅샷은 별도로 저장합니다.
 
+공유 주간 요금제에서는 고정된 `https://api2.cursor.sh` origin의 읽기 전용
+DashboardService RPC도 사용합니다. 같은 Cursor 세션 자격증명에서 액세스 JWT를
+추출해 Bearer 인증으로 전송하며, 이 호스트에 Cookie 헤더를 보내지 않습니다.
+리다이렉트를 거부하고 디스크·쿠키 캐시를 끄며, 응답 크기와 요청 시간을 제한합니다.
+토큰이나 원시 청구 응답은 로그에 남기지 않습니다. 별도 Grok 로그인을 추가하거나
+refresh token을 읽지 않고, 기존 IDE·브라우저 인증 및 Keychain 저장 방식도 바꾸지
+않습니다. 청구 RPC 실패만으로 기존 Cursor 자격증명을 삭제하지 않습니다.
+
+
 ## Cursor IDE 자격증명 재사용 (#54)
 
 같은 Mac에 설치된 Cursor IDE가 로그인되어 있으면, CursorMeter는 사용자에게 다시 로그인을 요구하지 않고 IDE의 세션에서 자격증명을 파생합니다.

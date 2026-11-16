@@ -35,6 +35,16 @@ CursorMeter is a menu bar app that calls undocumented Cursor API endpoints using
 
 The login WebView is the only place CursorMeter loads third-party origins. Cursor usage API requests, including `/api/usage-summary`, `/api/usage`, `/api/auth/me`, and the dashboard event endpoint, go directly to `cursor.com` over HTTPS using `URLSessionConfiguration.ephemeral`. HTTP responses are not cached to disk; the bounded snapshot below is separate.
 
+Shared weekly plans also use read-only DashboardService RPCs at the fixed
+`https://api2.cursor.sh` origin. The client extracts the access JWT from the same
+selected Cursor session credential and sends it as Bearer authorization; it does
+not send the Cookie header to this host. It rejects redirects, disables disk and
+cookie caches, limits response bytes and request duration, and does not log tokens
+or raw billing responses. This does not add a Grok login, read refresh tokens, or
+change the existing IDE/browser authentication or Keychain storage. Shared billing
+reads cannot delete the primary Cursor credential merely because an RPC fails.
+
+
 ## Cursor IDE Credential Reuse (#54)
 
 When a Cursor IDE installation is signed in on the same Mac, CursorMeter derives its session from the IDE instead of asking the user to log in again:

@@ -1,14 +1,14 @@
 # Cursor API — Reference
 
-Internal reference for the (undocumented) Cursor API surface used by CursorMeter. All endpoints are observed via the `cursor.com/dashboard` web client.
+Internal reference for the (undocumented) Cursor API surface used by CursorMeter. Sources include the `cursor.com/dashboard` web client and official bundled Cursor IDE/CLI clients.
 
 > **Status disclaimer**: every endpoint listed here is undocumented and not part of any public contract. Schemas, paths, query parameters, and authentication mechanics can change without notice. Treat as best-effort observation, not as a stable API.
 
 ## Authentication
 
-- **Session cookie** captured by `LoginWindow` after web-based login (`https://www.cursor.com/dashboard`).
+- **Session credential** derived from the signed-in Cursor IDE, or a cookie captured by `LoginWindow` after web-based login (`https://www.cursor.com/dashboard`).
 - The auth-bearing cookie is `WorkosCursorSessionToken` (current as of 2026-05). See `LoginWindow.requiredCookieNames`.
-- All endpoints below are GETs/POSTs with cookies attached.
+- Legacy `cursor.com` endpoints are GETs/POSTs with cookies attached. The shared-plan DashboardService methods below use the access JWT from the same selected credential as Bearer authorization, without a Cookie header.
 - **Bearer-token Admin API** at `api.cursor.com/teams/*` is a separate surface (team admin only) and is **not used by this app**.
 
 ## Endpoints used by CursorMeter (production code)
@@ -198,7 +198,7 @@ Many `/api/dashboard/*` POST endpoints exist (e.g. `get-team-spend`, `get-curren
 ## Known limitations / open questions
 
 - **Personal Pro/Pro+ weekly events** — `teamId: 0` verified on free and Ultra; Pro/Pro+ remain unverified. While logged in with the chart enabled, transient weekly fetch failures preserve cached data; two consecutive failures show the last successful update date and time. After a weekly fetch failure with no cached history available, a compact unavailable/retrying message is shown instead. Existing cache invalidation for rejected request shapes or access is unchanged.
-- **Weekly/recent pagination** — the shared weekly pipeline stops at the reported total, an empty page, or the 7-day cutoff, with a safety cap of 5 pages of 100 events. Histories exceeding that cap can be incomplete.
+- **Weekly/recent pagination** — the legacy event pipeline shared by the chart and recent list stops at the reported total, an empty page, or the 7-day cutoff, with a safety cap of 5 pages of 100 events. Histories exceeding that cap can be incomplete. Shared weekly billing does not reuse these legacy histories.
 - **Stability** — all paths are undocumented. Any contributor changing the consumer code should re-verify the response shape against a fresh dashboard capture.
 - **Rate limits** — server-side limits are undocumented. An ephemeral URLSession does not isolate account/server rate limits. The recent list adds no automatic requests to the existing weekly pipeline. Split cycle enrichment makes separately bounded requests, and all admission limits apply per Mac only.
 
@@ -208,3 +208,69 @@ Many `/api/dashboard/*` POST endpoints exist (e.g. `get-team-spend`, `get-curren
 2. Open DevTools → Network → XHR filter.
 3. Refresh the page; the endpoints under "Endpoints observed" above appear with response bodies viewable in the panel.
 4. Update this file if names, query params, or schema have drifted.
+
+
+## Shared weekly plans: existing Cursor authentication
+
+For personal accounts on the merged weekly plan, CursorMeter keeps the same IDE
+connection or saved Cursor browser session. It does not require a Grok login or
+read Grok CLI credentials. The DashboardService path below was verified with the
+same IDE access token used by the existing Cursor authentication path.
+
+All methods are read-only POST requests under
+`https://api2.cursor.sh/aiserver.v1.DashboardService/`, using JSON and
+`Connect-Protocol-Version: 1`. Authorization is the Bearer JWT extracted from the
+selected `WorkosCursorSessionToken`; the Cookie header is not sent to this host.
+Redirects are refused. Personal requests omit team headers and team IDs.
+
+| Method | Request | Meaning |
+| --- | --- | --- |
+| `GetPlanInfo` | `{}` | `isMerged` plus `planInfo.includedUsagePeriod` identifies the weekly regime |
+| `GetCurrentPeriodUsage` | `{"personalScope":true}` | `planUsage.totalPercentUsed`, `billingCycleStart` and `billingCycleEnd` supply the weekly meter |
+| `GetUserPrepaidBilling` | `{}` | Separate balance, funding/spending aggregates, optional monthly consumption and Auto Top-up, and limited top-up records |
+| `GetHardLimit` | `{"personalScope":true}` | Monthly additional-usage cap; not the purchased-credit denominator |
+
+The current-period cycle accepts the existing epoch-millisecond or ISO date
+formats. Its end must agree with `planInfo.includedUsageResetsAt` before the
+weekly reading is accepted. Auto/API monthly pool percentages are not substitutes
+for the shared total. A known shared account with a failed supplemental request
+must not fall back to displaying monthly percentages.
+
+Each accepted snapshot belongs to the existing session generation, exact selected
+credential and verified profile subject. The new reads support personal scope
+only. A confirmed team transition clears the old personal wallet. A shared RPC
+401/403 is a data failure, not authority to delete a valid primary credential or
+retry another account. An exact-credential retained profile can preserve stale
+readings during the existing IDE profile-404 fallback; it does not authorize a
+fresh wallet request. Logout and account/credential changes discard late results.
+
+Prepaid int64 fields use protobuf JSON decimal strings (or exact integer numbers).
+Canonical Int64 strings retain exact source values; numeric JSON compatibility
+is bounded by Foundation Decimal precision rather than an arbitrary-precision
+JSON parser. Nonoptional proto3 scalar zero may be omitted only in a recognized eligible
+prepaid response. Optional `spentThisMonthCents` remains unknown when absent.
+`topUps` is bounded display history: the installed Cursor IDE requests `limit:1`.
+Never use a truncated history sum as the total purchased amount. A purchased-credit
+ratio requires valid aggregate arithmetic and purchase-record reconciliation;
+unknown origins, grants, refunds, conflicting rows or incomplete coverage leave
+the balance visible and the ratio unavailable. The raw consumer gRPC ledger uses
+different amount signs and is not interchangeable with this JSON response.
+Only `TOPUP_MANUAL` is currently verified for API2 purchase reconciliation.
+`PrepaidTopUpEntry.origin` is a plain string in the installed schema; the separate
+Grok ledger's automatic-purchase enum does not establish an API2 origin value.
+Auto Top-up settings remain independently readable even when a purchase origin
+cannot be recognized.
+
+The official Cursor commerce bridge maps an explicit `noUsageBasedAllowed` or a
+nonpositive `hardLimit` to a zero cap, the valid Int32 maximum 2147483647 to no cap,
+and other valid Int32 values from whole dollars to cents. Missing/malformed values remain
+unknown. `autoTopUp.monthlyCapCents` limits purchases and is not this consumption
+cap. `GetMonthlyBillingCycle` was separately observed to describe the subscription
+billing cycle; it must not be used as the calendar-month reset of
+`spentThisMonthCents`.
+
+A live tiny third-party request appeared in billing items with a sub-cent USD
+`pricing.contracted` while integer-cent wallet/monthly fields remained unchanged.
+These endpoints have different precision and update timing. Do not manufacture a
+new wallet balance by subtracting event prices or claim the displayed rounded
+row cost is the exact charge.

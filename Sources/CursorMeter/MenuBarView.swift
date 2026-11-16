@@ -47,6 +47,7 @@ final class MenuBarPopoverViewController: NSViewController {
     private let splitRows = NSStackView()
     private let splitPoolRows = [SplitPoolRow(), SplitPoolRow()]
     private let splitMeter = NSImageView()
+    private var manageCreditsRow = NSView()
     private let splitDetailLabel = NSTextField(wrappingLabelWithString: "")
 
     // Secondary metric row (hidden when no secondary data). In normal mode shows
@@ -132,7 +133,9 @@ final class MenuBarPopoverViewController: NSViewController {
 
     /// Called by the owner whenever viewModel state changes.
     func updateUI() {
-        widthConstraint?.constant = viewModel.splitUsage.suppressesLegacyMeter ? 300 : 260
+        let shared = viewModel.sharedUsage.suppressesLegacyMeter && viewModel.authState == .loggedIn
+        widthConstraint?.constant = shared || viewModel.splitUsage.suppressesLegacyMeter ? 300 : 260
+        manageCreditsRow.isHidden = !shared || viewModel.sharedUsage.mode != .sharedWeekly
         refreshButton.render(
             phase: viewModel.refreshFeedback.phase,
             isReady: viewModel.refreshFeedback.isReady,
@@ -140,7 +143,12 @@ final class MenuBarPopoverViewController: NSViewController {
             isAuthenticated: viewModel.authState == .loggedIn,
             reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         )
-        if let data = viewModel.usageData {
+        if shared {
+            applySharedData()
+            statusStack.isHidden = true
+            dataStack.isHidden = false
+            dataScroll.isHidden = false
+        } else if let data = viewModel.usageData {
             applyData(data)
             statusStack.isHidden = true
             dataStack.isHidden   = false
@@ -153,7 +161,7 @@ final class MenuBarPopoverViewController: NSViewController {
         }
 
         // Stale-data indicator (#77)
-        if viewModel.isDataStale {
+        if viewModel.isDataStale && !shared {
             let timeString = viewModel.lastSuccessAt.map(Self.staleTimeFormatter.string(from:)) ?? "—"
             staleLabel.stringValue = "⚠️ Last updated \(timeString) — retrying every \(viewModel.refreshInterval.label)"
             staleLabel.isHidden = false
@@ -241,11 +249,15 @@ final class MenuBarPopoverViewController: NSViewController {
         rootStack.addArrangedSubview(makeDivider())
 
         // --- Action rows ---
-        rootStack.addArrangedSubview(makeMenuRow("Open Dashboard", symbolName: "arrow.up.right") {
-            if let url = URL(string: "https://www.cursor.com/dashboard?tab=usage") {
-                NSWorkspace.shared.open(url)
-            }
+        rootStack.addArrangedSubview(makeMenuRow("Open Dashboard", symbolName: "arrow.up.right") { [weak self] in
+            guard let self else { return }
+            NSWorkspace.shared.open(SharedUsagePresentation.dashboardURL(mode: self.viewModel.sharedUsage.mode))
         })
+        manageCreditsRow = makeMenuRow("Manage Credits...", symbolName: "creditcard") {
+            NSWorkspace.shared.open(SharedUsagePresentation.creditsURL)
+        }
+        manageCreditsRow.isHidden = true
+        rootStack.addArrangedSubview(manageCreditsRow)
 
         rootStack.addArrangedSubview(makeMenuRow("Recent usage", symbolName: "clock") { [weak self] in
             guard let self else { return }
@@ -590,6 +602,43 @@ final class MenuBarPopoverViewController: NSViewController {
 
     // MARK: - Apply state
 
+    private func applySharedData() {
+        let presentation = SharedUsagePresentation(mode: viewModel.sharedUsage.mode, snapshot: viewModel.sharedUsage.snapshot)
+        nameLabel.stringValue = viewModel.authenticatedUserInfo?.name ?? "Cursor account"
+        emailLabel.stringValue = viewModel.authenticatedUserInfo?.email ?? ""
+        let sharedWeekly = viewModel.sharedUsage.mode == .sharedWeekly
+        switch viewModel.sharedUsage.mode {
+        case .sharedWeekly: badgeLabel.stringValue = "Shared"
+        case .checking: badgeLabel.stringValue = "Checking"
+        case .unsupported: badgeLabel.stringValue = "Unsupported"
+        default: badgeLabel.stringValue = "Unavailable"
+        }
+        badgeLabel.isHidden = false
+        usageTitleLabel.stringValue = sharedWeekly ? "Included usage & credits" : "Usage plan"
+        usageValueLabel.stringValue = ""
+        refreshButton.isHidden = false
+        progressRow.isHidden = true
+        secondaryRow.isHidden = true
+        splitRows.isHidden = false
+        splitPoolRows[0].update(presentation.weekly, outer: true)
+        splitPoolRows[1].update(presentation.credit, outer: false)
+        splitMeter.image = CircularProgressIcon.makeDualPercentImage(
+            outerPercent: presentation.weekly.percent, centerPercent: presentation.credit.percent,
+            size: NSSize(width: 112, height: 112))
+        splitMeter.setAccessibilityLabel(sharedWeekly ? "Shared usage meter" : "Usage plan meter")
+        splitMeter.setAccessibilityValue(presentation.accessibilityValue)
+        splitMeter.toolTip = presentation.tooltip
+        splitDetailLabel.stringValue = (presentation.detailLines + [presentation.status].compactMap { $0 }).joined(separator: "\n")
+        splitDetailLabel.isHidden = false
+        setWeeklyChartVisible(false)
+        weeklyStatusLabel.stringValue = sharedWeekly ? "Shared activity history unavailable" : "Activity history unavailable"
+        weeklyStatusLabel.toolTip = "View usage history in the official dashboard."
+        weeklyStatusLabel.isHidden = false
+        resetLabel.stringValue = ""
+        resetLabel.toolTip = nil
+        syncIntervalPopUp()
+    }
+
     private func applyData(_ data: UsageDisplayData) {
         // User info
         nameLabel.stringValue = data.name
@@ -632,6 +681,7 @@ final class MenuBarPopoverViewController: NSViewController {
             secondaryRow.isHidden = true
         }
         if let presentation = viewModel.splitPresentation, split {
+            splitMeter.setAccessibilityLabel("Split usage meter")
             let today = viewModel.splitUsage.todayPercentagePoints
             for (row, pool) in zip(splitPoolRows, presentation.pools) {
                 row.update(pool, todayPoints: today?[pool.id])
@@ -1009,6 +1059,15 @@ private final class SplitPoolRow: NSStackView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("use init()") }
+
+    func update(_ reading: SharedUsagePresentation.Reading, outer: Bool) {
+        titleLabel.stringValue = reading.title
+        marker.image = NSImage(systemSymbolName: outer ? "circle" : "circle.fill", accessibilityDescription: nil)
+        valueLabel.stringValue = reading.percentText
+        amountLabel.stringValue = reading.detail
+        amountLabel.isHidden = false
+        setAccessibilityLabel("\(outer ? "Outer" : "Center"): \(reading.title) \(reading.percentText) · \(reading.accessibilityDetail)")
+    }
 
     func update(_ pool: SplitPoolPresentation, todayPoints: Double? = nil) {
         titleLabel.stringValue = pool.id.displayName

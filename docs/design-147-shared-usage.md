@@ -1,6 +1,6 @@
-# Shared weekly usage and prepaid credit draft
+# Shared weekly usage and prepaid credit
 
-Issue: [#147](https://github.com/WoojinAhn/CursorMeter/issues/147). Source baseline: `efe90d025408b35e2d32dcd15d25bf9db7e3ec3a`. Status: dual-meter direction accepted; foundation models and raw ledger decoding have passed TDD, independent specification review, and fresh Argon High/Grok XHigh quality reviews. Native integration and complete authenticated API parity remain pending. [Foundation plan](superpowers/plans/2026-11-16-issue-147-shared-usage-foundation.md).
+Issue: [#147](https://github.com/WoojinAhn/CursorMeter/issues/147). Source baseline: `efe90d025408b35e2d32dcd15d25bf9db7e3ec3a`. Status: dual-meter direction accepted. Live read-only Cursor DashboardService requests work with the existing Cursor authentication; the reviewed API client and models are implemented at `6f8b1a5`. Session integration is committed at `81bf6f4`; native UI integration has passed specification and quality review. Final cross-model review and installed-app verification remain pending. See the [native integration plan](superpowers/plans/2026-11-17-issue-147-native-integration.md).
 
 ## Task and presentation
 
@@ -30,7 +30,13 @@ Confirmed no purchases has no consumption percentage: show a neutral inner meter
 - Keep paid spend, balance, and cap scoped to the same verified identity/workspace. Do not combine a seat's quota with another workspace's wallet. Team support needs explicit scope labeling and live evidence.
 - Purchased credit and promotional grants are separate concepts. Any supported grant display must preserve eligibility and expiry; do not count an unverified grant as usable cash.
 
-## Evidence required before implementing the adapter
+## Data source and coverage
+
+The native adapter uses Cursor's `api2.cursor.sh` DashboardService with the existing Cursor credential. `GetPlanInfo` identifies the shared weekly plan; `GetCurrentPeriodUsage` supplies its total percentage and matching weekly period. `GetUserPrepaidBilling` supplies the wallet and optional monthly spending, and `GetHardLimit` supplies the paid usage cap. All four read-only methods succeeded with the existing IDE credential. No separate Grok login is required. See [API Reference](API_REFERENCE.md) for the wire contracts and their limits.
+
+The prepaid top-up array is limited history. A purchased-credit ratio requires both a reconciled funded/spent/available equation and succeeded purchase records that account for the funded amount. Only the observed manual-purchase origin is recognized. Partial history, unknown origins, grants, refunds, or inconsistent amounts preserve the independently available balance but leave the ratio unavailable. Canonical protobuf Int64 strings are exact; compatibility with numeric JSON is bounded by Foundation Decimal precision.
+
+### Earlier consumer-ledger investigation
 
 The official CLI source uses `/v1/billing?format=credits` and exposes candidate `creditUsagePercent`, `currentPeriod`, `prepaidBalance`, `onDemandUsed` and `onDemandCap` fields. This does not prove those fields share the proposed monthly period on every unified account. The dashboard's `grok_api_v2.GrokBuildBilling/ListPrepaidBalanceChanges` route and protobuf schema have now been observed. Its `total` is the current balance with the opposite sign, not cumulative purchased credit. Entries distinguish successful/pending/failed purchases, automatic purchases, spend, refunds and adjustments. The request has no pagination parameters; the UI slices 20 rows after receiving the response. Actual posted-credit parity and server history-retention guarantees remain unverified. Verify actual credit posted rather than summing subscription charges or tax-inclusive invoices. Keep only sanitized fixtures and aggregate equality checks; never publish real credentials, account identifiers or billing values.
 
@@ -40,7 +46,7 @@ Validate a new-plan account with prepaid credit and a configured cap, a no-cap a
 
 The mockup contains included-only, included-plus-credit, exhausted-weekly, reached-cap with included usage, both limits exhausted, empty-wallet, Auto Top-up enabled, explicit no-cap, partial data, unknown purchase total and stale data. Its synthetic transition controls demonstrate top-up, weekly reset and monthly reset independently. Verify 38% to 19% on the example top-up, neutral no-purchase state, 100% consumed credit, unknown total, and a functioning credit meter with no monthly cap.
 
-Native acceptance must check menu/popover semantics, keyboard navigation and dashboard destinations through native accessibility. Browser verification of this HTML proves only the proposal's rendering and synthetic interactions. No native, authenticated API or real-payment verification is implied.
+Native acceptance must check menu/popover semantics, keyboard navigation and dashboard destinations through native accessibility. Browser verification of this HTML proves only the proposal's rendering and synthetic interactions; it does not prove native app behavior or billing behavior.
 
 ## Verification
 
@@ -48,9 +54,11 @@ Playwright MCP verified the 300 px popover, 112 px dual meter, and all retained 
 
 An authenticated CLI-proxy billing request returned HTTP 200 with weekly percentage/period and prepaid-balance fields. A separate auto-topup-rule request returned HTTP 200 with an empty object, which remains unknown. This establishes transport availability for the tested account, not cumulative-purchase history, paid-cap semantics, or parity for accounts with purchased credit. No real billing amounts or credentials are stored in this document.
 
-Native Chrome DevTools subsequently observed a successful empty consumer-ledger response and the public protobuf descriptor. The corresponding direct CLI-bearer request returned HTTP 403; native-app authentication/transport remains unimplemented. The purchased-credit model passed 12 focused tests and the weekly/paid-cap model passed 20, with 1,139 full-suite tests passing. These results cover pure logic only. The [ledger decoding plan](superpowers/plans/2026-11-16-issue-147-ledger-decoding.md) records the subsequent decoder stage.
+Native Chrome DevTools subsequently observed a successful empty consumer-ledger response and the public protobuf descriptor. The corresponding direct Grok CLI-bearer request returned HTTP 403. That result concerns the earlier consumer transport, which is not used by the native adapter. At that stage, the purchased-credit model passed 12 focused tests and the weekly/paid-cap model passed 20, with 1,139 full-suite tests passing. These results cover pure logic only. The [ledger decoding plan](superpowers/plans/2026-11-16-issue-147-ledger-decoding.md) records the subsequent decoder stage.
 
-The raw ledger decoder subsequently passed 26 focused tests and full regression reached 1,165 tests with zero failures. Independent specification and Argon High/Grok XHigh quality reviews passed. The decoder preserves signed amounts, missing versus zero messages and unknown statuses, validates bounded gRPC/protobuf input, and merges repeated singular embedded messages. This is raw decoding, not a working authenticated provider or live credit-meter acceptance.
+The raw ledger decoder subsequently passed 26 focused tests and full regression reached 1,165 tests with zero failures. Independent specification and Argon High/Grok XHigh quality reviews passed. The decoder preserves signed amounts, missing versus zero messages and unknown statuses, validates bounded gRPC/protobuf input, and merges repeated singular embedded messages. It is retained as an independently tested decoder, not the native adapter's authentication path.
+
+The Cursor DashboardService adapter passed independent specification and quality review. Coordinator verification ran 44 focused tests with zero failures after the final corrections. Live source verification established the existing-auth route; those network observations and fixture-based tests do not establish completed native integration.
 
 ## References
 
@@ -59,3 +67,25 @@ The raw ledger decoder subsequently passed 26 focused tests and full regression 
 - [Managing The X Subscription and top-up invoices](https://docs.x.ai/x-subscription/manage)
 - [Spend limits](https://cursor.com/help/account-and-billing/spend-limits)
 - [Official Grok CLI billing source](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-shell/src/extensions/billing.rs)
+
+
+## Existing-login integration decision (2026-11-17)
+
+The user explicitly retained CursorMeter's existing Cursor IDE connection and
+browser-login fallback. Read-only API2 DashboardService calls using that same
+Cursor access token returned plan detection, the shared weekly period/percentage,
+prepaid balance and succeeded top-ups, and the monthly cap. No separate Grok
+login or retained WebView is part of the implementation. The earlier direct Grok
+CLI bearer failure only applies to that different consumer transport.
+
+The [native integration plan](superpowers/plans/2026-11-17-issue-147-native-integration.md)
+keeps shared readings in separate state while retaining the existing session
+ownership and layout. The response top-up array is limited history, so it is
+reconciliation evidence rather than an unconditional cumulative denominator.
+The current authenticated source can still supply a balance when history or
+aggregate semantics do not support a purchased-credit percentage.
+
+
+## Native integration verification
+
+The existing-session controller and native UI passed separate specification and quality reviews. The coordinator ran 1,244 tests with zero failures on the final UI candidate. Synthetic native AppKit captures cover the normal weekly/prepaid layout, stale/unknown values, exhaustion/cap states, and Display/Alerts/Usage settings. Light and dark captures were visually inspected. The four committed shared-plan screenshots use Demo User and synthetic billing examples. These captures do not establish installed-app authentication or real-account parity.

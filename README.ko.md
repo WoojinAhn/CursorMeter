@@ -19,16 +19,17 @@
 
 Cursor는 [2026년 2월 11일 개인 요금제의 사용량 풀 분리를 공식 발표했습니다](https://cursor.com/blog/increased-agent-usage). CursorMeter도 Cursor가 제공하는 사용률에 맞춰 **Cursor Models**와 **Other Models**를 각각 보여줍니다.
 
-현재 분리 미터는 **중앙 원과 바깥 링으로 구성된 한 가지 표현 방식**을 제공합니다. 설정 → Display에서 안팎 배치와 팝오버의 퍼센트·달러·둘 다 표시를 선택할 수 있으며, 앞으로 시각적인 표현 방식도 늘려갈 예정입니다.
+분리 미터는 **중앙 원과 바깥 링으로 구성된 한 가지 표현 방식**을 제공합니다. 기존 월간 플랜은 설정 → Display에서 안팎 배치와 퍼센트·달러·둘 다 표시를 선택할 수 있습니다. 공유 주간 플랜은 바깥에 주간 사용량, 안쪽에 충전 크레딧 소진율을 고정 표시합니다.
 
 ## 주요 기능
 
+- **공유 주간 사용량과 충전 크레딧** — 지원하는 개인 공유 플랜도 기존 Cursor 로그인으로 연결됩니다. 바깥 링은 주간 포함 사용률, 중앙은 확인된 총 충전액 대비 소진율을 표시하며 잔액도 함께 보여줍니다. 월 유료 사용량·한도와 Auto Top-up은 별도 값입니다. 충전 이력이 불완전하면 잔액은 유지하고 소진율을 확인 불가로 표시합니다. 이 모드에서는 기존 사용량 알림·점프 이펙트·이력 차트·최근 요청 목록을 제공하지 않습니다.
 - **분리 사용량을 한눈에** — 지원하는 개인 유료 플랜은 중앙 원에 Cursor Models, 바깥 링에 Other Models를 표시합니다. 두 영역은 사용률과 색상을 각각 표현하며, Display 설정에서 바깥 계열을 선택할 수 있습니다. 없는 값은 사용 불가로 남깁니다.
 - **원 안에서 보는 오늘 사용분** — 팝오버 원의 밝은 구간은 한국 표준시(KST, UTC+9) 자정 이후의 사용분을 기록된 포함 비용 비중으로 추정합니다. 큰 원에 마우스를 올리면 의미를 확인할 수 있습니다. 일치하고 검증된 데이터가 있을 때만 표시하며, 어느 계열이든 100%에 도달하면 강조를 생략합니다. 원 전체의 채움과 알림은 계속 Cursor가 제공하는 사용률을 기준으로 합니다.
 - 메뉴바에서 사용량과 리셋 날짜 확인. 단일 풀 플랜은 제공되는 요청 횟수도 표시
 - **알아보기 쉬운 사용량 알림** — Cursor Models·Other Models·지원되는 유료 예산의 경고·위험 기준을 각각 설정합니다(기본값: 80%/90%). 알림에는 실제 사용량과 설정한 기준이 표시되며, 같은 갱신에서 경고와 큰 증가가 함께 발생하면 간결한 알림 하나로 합칩니다.
 - **사용량 점프 이펙트** — 사용량이 한 번에 크게 올라가면 메뉴바 아이콘에 ⚡(중간 점프) 또는 🚀(큰 점프)가 잠시 표시되어, 갑작스런 증가를 놓치지 않게 합니다. 강도 3단계(Quiet / Normal / Bold)와 글리프 스타일(⚡/🚀 또는 💲/💸) 선택 가능, Bold + 큰 점프 조합에서는 사용량 알림 대상 및 마스터 스위치와 독립적으로 macOS 알림을 띄웁니다. 분리 플랜도 포함 사용량 $0.05/$0.30 민감도를 유지하며 +5/+15%p 변화도 감지합니다. 알림은 측정된 범위를 표시하고 원인을 추측하지 않습니다.
-- **주간 사용량 차트** (모든 플랜) — 최근 7일 막대 그래프를 설정 → Display에서 **Amount**(기본값) 또는 **Usage units** 기준으로 선택할 수 있습니다. 막대 높이·색상·툴팁은 같은 지표를 사용합니다. 금액은 추가 청구액뿐 아니라 구독에 포함된 사용 가치까지 합산하며, 금액 데이터가 없으면 가중 사용량 단위(`requestsCosts`)로 표시합니다. 오늘 강조 스타일 3가지(Outline / Dim / Both) 선택 가능.
+- **주간 사용량 차트** (기존 플랜) — 최근 7일 막대 그래프를 설정 → Display에서 **Amount**(기본값) 또는 **Usage units** 기준으로 선택할 수 있습니다. 막대 높이·색상·툴팁은 같은 지표를 사용합니다. 금액은 추가 청구액뿐 아니라 구독에 포함된 사용 가치까지 합산하며, 금액 데이터가 없으면 가중 사용량 단위(`requestsCosts`)로 표시합니다. 오늘 강조 스타일 3가지(Outline / Dim / Both) 선택 가능.
 - **주간 차트 갱신 상태** — 일시적 조회 실패 시 마지막 차트를 유지합니다. 두 번 연속 실패하면 마지막 갱신 날짜와 시각을 표시하고, 아직 이력을 받지 못했다면 작은 재시도 안내를 표시합니다. 기존 새로고침 일정으로 자동 재시도합니다.
 - **사용량 상세** — 팝오버에서 두 영역의 원을 크게 보고 사용률·기록된 달러 비용·둘 다 중 표시 형식을 Display 설정에서 선택합니다. 추정 한도는 기본적으로 꺼져 있으며, 일치하는 사용률과 비용 데이터가 뒷받침할 때만 표시됩니다. 보장된 청구 한도가 아닌 비공식 추정치입니다. 원 전체의 채움과 알림은 항상 서버 사용률을 사용하며, 추가 지출과 Bot 활동은 별도로 표시합니다.
 - **최근 사용 내역** — 설정 → Usage에서 최근 요청 최대 30건의 모델·시각·유형·토큰·달러 금액을 확인할 수 있습니다. Included 금액은 추가 청구액이 아니라 요금제에 포함된 사용 가치입니다. **Local**(기본값: 이 Mac의 시간대)과 **UTC**를 선택할 수 있으며, **Open Cursor**로 전체 내역과 청구 대시보드를 엽니다.
@@ -116,6 +117,31 @@ swift test    # 전체 테스트 실행 (Xcode 필요)
 버그를 발견하셨거나 아이디어가 있으신가요? [이슈를 열어주세요](https://github.com/WoojinAhn/CursorMeter/issues) — 피드백과 제안은 언제나 환영합니다. 현재 Pull Request는 받지 않습니다.
 
 ## 스크린샷
+
+### 공유 주간 플랜
+
+합성 데이터로 렌더링한 네이티브 AppKit 화면입니다. 청구 예시는 실제 계정 데이터가 아닙니다.
+
+<table>
+  <tr>
+    <th align="center">주간 사용량과 충전 크레딧</th>
+    <th align="center">공유 플랜 표시 설정</th>
+  </tr>
+  <tr>
+    <td align="center" valign="top"><a href="docs/screenshots/popover-shared.png"><img src="docs/screenshots/popover-shared.png" alt="주간 사용량과 충전 크레딧" width="300"></a></td>
+    <td align="center" valign="top"><a href="docs/screenshots/settings-shared-display.png"><img src="docs/screenshots/settings-shared-display.png" alt="공유 플랜 표시 설정" width="300"></a></td>
+  </tr>
+  <tr>
+    <th align="center">현재 플랜의 알림 설정</th>
+    <th align="center">이력 제공 상태</th>
+  </tr>
+  <tr>
+    <td align="center" valign="top"><a href="docs/screenshots/settings-shared-alerts.png"><img src="docs/screenshots/settings-shared-alerts.png" alt="현재 플랜의 알림 설정" width="300"></a></td>
+    <td align="center" valign="top"><a href="docs/screenshots/settings-shared-usage.png"><img src="docs/screenshots/settings-shared-usage.png" alt="이력 제공 상태" width="300"></a></td>
+  </tr>
+</table>
+
+### 기존 플랜
 
 <table>
   <tr>

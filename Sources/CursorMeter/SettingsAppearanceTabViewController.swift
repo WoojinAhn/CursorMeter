@@ -122,7 +122,9 @@ final class SettingsAppearanceTabViewController: NSViewController {
         // tag-addressed (tag = mode value) so removal can't shift the mapping.
         // The popup reflects the EFFECTIVE mode (None stays None, #105) via
         // the same resolver the status item uses.
-        let split = viewModel.splitUsage.suppressesLegacyMeter
+        let shared = viewModel.sharedUsage.suppressesLegacyMeter
+        let sharedWeekly = viewModel.sharedUsage.mode == .sharedWeekly
+        let split = shared || viewModel.splitUsage.suppressesLegacyMeter
         let percentOnly = !split && viewModel.usageData?.isPercentOnly == true
         let ratioIndex = menuBarDisplayPopUp.indexOfItem(withTag: 1)
         if percentOnly {
@@ -136,13 +138,20 @@ final class SettingsAppearanceTabViewController: NSViewController {
         menuBarDisplayPopUp.isEnabled = !split
         legacyTextRow.isHidden = split
         splitPlacementRows.isHidden = !split
-        let verifiedSplit = viewModel.splitUsage.eligibility == .eligible
+        let verifiedSplit = !shared && viewModel.splitUsage.eligibility == .eligible
         let monetaryLegacy = !split && viewModel.usageData?.supportsPopoverValueMode == true
-        popoverSection.isHidden = !verifiedSplit && !monetaryLegacy
-        estimatedLimitsRow.isHidden = !verifiedSplit
+        popoverSection.isHidden = !shared && !verifiedSplit && !monetaryLegacy
+        estimatedLimitsRow.isHidden = !shared && !verifiedSplit
+        popoverValuesSegmented.isEnabled = !shared
+        estimatedLimitsToggle.isEnabled = !shared
+        estimateInfoButton.isEnabled = !shared
         popoverValuesSegmented.selectedSegment = viewModel.popoverValueMode.rawValue
         estimatedLimitsToggle.state = viewModel.estimatedLimitsEnabled ? .on : .off
-        if verifiedSplit, let presentation = viewModel.splitPresentation {
+        if shared {
+            valuePreview.stringValue = sharedWeekly
+                ? "Shared usage always shows weekly and prepaid percentages. Dollar modes and estimated monthly limits apply to legacy plans."
+                : "Display settings are unavailable until a supported usage plan is confirmed. Saved preferences are preserved."
+        } else if verifiedSplit, let presentation = viewModel.splitPresentation {
             valuePreview.stringValue = presentation.pools.map { pool in
                 let detail = pool.detailText.map { " · " + $0 } ?? ""
                 return "\(pool.id.displayName): \(pool.readoutText)\(detail)"
@@ -156,16 +165,33 @@ final class SettingsAppearanceTabViewController: NSViewController {
         } else {
             valuePreview.stringValue = ""
         }
-        outerPoolPopUp.selectItem(at: viewModel.splitOuterPool == .other ? 0 : 1)
-        outerPoolPopUp.isEnabled = viewModel.splitUsage.eligibility != .legacy
+        if shared {
+            if outerPoolPopUp.numberOfItems == 2 { outerPoolPopUp.addItem(withTitle: "") }
+            outerPoolPopUp.item(at: 2)?.title = sharedWeekly ? "Weekly included" : "Unavailable"
+            outerPoolPopUp.selectItem(at: 2)
+        } else {
+            if outerPoolPopUp.numberOfItems > 2 { outerPoolPopUp.removeItem(at: 2) }
+            outerPoolPopUp.selectItem(at: viewModel.splitOuterPool == .other ? 0 : 1)
+        }
+        outerPoolPopUp.isEnabled = !shared && viewModel.splitUsage.eligibility != .legacy
         splitMenuBarPercentagesToggle.state = viewModel.splitMenuBarPercentagesEnabled ? .on : .off
         let center: UsagePoolID = viewModel.splitOuterPool == .other ? .cursor : .other
         poolLegend.stringValue = "Outer: \(viewModel.splitOuterPool.displayName)\nCenter: \(center.displayName)"
-        let circle = CircularProgressIcon.makeSplitImage(
-            cursorPercent: viewModel.splitUsage.snapshot?.cursorPercent,
-            otherPercent: viewModel.splitUsage.snapshot?.otherPercent,
-            outerPool: viewModel.splitOuterPool)
-        if let readout = viewModel.splitMenuBarReadout {
+        let sharedPresentation = SharedUsagePresentation(mode: viewModel.sharedUsage.mode, snapshot: viewModel.sharedUsage.snapshot)
+        if shared {
+            poolLegend.stringValue = sharedWeekly
+                ? "Outer: Weekly included\nCenter: Prepaid credit\nFixed for shared usage."
+                : "Usage meter unavailable.\nSaved placement is preserved."
+        }
+        let circle = shared
+            ? CircularProgressIcon.makeDualPercentImage(outerPercent: sharedPresentation.weekly.percent,
+                                                        centerPercent: sharedPresentation.credit.percent)
+            : CircularProgressIcon.makeSplitImage(cursorPercent: viewModel.splitUsage.snapshot?.cursorPercent,
+                otherPercent: viewModel.splitUsage.snapshot?.otherPercent, outerPool: viewModel.splitOuterPool)
+        let readout = shared
+            ? (viewModel.splitMenuBarPercentagesEnabled ? sharedPresentation.readout : nil)
+            : viewModel.splitMenuBarReadout
+        if let readout {
             let image = SplitMenuBarRenderer.image(icon: circle, readout: readout)
             poolPreview.image = image
             poolPreviewWidth?.constant = image.size.width * 28 / 18
@@ -174,7 +200,14 @@ final class SettingsAppearanceTabViewController: NSViewController {
             poolPreviewWidth?.constant = 28
         }
         poolPreview.setAccessibilityLabel(poolLegend.stringValue)
+        outerPoolPopUp.toolTip = shared
+            ? (sharedWeekly ? "Shared usage has fixed ring meanings; this saved choice applies to legacy plans."
+                : "Ring settings are unavailable until a supported usage plan is confirmed.") : nil
 
+        jumpEffectToggle.isEnabled = !shared
+        jumpIntensitySegmented.isEnabled = !shared
+        jumpGlyphStyleSegmented.isEnabled = !shared
+        jumpEffectToggle.toolTip = shared ? "Usage jump effects apply to legacy monthly usage." : nil
         jumpEffectToggle.state = viewModel.jumpEffectEnabled ? .on : .off
         jumpIntensitySegmented.selectedSegment = viewModel.jumpIntensity.rawValue
         jumpGlyphStyleSegmented.selectedSegment = viewModel.jumpGlyphStyle.rawValue
@@ -183,10 +216,17 @@ final class SettingsAppearanceTabViewController: NSViewController {
 
         // Keep chart preferences reachable when the weekly endpoint is unavailable.
         weeklyChartSection.isHidden = viewModel.authState != .loggedIn
+        weeklyChartToggle.isEnabled = !shared
         weeklyChartToggle.state = viewModel.weeklyChartEnabled ? .on : .off
         weeklyChartStyleSegmented.selectedSegment = viewModel.weeklyChartStyle.rawValue
-        weeklyChartStyleSegmented.isEnabled = viewModel.weeklyChartEnabled
+        weeklyChartStyleSegmented.isEnabled = !shared && viewModel.weeklyChartEnabled
         updateWeeklyChartMetric()
+        if shared {
+            weeklyChartMetricPopUp.isEnabled = false
+            weeklyChartMetricCaption.stringValue = sharedWeekly
+                ? "Shared activity history is unavailable. Chart and Today settings apply to legacy plans."
+                : "Activity history is unavailable. Chart and Today preferences are preserved."
+        }
         updateViewport()
     }
 
