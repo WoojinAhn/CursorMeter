@@ -138,6 +138,8 @@ final class UsageViewModel {
     let recentUsage: RecentUsageController
     let refreshFeedback: RefreshFeedback
     let splitUsage: SplitUsageController
+    let sharedUsage: SharedUsageController
+    private(set) var authenticatedUserInfo: UserInfoResponse?
     let notificationManager: NotificationManager
     @ObservationIgnored private let splitAlerts: SplitUsageAlertDispatcher
     var splitOuterPool: UsagePoolID = .other
@@ -205,7 +207,8 @@ final class UsageViewModel {
     nonisolated static let staleThreshold = 5
 
     var isDataStale: Bool {
-        usageData != nil && consecutiveFailureCount >= Self.staleThreshold
+        sharedUsage.suppressesLegacyMeter ? sharedUsage.isStale
+            : usageData != nil && consecutiveFailureCount >= Self.staleThreshold
     }
 
     /// Release notification eligibility (#83). Pure so dedup logic is unit-testable.
@@ -554,6 +557,7 @@ final class UsageViewModel {
         refreshFeedback: RefreshFeedback? = nil,
         notificationManager: NotificationManager? = nil,
         splitUsage: SplitUsageController? = nil,
+        sharedUsage: SharedUsageController? = nil,
         splitAlertStore: SplitUsageAlertStore? = nil,
         defaults: UserDefaults = .standard
     ) {
@@ -564,6 +568,7 @@ final class UsageViewModel {
         let manager = notificationManager ?? NotificationManager()
         self.notificationManager = manager
         self.splitUsage = splitUsage ?? SplitUsageController(apiClient: apiClient)
+        self.sharedUsage = sharedUsage ?? SharedUsageController()
         self.splitAlerts = SplitUsageAlertDispatcher(manager: manager, store: splitAlertStore ?? SplitUsageAlertStore())
         loadSettings()
         lastUpdateCheckAt = Date()
@@ -658,6 +663,12 @@ final class UsageViewModel {
     }
 
     private func resetPerAccountState(clearDiscovery: Bool = true) {
+        sharedUsage.reset()
+        authenticatedUserInfo = nil
+        resetLegacyUsageState(clearDiscovery: clearDiscovery)
+    }
+
+    private func resetLegacyUsageState(clearDiscovery: Bool = true) {
         splitUsage.reset()
         splitAlerts.invalidateOwnership()
         if clearDiscovery { clearWeeklyDiscoveryCaches() }
@@ -714,6 +725,8 @@ final class UsageViewModel {
 
     private func invalidateRefreshSession(revokePersisted: Bool, cancelCurrent: Bool = true) {
         sessionGeneration += 1
+        sharedUsage.reset()
+        authenticatedUserInfo = nil
         splitUsage.suspend(removePersisted: revokePersisted,
             subjectDigest: UsageRevisionIdentity.accountDigest(subject: lastAccountSubject, email: nil))
         splitAlerts.resetContinuity()
@@ -758,6 +771,8 @@ final class UsageViewModel {
         let wasPolling = refreshTask != nil
         cancelOptimisticTasks()
         sessionGeneration += 1
+        sharedUsage.reset()
+        authenticatedUserInfo = nil
         cancelDeferredRefreshes()
         recentUsage.invalidate(generation: sessionGeneration, revokePersisted: revokePersisted)
         refreshFeedback.invalidate()
@@ -869,6 +884,8 @@ final class UsageViewModel {
                 authState = activeAuthSource == nil ? .loggedOut : .loginRequired
             }
             activeAuthSource = nil
+            sharedUsage.reset()
+            authenticatedUserInfo = nil
             clearWeeklyDiscoveryCaches()
             resetWeeklyChartState()
             recentUsage.invalidate(generation: sessionGeneration, revokePersisted: true)
@@ -904,7 +921,12 @@ final class UsageViewModel {
         let credentialDigest = RecentUsageBinding.credentialDigest(cookieHeader: cookieHeader)
         let selectedOwner = credentialDigest.map(CredentialOwner.exact)
         let ownsOptimisticScope = selectedOwner != nil && credentialOwner == selectedOwner
+        let previouslyShared = ownsOptimisticScope && sharedUsage.mode == .sharedWeekly
         let apiClient = self.apiClient
+        if credentialOwner != nil && credentialOwner != selectedOwner {
+            sharedUsage.reset()
+            authenticatedUserInfo = nil
+        }
 
         // Optimistic weekly fetch — runs in parallel with the primary batch
         // once a prior refresh established the account's weekly fetch shape
@@ -912,13 +934,15 @@ final class UsageViewModel {
         // First refresh after login/account-switch falls back to the sequential
         // path inside `refreshWeeklyChart`.
         let optimisticMode = cachedWeeklyMode
-        let optimisticWeekly: Task<UsageEventCollection, Never>? =
-            ownsOptimisticScope ? makeOptimisticWeeklyTask(cookieHeader: cookieHeader) : nil
+        var optimisticWeekly: Task<UsageEventCollection, Never>? =
+            ownsOptimisticScope && sharedUsage.provider == nil
+                ? makeOptimisticWeeklyTask(cookieHeader: cookieHeader) : nil
 
         // Optimistic hard-limit fetch — same prior-refresh teamId gating as
         // the weekly task. Runs in parallel once a teamId is cached.
-        let optimisticHardLimit: Task<HardLimitResponse?, Never>? =
-            ownsOptimisticScope ? makeOptimisticHardLimitTask(cookieHeader: cookieHeader) : nil
+        var optimisticHardLimit: Task<HardLimitResponse?, Never>? =
+            ownsOptimisticScope && sharedUsage.provider == nil
+                ? makeOptimisticHardLimitTask(cookieHeader: cookieHeader) : nil
         activeRefresh?.optimisticWeekly = optimisticWeekly
         activeRefresh?.optimisticHardLimit = optimisticHardLimit
 
@@ -931,8 +955,8 @@ final class UsageViewModel {
             }
         }
 
-        let (summaryRes, usageRes, userInfoRes) = await Self.fetchPrimaryResponses(
-            apiClient: apiClient, cookieHeader: cookieHeader)
+        let (summaryRes, usageRes, userInfoRes, planRes) = await Self.fetchPrimaryResponses(
+            apiClient: apiClient, sharedProvider: sharedUsage.provider, cookieHeader: cookieHeader)
         try requireCurrent(context)
 
         // Expiry check runs over ALL results before any decode failure can
@@ -999,6 +1023,81 @@ final class UsageViewModel {
         }
         if let recent = context.recent {
             recentUsage.validateIdentity(subject: userInfo.sub, scope: nil, context: recent)
+        }
+
+        authenticatedUserInfo = freshProfile
+            ?? (retainedProfile?.credentialDigest == credentialDigest ? retainedProfile?.profile : nil)
+        if let planRes {
+            let membership = summary?.membershipType?.lowercased()
+            let personalScope = membership.map {
+                ["free", "hobby", "pro", "pro_plus", "proplus", "ultra", "student"].contains($0)
+            } ?? false
+            let teamScope = membership.map { ["enterprise", "team", "teams"].contains($0) } == true
+            let allowsRetainedOwner = sharedUsage.mode == .sharedWeekly || sharedUsage.mode == .legacy
+            let ownerProfile = freshProfile ?? (allowsRetainedOwner ? authenticatedUserInfo : nil)
+            let owner = credentialDigest.flatMap { credential in
+                UsageRevisionIdentity.accountDigest(subject: ownerProfile?.sub, email: nil).map {
+                    SharedUsageOwner(generation: context.generation, credentialDigest: credential, subjectDigest: $0)
+                }
+            }
+            let retainsSharedScope = !personalScope && !teamScope && sharedUsage.mode == .sharedWeekly
+                && owner.map { sharedUsage.isBound(to: $0) } == true
+            let retainsSharedProfile = freshProfile == nil && !teamScope && sharedUsage.mode == .sharedWeekly
+                && owner.map { sharedUsage.isBound(to: $0) } == true
+            let classification = try? planRes.get().classification
+            let explicitNonSharedPlan = classification == .legacy || classification == .unsupported
+            if (retainsSharedScope || retainsSharedProfile) && !explicitNonSharedPlan {
+                sharedUsage.acceptPlan(.failure(CursorSharedAPIError.invalidResponse), owner: owner, personalScope: true)
+            } else {
+                sharedUsage.acceptPlan(planRes, owner: owner,
+                    personalScope: personalScope ? true : (teamScope ? false : nil),
+                    previouslyShared: previouslyShared && !accountSwitched)
+            }
+            if sharedUsage.suppressesLegacyMeter {
+                cancelOptimisticTasks()
+                resetLegacyUsageState()
+                usageData = nil
+                lastSuccessAt = sharedUsage.lastCompleteSuccessAt
+                recentUsage.invalidate(generation: context.generation, revokePersisted: false)
+                lastRequestScope = personalScope || retainsSharedScope ? .personal : nil
+                credentialOwner = selectedOwner ?? .unbound
+                if let freshProfile {
+                    retainedProfile = credentialDigest.map { (credentialDigest: $0, profile: freshProfile) }
+                }
+                let success: Bool
+                if let owner, freshProfile != nil, personalScope, sharedUsage.mode == .sharedWeekly {
+                    let acceptedContext = context
+                    success = await sharedUsage.refresh(cookieHeader: cookieHeader, owner: owner,
+                        isCurrent: { self.isCurrent(acceptedContext) })
+                    try requireCurrent(context)
+                } else {
+                    success = false
+                }
+                if success {
+                    lastSuccessAt = sharedUsage.lastCompleteSuccessAt
+                    consecutiveFailureCount = 0
+                    notificationFailureCount = 0
+                    errorMessage = nil
+                    refreshFailingWithdrawer?()
+                    networkRetryTask?.cancel()
+                    networkRetryTask = nil
+                    activeRefresh?.meter = .success
+                    recheckUpdateAfterSuccess()
+                } else {
+                    errorMessage = sharedUsage.mode == .unsupported
+                        ? "This shared usage scope is not supported"
+                        : "Some shared usage data is unavailable"
+                    await registerRefreshFailure()
+                    try requireCurrent(context)
+                }
+                return
+            }
+            if ownsOptimisticScope, !accountSwitched, !modeContradicted {
+                optimisticWeekly = makeOptimisticWeeklyTask(cookieHeader: cookieHeader)
+                optimisticHardLimit = makeOptimisticHardLimitTask(cookieHeader: cookieHeader)
+                activeRefresh?.optimisticWeekly = optimisticWeekly
+                activeRefresh?.optimisticHardLimit = optimisticHardLimit
+            }
         }
 
         // Resolve per-seat limits for token-based enterprise plans (no `plan`
@@ -1129,17 +1228,7 @@ final class UsageViewModel {
             networkRetryTask?.cancel()
             networkRetryTask = nil
 
-            // Periodic update re-check rides the refresh cycle (success path
-            // only, so an offline stretch can't hammer GitHub) instead of
-            // owning a timer — at most one API call per updateRecheckInterval.
-            if devBuildCommit == nil,
-               Self.shouldRecheckUpdate(lastCheck: lastUpdateCheckAt, now: Date()) {
-                lastUpdateCheckAt = Date()
-                Task {
-                    let result = await updateCheckRunner()
-                    await recordUpdateCheckResult(result, source: .automatic)
-                }
-            }
+            recheckUpdateAfterSuccess()
 
             activeRefresh?.meter = .success
             if splitUsage.eligibility == .eligible, let snapshot = splitUsage.primarySnapshot, let data = usageData {
@@ -1189,6 +1278,20 @@ final class UsageViewModel {
             )
             try requireCurrent(context)
         }
+    }
+
+    private func recheckUpdateAfterSuccess() {
+        // Periodic update re-check rides the refresh cycle (success path
+        // only, so an offline stretch can't hammer GitHub) instead of
+        // owning a timer — at most one API call per updateRecheckInterval.
+        if devBuildCommit == nil,
+           Self.shouldRecheckUpdate(lastCheck: lastUpdateCheckAt, now: Date()) {
+            lastUpdateCheckAt = Date()
+            Task {
+                let result = await updateCheckRunner()
+                await recordUpdateCheckResult(result, source: .automatic)
+            }
+    }
     }
 
     private func splitAlertOwnership(_ identity: UsageRevisionIdentity) -> SplitAlertOwnership {
@@ -1261,6 +1364,7 @@ final class UsageViewModel {
     /// Non-auth refresh failures: forbidden and network/decoding errors.
     private func handleRefreshError(_ error: Error, context: RefreshContext) async {
         guard isCurrent(context), !UsageEventCollection.isCancellation(error) else { return }
+        sharedUsage.recordFailure(error)
         if case APIError.forbidden = error {
             errorMessage = "Access denied (subscription may be inactive)"
             await registerRefreshFailure()
@@ -1889,8 +1993,10 @@ final class UsageViewModel {
     /// notification counter — a nil checker (test host without an explicit
     /// override) counts as awake.
     private func registerRefreshFailure() async {
-        splitUsage.recordFailure()
-        splitAlerts.resetContinuity()
+        if !sharedUsage.suppressesLegacyMeter {
+            splitUsage.recordFailure()
+            splitAlerts.resetContinuity()
+        }
         consecutiveFailureCount += 1
         if displayAsleepChecker?() != true {
             notificationFailureCount += 1
@@ -2027,13 +2133,15 @@ final class UsageViewModel {
         case summary(Result<UsageSummaryResponse, Error>)
         case usage(Result<UsageResponse, Error>)
         case userInfo(Result<UserInfoResponse, Error>)
+        case plan(Result<CursorPlanInfoResponse, Error>)
     }
 
     /// A task group preserves structured cancellation while avoiding the
     /// async-let teardown allocator crash in affected Swift toolchains (#140).
     nonisolated private static func fetchPrimaryResponses(
-        apiClient: CursorAPIClient, cookieHeader: String
-    ) async -> (Result<UsageSummaryResponse, Error>, Result<UsageResponse, Error>, Result<UserInfoResponse, Error>) {
+        apiClient: CursorAPIClient, sharedProvider: (any CursorSharedUsageFetching)?, cookieHeader: String
+    ) async -> (Result<UsageSummaryResponse, Error>, Result<UsageResponse, Error>,
+                Result<UserInfoResponse, Error>, Result<CursorPlanInfoResponse, Error>?) {
         await withTaskGroup(of: PrimaryResponse.self) { group in
             group.addTask {
                 .summary(await capture { try await apiClient.fetchUsageSummary(cookieHeader: cookieHeader) })
@@ -2045,6 +2153,13 @@ final class UsageViewModel {
                 .userInfo(await capture { try await apiClient.fetchUserInfo(cookieHeader: cookieHeader) })
             }
 
+            if let sharedProvider {
+                group.addTask {
+                    .plan(await capture { try await sharedProvider.fetchPlanInfo(cookieHeader: cookieHeader) })
+                }
+            }
+
+            var plan: Result<CursorPlanInfoResponse, Error>?
             var summary: Result<UsageSummaryResponse, Error>?
             var usage: Result<UsageResponse, Error>?
             var userInfo: Result<UserInfoResponse, Error>?
@@ -2053,10 +2168,11 @@ final class UsageViewModel {
                 case .summary(let result): summary = result
                 case .usage(let result): usage = result
                 case .userInfo(let result): userInfo = result
+                case .plan(let result): plan = result
                 }
             }
             // Each nonthrowing child returns exactly one endpoint's result, even on cancellation.
-            return (summary!, usage!, userInfo!)
+            return (summary!, usage!, userInfo!, plan)
         }
     }
 

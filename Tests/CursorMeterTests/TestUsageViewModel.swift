@@ -8,7 +8,9 @@ func makeTestUsageViewModel(
     refreshFeedback: RefreshFeedback? = nil,
     notificationManager: NotificationManager? = nil,
     splitUsage: SplitUsageController? = nil,
+    sharedUsage: SharedUsageController? = nil,
     splitAlertStore: SplitUsageAlertStore? = nil,
+    defaults: UserDefaults = .standard,
     updateCheckRunner: @escaping @MainActor () async -> UpdateCheckResult = { .upToDate }
 ) -> UsageViewModel {
     let configuration = URLSessionConfiguration.ephemeral
@@ -21,7 +23,9 @@ func makeTestUsageViewModel(
             requestAuthorization: { true }, deliver: { _ in }
         ),
         splitUsage: splitUsage,
-        splitAlertStore: splitAlertStore
+        sharedUsage: sharedUsage,
+        splitAlertStore: splitAlertStore,
+        defaults: defaults
     )
     // The initializer's Task inherits MainActor and cannot run until this
     // synchronous factory returns, after all external-service seams are set.
