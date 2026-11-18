@@ -15,7 +15,7 @@ struct SharedUsageUIFixture: CursorSharedUsageFetching {
     var end: Date { Date(timeIntervalSince1970: floor(now.timeIntervalSince1970) + 86_400) }
 
     func fetchPlanInfo(cookieHeader: String) async throws -> CursorPlanInfoResponse {
-        try decode("{\"isMerged\":true,\"planInfo\":{\"includedUsagePeriod\":\"INCLUDED_USAGE_PERIOD_WEEKLY\",\"includedUsageResetsAt\":\"\(Int64(end.timeIntervalSince1970 * 1000))\"}}")
+        try decode("{\"isMerged\":true,\"planInfo\":{\"planName\":\"Premium\",\"includedUsagePeriod\":\"INCLUDED_USAGE_PERIOD_WEEKLY\",\"includedUsageResetsAt\":\"\(Int64(end.timeIntervalSince1970 * 1000))\"}}")
     }
     func fetchCurrentPeriod(cookieHeader: String) async throws -> CurrentPeriodUsageResponse {
         if weeklyFails { throw CursorSharedAPIError.transport }
@@ -62,7 +62,7 @@ private final class SharedUsageUIProtocol: URLProtocol {
         let json: String
         switch request.url!.path {
         case "/api/auth/me": json = #"{"email":"demo@example.com","name":"Demo User","sub":"synthetic-shared-ui"}"#
-        case "/api/usage-summary": json = #"{"membershipType":"pro","individualUsage":{"plan":{"enabled":true,"used":8,"limit":2000}}}"#
+        case "/api/usage-summary": json = #"{"membershipType":"premium","individualUsage":{"plan":{"enabled":true,"used":8,"limit":2000}}}"#
         case "/api/usage": json = "{}"
         default:
             XCTFail("Unexpected synthetic UI request: \(request.url!.path)")

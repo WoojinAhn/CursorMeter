@@ -244,6 +244,18 @@ retry another account. An exact-credential retained profile can preserve stale
 readings during the existing IDE profile-404 fallback; it does not authorize a
 fresh wallet request. Logout and account/credential changes discard late results.
 
+The current individual subscription membership tokens are `plus`, `premium`,
+`super`, and `unified_ultra`, in addition to the existing recognized personal
+memberships. The installed official Cursor 3.30.14 membership enum and unified
+tier set verify these exact strings (2026-11-18). In particular, `unified_ultra`
+is distinct from legacy `ultra`, and `plus` is distinct from `pro_plus`.
+The [official plan documentation](https://cursor.com/docs/models-and-pricing)
+uses display names, which must not be substituted for these wire values.
+`GetPlanInfo` still determines the billing regime; these tokens only establish
+recognized personal scope. Team/business and unknown memberships remain excluded.
+A live `premium` response exposed the original legacy-only allowlist defect;
+the shared UI fixture now uses that current membership instead of `pro`.
+
 Prepaid int64 fields use protobuf JSON decimal strings (or exact integer numbers).
 Canonical Int64 strings retain exact source values; numeric JSON compatibility
 is bounded by Foundation Decimal precision rather than an arbitrary-precision

@@ -47,6 +47,72 @@ final class SharedUsageRefreshTests: XCTestCase {
         XCTAssertEqual(vm.consecutiveFailureCount, 0)
     }
 
+    func testCurrentPersonalTiersFetchSharedWeeklyAndPrepaidReadings() async {
+        for membership in ["plus", "premium", "super", "unified_ultra"] {
+            let provider = SharedUsageFixtureProvider()
+            let network = SharedRefreshNetwork(membership: membership)
+            let vm = makeViewModel(provider: provider, network: network)
+            await vm.refresh()
+            XCTAssertEqual(vm.sharedUsage.mode, .sharedWeekly, membership)
+            XCTAssertEqual(vm.sharedUsage.snapshot?.weekly.value?.percentUsed, 25, membership)
+            XCTAssertEqual(vm.sharedUsage.snapshot?.credit.value?.remainingCents, 6200, membership)
+            XCTAssertEqual(vm.sharedUsage.snapshot?.monthlyUsed.value, 700, membership)
+            XCTAssertEqual(vm.sharedUsage.snapshot?.paidCap.value, .limited(2500), membership)
+            XCTAssertNil(vm.usageData, membership)
+            XCTAssertEqual(vm.authState, .loggedIn, membership)
+            let calls = await provider.calls
+            XCTAssertEqual(calls.sorted(), ["cap", "period", "plan", "prepaid"], membership)
+        }
+    }
+
+    func testPremiumResponseShapePublishesPurchasedCreditUsingExistingIDEAuth() async {
+        let provider = SharedUsageFixtureProvider()
+        await provider.setPlan(#"""
+            {"isMerged":true,"planInfo":{"planName":"Premium","price":"",
+            "billingCycleEnd":"1797465600000","includedUsagePeriod":"INCLUDED_USAGE_PERIOD_WEEKLY",
+            "includedUsageResetsAt":"1794873600000"},"nextUpgrade":{"tier":"super","name":"Super",
+            "includedUsagePeriod":"INCLUDED_USAGE_PERIOD_WEEKLY"}}
+            """#)
+        await provider.setPrepaid(#"""
+            {"billingMode":"PREPAID_BILLING_MODE_PREPAID","eligible":true,
+            "availableCents":"2000","fundedCents":"2000","spentThisMonthCents":"0",
+            "hasPaymentMethod":true,"topUps":[{"ticket":"1","origin":"TOPUP_MANUAL",
+            "amountCents":"2000","status":"SUCCEEDED","createdAtMs":"1794800000000"}]}
+            """#)
+        let network = SharedRefreshNetwork(membership: "premium")
+        let vm = makeViewModel(provider: provider, network: network)
+        vm.ideCredentialProvider = { IDECredential(cookieHeader: "WorkosCursorSessionToken=ide-fixture", expiresAt: .distantFuture) }
+        await vm.refresh()
+        XCTAssertEqual(vm.sharedUsage.mode, .sharedWeekly)
+        XCTAssertEqual(vm.sharedUsage.snapshot?.weekly.value?.percentUsed, 25)
+        XCTAssertEqual(vm.sharedUsage.snapshot?.credit.value?.remainingCents, 2000)
+        XCTAssertEqual(vm.sharedUsage.snapshot?.credit.value?.totalPurchasedCents, 2000)
+        XCTAssertEqual(vm.sharedUsage.snapshot?.credit.value?.percentUsed, 0)
+        XCTAssertEqual(vm.sharedUsage.snapshot?.monthlyUsed.value, 0)
+        XCTAssertNil(vm.sharedUsage.snapshot?.autoTopUp.value)
+        XCTAssertEqual(vm.authState, .loggedIn)
+        XCTAssertEqual(vm.activeAuthSource, .cursorIDE)
+        XCTAssertTrue(network.requests.allSatisfy { $0.value(forHTTPHeaderField: "Cookie") == "WorkosCursorSessionToken=ide-fixture" })
+        let calls = await provider.calls
+        XCTAssertEqual(calls.sorted(), ["cap", "period", "plan", "prepaid"])
+    }
+
+    func testCurrentPersonalTierRecoversFromUnsupportedWithoutRelogin() async {
+        let provider = SharedUsageFixtureProvider()
+        let network = SharedRefreshNetwork(membership: "future-scope")
+        let vm = makeViewModel(provider: provider, network: network)
+        await vm.refresh()
+        XCTAssertEqual(vm.sharedUsage.mode, .unsupported)
+        network.configure(membership: "premium")
+        await vm.refresh()
+        XCTAssertEqual(vm.sharedUsage.mode, .sharedWeekly)
+        XCTAssertEqual(vm.sharedUsage.snapshot?.weekly.value?.percentUsed, 25)
+        XCTAssertEqual(vm.sharedUsage.snapshot?.credit.value?.remainingCents, 6200)
+        XCTAssertEqual(vm.authState, .loggedIn)
+        let calls = await provider.calls
+        XCTAssertEqual(calls.sorted(), ["cap", "period", "plan", "plan", "prepaid"])
+    }
+
     func testSharedRPC401KeepsAcceptedIDEAuthAndDoesNotFallback() async {
         let network = SharedRefreshNetwork()
         let provider = SharedUsageFixtureProvider()

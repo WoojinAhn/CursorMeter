@@ -1030,7 +1030,8 @@ final class UsageViewModel {
         if let planRes {
             let membership = summary?.membershipType?.lowercased()
             let personalScope = membership.map {
-                ["free", "hobby", "pro", "pro_plus", "proplus", "ultra", "student"].contains($0)
+                ["free", "hobby", "pro", "pro_plus", "proplus", "ultra", "student",
+                 "plus", "premium", "super", "unified_ultra"].contains($0)
             }
             let allowsRetainedOwner = sharedUsage.mode == .sharedWeekly || sharedUsage.mode == .legacy
             let ownerProfile = freshProfile ?? (allowsRetainedOwner ? authenticatedUserInfo : nil)

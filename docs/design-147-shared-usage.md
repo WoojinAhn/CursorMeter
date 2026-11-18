@@ -98,4 +98,17 @@ The no-purchase inner meter is a solid, unfilled neutral circle, while an unknow
 
 ![Synthetic Settings preview with no purchased credits](screenshots/settings-shared-no-purchases.png)
 
-The development artifact was packaged with strict signature and executable-hash checks, then installed after backing up the existing app and local settings/cache. Its startup waits for macOS Keychain access in the existing synchronous credential-read path. No credential was deleted and no access controls were changed. A system permission request was logged, but installed-app UI and real-account refresh acceptance are not complete.
+The initial development artifact was packaged with strict signature and executable-hash checks, then installed after backing up the existing app and local settings/cache. Its first startup waited for macOS Keychain access in the existing credential-read path. No credential was deleted and no access controls were changed. That observation did not establish installed-app acceptance.
+
+On 2026-11-18, the user supplied a logged-in native screen showing Unsupported.
+Fresh authenticated API reads succeeded, but the actual membership was `premium`;
+the personal-scope gate only recognized legacy plan names and prevented the
+weekly/wallet refresh. Synthetic success fixtures had used `pro`, so the previous
+tests did not cover the real new-plan trigger. The correction adds the four exact
+current membership tokens verified in the official Cursor client, retains the
+team/unknown/owner boundaries, and uses `premium` in shared UI fixtures. The new
+regressions failed before the fix, and the full suite now passes 1,250 tests.
+Installed-app verification of this correction is tracked separately from tests.
+Independent specification review and fresh Argon High/Grok XHigh quality reviews
+approved the bounded correction. The two external reviews used a self-contained
+source packet without tools; neither executed tests nor observed the installed app.
