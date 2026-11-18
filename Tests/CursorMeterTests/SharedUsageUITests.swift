@@ -227,7 +227,7 @@ final class SharedUsageUITests: XCTestCase {
         XCTAssertEqual(withText.size.height, 22)
     }
 
-    func testSharedSettingsDisableLegacyControlsWithoutChangingPreferences() async throws {
+    func testSharedSettingsRestoreAlertsAndJumpWithoutChangingUnrelatedPreferences() async throws {
         let vm = await makeSharedUsageUIViewModel(test: self)
         vm.setSplitOuterPool(.cursor)
         vm.setPopoverValueMode(.dollars)
@@ -242,10 +242,18 @@ final class SharedUsageUITests: XCTestCase {
             XCTAssertFalse(control.isEnabled, name)
         }
         XCTAssertTrue(labels(appearance.view).contains { $0.contains("Weekly included") && $0.contains("Prepaid credit") })
+        for action in ["jumpEffectToggleChanged", "jumpIntensityChanged", "jumpGlyphStyleChanged"] {
+            let control = try XCTUnwrap(controls.first { $0.action == NSSelectorFromString(action) }, action)
+            XCTAssertTrue(control.isEnabled, action)
+        }
+        vm.setNotificationEnabled(true)
         let alerts = SettingsNotificationsTabViewController(viewModel: vm)
         _ = alerts.view
         let toggles = views(alerts.view).compactMap { $0 as? NSSwitch }
-        XCTAssertFalse(try XCTUnwrap(toggles.first { $0.accessibilityLabel() == "Enable usage alerts" }).isEnabled)
+        XCTAssertTrue(try XCTUnwrap(toggles.first { $0.accessibilityLabel() == "Enable usage alerts" }).isEnabled)
+        let threshold = try XCTUnwrap(views(alerts.view).compactMap { $0 as? ThresholdRangeSlider }.first)
+        XCTAssertFalse(threshold.isHiddenOrHasHiddenAncestor)
+        XCTAssertTrue(labels(alerts.view).contains { $0.contains("Weekly included usage") })
         XCTAssertTrue(try XCTUnwrap(toggles.first { $0.accessibilityLabel() == "App status notifications" }).isEnabled)
         XCTAssertEqual(vm.splitOuterPool, .cursor)
         XCTAssertEqual(vm.popoverValueMode, .dollars)
@@ -298,7 +306,7 @@ final class SharedUsageUITests: XCTestCase {
                        "https://www.cursor.com/dashboard?tab=usage")
     }
 
-    func testSharedJumpAndLegacyPlacementCannotChangeStatusMeaning() async throws {
+    func testSharedJumpRendersGlyphAndRestoresLatestFixedRingMeaning() async throws {
         let vm = await makeSharedUsageUIViewModel(test: self)
         vm.setSplitOuterPool(.cursor)
         vm.setSplitMenuBarPercentagesEnabled(true)
@@ -306,8 +314,19 @@ final class SharedUsageUITests: XCTestCase {
         let expected = SplitMenuBarRenderer.image(icon: CircularProgressIcon.makeDualPercentImage(
             outerPercent: 25, centerPercent: 38), readout: .init(upper: "25%", lower: "38%"))
         let jump = ActiveJump(emoji: "🚀", glow: true, fallbackSize: NSSize(width: 18, height: 18))
+        let jumping = SplitMenuBarRenderer.image(icon: CircularProgressIcon.makeEmojiImage(
+            emoji: jump.emoji, size: NSSize(width: 18, height: 18), glow: jump.glow),
+            readout: .init(upper: "25%", lower: "38%"))
         XCTAssertEqual(try SplitMenuBarTestFixtures.pixels(app.currentStatusImage(activeJump: jump)),
+                       try SplitMenuBarTestFixtures.pixels(jumping))
+        XCTAssertEqual(try SplitMenuBarTestFixtures.pixels(app.currentStatusImage(activeJump: nil)),
                        try SplitMenuBarTestFixtures.pixels(expected))
+        vm.sharedUsage.recordFailure(CursorSharedAPIError.transport)
+        let latest = SharedUsagePresentation(mode: .sharedWeekly, snapshot: vm.sharedUsage.snapshot)
+        let restored = SplitMenuBarRenderer.image(icon: CircularProgressIcon.makeDualPercentImage(
+            outerPercent: latest.weekly.percent, centerPercent: latest.credit.percent), readout: latest.readout)
+        XCTAssertEqual(try SplitMenuBarTestFixtures.pixels(app.currentStatusImage(activeJump: nil)),
+                       try SplitMenuBarTestFixtures.pixels(restored))
         XCTAssertEqual(SharedUsagePresentation.dashboardURL(mode: .sharedWeekly).absoluteString,
                        "https://grok.com/dashboard/usage")
         XCTAssertEqual(SharedUsagePresentation.creditsURL.absoluteString, "https://grok.com/dashboard/billing")

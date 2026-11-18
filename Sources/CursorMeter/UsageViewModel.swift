@@ -497,6 +497,12 @@ final class UsageViewModel {
     private var previousServerPercent: Double?
     private var previousOnDemandUsedCents: Int?
     private var previousMode: JumpEvent.Mode?
+    private struct SharedEffectScope: Equatable {
+        let owner: SharedUsageOwner
+        let period: UsageCycle
+    }
+    @ObservationIgnored private var sharedEffectScope: SharedEffectScope?
+    @ObservationIgnored private var previousSharedPercent: Double?
 
     /// Discovered team id, cached after the first successful teams fetch.
     /// Stays set across refreshes so we don't re-call `/api/dashboard/teams`
@@ -668,7 +674,7 @@ final class UsageViewModel {
         resetLegacyUsageState(clearDiscovery: clearDiscovery)
     }
 
-    private func resetLegacyUsageState(clearDiscovery: Bool = true) {
+    private func resetLegacyUsageState(clearDiscovery: Bool = true, preservingSharedEffects: Bool = false) {
         splitUsage.reset()
         splitAlerts.invalidateOwnership()
         if clearDiscovery { clearWeeklyDiscoveryCaches() }
@@ -680,6 +686,12 @@ final class UsageViewModel {
         previousServerPercent = nil
         previousOnDemandUsedCents = nil
         previousMode = nil
+        if !preservingSharedEffects { resetSharedUsageEffects() }
+    }
+
+    private func resetSharedUsageEffects() {
+        sharedEffectScope = nil
+        previousSharedPercent = nil
         lastJump = nil
         notificationManager.resetNotifications()
     }
@@ -725,6 +737,7 @@ final class UsageViewModel {
 
     private func invalidateRefreshSession(revokePersisted: Bool, cancelCurrent: Bool = true) {
         sessionGeneration += 1
+        if sharedEffectScope != nil { resetSharedUsageEffects() }
         sharedUsage.reset()
         authenticatedUserInfo = nil
         splitUsage.suspend(removePersisted: revokePersisted,
@@ -1055,7 +1068,8 @@ final class UsageViewModel {
             }
             if sharedUsage.suppressesLegacyMeter {
                 cancelOptimisticTasks()
-                resetLegacyUsageState()
+                resetLegacyUsageState(preservingSharedEffects: sharedUsage.mode == .sharedWeekly
+                    && sharedEffectScope.map { $0.owner == owner } == true)
                 usageData = nil
                 lastSuccessAt = sharedUsage.lastCompleteSuccessAt
                 recentUsage.invalidate(generation: context.generation, revokePersisted: false)
@@ -1090,8 +1104,11 @@ final class UsageViewModel {
                     await registerRefreshFailure()
                     try requireCurrent(context)
                 }
+                await updateSharedUsageEffects(owner: owner)
+                try requireCurrent(context)
                 return
             }
+            if sharedEffectScope != nil { resetSharedUsageEffects() }
             if ownsOptimisticScope, !accountSwitched, !modeContradicted {
                 optimisticWeekly = makeOptimisticWeeklyTask(cookieHeader: cookieHeader)
                 optimisticHardLimit = makeOptimisticHardLimitTask(cookieHeader: cookieHeader)
@@ -1278,6 +1295,44 @@ final class UsageViewModel {
             )
             try requireCurrent(context)
         }
+    }
+
+    private func suspendSharedUsageEffects() {
+        previousSharedPercent = nil
+        lastJump = nil
+        notificationManager.invalidatePendingUsageNotifications()
+    }
+
+    private func updateSharedUsageEffects(owner: SharedUsageOwner?) async {
+        guard let owner, sharedUsage.isBound(to: owner),
+              let weekly = sharedUsage.currentWeeklyUsage,
+              let percent = weekly.percentUsed, let period = weekly.period else {
+            suspendSharedUsageEffects()
+            return
+        }
+        let scope = SharedEffectScope(owner: owner, period: period)
+        if sharedEffectScope != scope {
+            resetSharedUsageEffects()
+            sharedEffectScope = scope
+        }
+        if let previous = previousSharedPercent, percent > previous {
+            lastJump = Self.makeJumpEvent(mode: .percent, delta: percent - previous, limit: 100,
+                reference: previous, current: percent)
+        } else {
+            lastJump = nil
+        }
+        previousSharedPercent = percent
+        await notificationManager.checkAndNotify(
+            percentUsed: percent, warningThreshold: warningThreshold, criticalThreshold: criticalThreshold,
+            enabled: notificationEnabled, mode: .sharedWeekly,
+            jump: jumpEffectEnabled && jumpIntensity == .bold && lastJump?.tier == .two
+                ? lastJump?.legacySnapshot : nil,
+            isCurrent: { [weak self] in
+                guard let self else { return false }
+                return self.sessionGeneration == owner.generation && self.sharedEffectScope == scope
+                    && self.sharedUsage.isBound(to: owner)
+                    && self.sharedUsage.currentWeeklyUsage?.period == period
+            })
     }
 
     private func recheckUpdateAfterSuccess() {
@@ -1993,6 +2048,9 @@ final class UsageViewModel {
     /// notification counter — a nil checker (test host without an explicit
     /// override) counts as awake.
     private func registerRefreshFailure() async {
+        if sharedUsage.suppressesLegacyMeter, sharedUsage.currentWeeklyUsage == nil {
+            suspendSharedUsageEffects()
+        }
         if !sharedUsage.suppressesLegacyMeter {
             splitUsage.recordFailure()
             splitAlerts.resetContinuity()

@@ -4,7 +4,7 @@ import XCTest
 @MainActor
 final class SharedUsageRefreshTests: XCTestCase {
     nonisolated private static let cookie = "WorkosCursorSessionToken=shared-fixture"
-    private let now = Date(timeIntervalSince1970: 1_794_873_500)
+    private var now = Date(timeIntervalSince1970: 1_794_873_500)
 
     override func tearDown() {
         MockURLProtocol.requestHandler = nil
@@ -12,7 +12,8 @@ final class SharedUsageRefreshTests: XCTestCase {
     }
 
     private func makeViewModel(provider: SharedUsageFixtureProvider, network: SharedRefreshNetwork = .init(),
-                               capturedCookie: String? = SharedUsageRefreshTests.cookie) -> UsageViewModel {
+                               capturedCookie: String? = SharedUsageRefreshTests.cookie,
+                               notificationManager: NotificationManager? = nil) -> UsageViewModel {
         MockURLProtocol.requestHandler = { try network.respond($0) }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MockURLProtocol.self]
@@ -21,12 +22,283 @@ final class SharedUsageRefreshTests: XCTestCase {
         let defaults = UserDefaults(suiteName: suite)!
         addTeardownBlock { defaults.removePersistentDomain(forName: suite) }
         let vm = makeTestUsageViewModel(apiClient: CursorAPIClient(configuration: configuration),
-            refreshFeedback: RefreshFeedback(timing: .immediate), sharedUsage: controller, defaults: defaults)
+            refreshFeedback: RefreshFeedback(timing: .immediate), notificationManager: notificationManager,
+            sharedUsage: controller, defaults: defaults)
         vm.keychainLoadHandler = { nil }
         if let capturedCookie { vm.testHook_setCookieHeader(capturedCookie) }
         vm.notificationEnabled = false
         vm.authState = .loggedIn
         return vm
+    }
+
+    private func setWeekly(_ percent: Double, provider: SharedUsageFixtureProvider,
+                           end: TimeInterval = 1_794_873_600) async {
+        let formatter = ISO8601DateFormatter()
+        let startText = formatter.string(from: Date(timeIntervalSince1970: end - 604_800))
+        let endText = formatter.string(from: Date(timeIntervalSince1970: end))
+        await provider.setPlan("{\"isMerged\":true,\"planInfo\":{\"includedUsagePeriod\":\"INCLUDED_USAGE_PERIOD_WEEKLY\",\"includedUsageResetsAt\":\"\(Int64(end * 1000))\"}}")
+        await provider.setPeriod("{\"billingCycleStart\":\"\(startText)\",\"billingCycleEnd\":\"\(endText)\",\"planUsage\":{\"totalPercentUsed\":\(percent)}}")
+    }
+
+    func testSharedThresholdCrossingsDeduplicateWithinWeeklyPeriod() async {
+        let provider = SharedUsageFixtureProvider()
+        var messages: [UsageNotificationContent] = []
+        let manager = NotificationManager(requestAuthorization: { true }, deliver: {
+            messages.append(.init(title: $0.content.title, body: $0.content.body))
+        })
+        let vm = makeViewModel(provider: provider, notificationManager: manager)
+        vm.setNotificationEnabled(true)
+        vm.setWarningThreshold(80)
+        vm.setCriticalThreshold(90)
+        for percent in [79.0, 85, 85, 95, 95] {
+            await setWeekly(percent, provider: provider)
+            await vm.refresh()
+        }
+        XCTAssertEqual(messages.map(\.title), ["Weekly included usage 85.0% · Warning", "Weekly included usage 95.0% · Critical"])
+        XCTAssertEqual(manager.notifiedThresholds, [80, 90])
+        XCTAssertTrue(messages.allSatisfy { !$0.body.contains("$") && !$0.body.contains("monthly") })
+    }
+
+    func testFreshWeeklyAlertsAndJumpSurviveCreditAndCapFailures() async {
+        let provider = SharedUsageFixtureProvider()
+        var deliveries = 0
+        let manager = NotificationManager(requestAuthorization: { true }, deliver: { _ in deliveries += 1 })
+        let vm = makeViewModel(provider: provider, notificationManager: manager)
+        vm.setNotificationEnabled(true)
+        await vm.refresh()
+        await setWeekly(85, provider: provider)
+        await provider.setFailures(prepaid: .transport, cap: .forbidden)
+        await vm.refresh()
+        XCTAssertEqual(deliveries, 1)
+        XCTAssertEqual(vm.lastJump?.mode, .percent)
+        XCTAssertEqual(vm.lastJump?.deltaCanonical, 60)
+        XCTAssertEqual(vm.lastJump?.tier, .two)
+        XCTAssertEqual(vm.sharedUsage.snapshot?.weekly.availability, .current)
+        XCTAssertTrue(vm.isDataStale)
+    }
+
+    func testSharedJumpUsesPercentBaselineAndIgnoresTopUpsAndDecreases() async {
+        let provider = SharedUsageFixtureProvider()
+        let vm = makeViewModel(provider: provider)
+        await vm.refresh()
+        XCTAssertNil(vm.lastJump)
+        await setWeekly(40, provider: provider)
+        await vm.refresh()
+        XCTAssertEqual(vm.lastJump?.tier, .two)
+        XCTAssertEqual(vm.lastJump?.displayDelta, "+15.0%")
+        await setWeekly(20, provider: provider)
+        await vm.refresh()
+        XCTAssertNil(vm.lastJump)
+        await provider.setPrepaid(#"{"billingMode":"PREPAID_BILLING_MODE_PREPAID","eligible":true,"availableCents":8200,"spentThisMonthCents":700}"#)
+        await vm.refresh()
+        XCTAssertNil(vm.lastJump)
+        await setWeekly(25, provider: provider)
+        await vm.refresh()
+        XCTAssertEqual(vm.lastJump?.tier, .one)
+        XCTAssertEqual(vm.lastJump?.deltaCanonical, 5)
+    }
+
+    func testSharedBoldPreservesJumpToggleAndIntensitySemantics() async {
+        for intensity in JumpIntensity.allCases {
+            for enabled in [false, true] {
+                let provider = SharedUsageFixtureProvider()
+                var messages: [UsageNotificationContent] = []
+                let manager = NotificationManager(requestAuthorization: { true }, deliver: {
+                    messages.append(.init(title: $0.content.title, body: $0.content.body))
+                })
+                let vm = makeViewModel(provider: provider, notificationManager: manager)
+                vm.setJumpIntensity(intensity)
+                vm.setJumpEffectEnabled(enabled)
+                vm.setJumpGlyphStyle(.dollar)
+                await vm.refresh()
+                await setWeekly(40, provider: provider)
+                await vm.refresh()
+                await manager.waitUntilUsageIdle()
+                XCTAssertEqual(vm.lastJump?.tier, .two)
+                XCTAssertEqual(vm.jumpGlyphStyle, .dollar)
+                XCTAssertEqual(messages.count, enabled && intensity == .bold ? 1 : 0)
+                if let message = messages.first {
+                    XCTAssertEqual(message.title, "Weekly included usage increased")
+                    XCTAssertEqual(message.body, "Last refresh 25.0% → now 40.0%")
+                }
+            }
+        }
+    }
+
+    func testFailedWeeklyReadingRetainsDedupButReseedsJumpOnRecovery() async {
+        let provider = SharedUsageFixtureProvider()
+        var deliveries = 0
+        let manager = NotificationManager(requestAuthorization: { true }, deliver: { _ in deliveries += 1 })
+        let vm = makeViewModel(provider: provider, notificationManager: manager)
+        vm.setNotificationEnabled(true)
+        await setWeekly(85, provider: provider)
+        await vm.refresh()
+        await provider.setFailures(period: .transport)
+        await vm.refresh()
+        XCTAssertNil(vm.lastJump)
+        XCTAssertEqual(deliveries, 1)
+        XCTAssertEqual(manager.notifiedThresholds, [80])
+        await provider.setFailures()
+        await setWeekly(89, provider: provider)
+        await vm.refresh()
+        XCTAssertNil(vm.lastJump)
+        XCTAssertEqual(deliveries, 1)
+        await setWeekly(95, provider: provider)
+        await vm.refresh()
+        XCTAssertEqual(vm.lastJump?.deltaCanonical, 6)
+        XCTAssertEqual(deliveries, 2)
+    }
+
+    func testPrimaryFailureReseedsSharedJumpBaseline() async {
+        let provider = SharedUsageFixtureProvider()
+        let network = SharedRefreshNetwork()
+        let vm = makeViewModel(provider: provider, network: network)
+        await vm.refresh()
+        network.configure(profileStatus: 503)
+        await vm.refresh()
+        network.configure(profileStatus: 200)
+        await setWeekly(60, provider: provider)
+        await vm.refresh()
+        XCTAssertNil(vm.lastJump)
+        await setWeekly(65, provider: provider)
+        await vm.refresh()
+        XCTAssertEqual(vm.lastJump?.deltaCanonical, 5)
+    }
+
+    func testMissingAndExpiredWeeklyReadingsCannotAlertOrSeedJump() async {
+        for expired in [false, true] {
+            let provider = SharedUsageFixtureProvider()
+            var deliveries = 0
+            let manager = NotificationManager(requestAuthorization: { true }, deliver: { _ in deliveries += 1 })
+            let vm = makeViewModel(provider: provider, notificationManager: manager)
+            vm.setNotificationEnabled(true)
+            if expired { now = Date(timeIntervalSince1970: 1_794_873_601) }
+            else { await provider.setFailures(period: .transport) }
+            await setWeekly(85, provider: provider)
+            await vm.refresh()
+            XCTAssertEqual(deliveries, 0)
+            XCTAssertNil(vm.lastJump)
+            now = Date(timeIntervalSince1970: 1_794_873_500)
+            await provider.setFailures()
+            await setWeekly(89, provider: provider)
+            await vm.refresh()
+            XCTAssertEqual(deliveries, 1)
+            XCTAssertNil(vm.lastJump)
+        }
+    }
+
+    func testWeeklyRolloverRearmsThresholdWithoutSyntheticJump() async {
+        let provider = SharedUsageFixtureProvider()
+        var deliveries = 0
+        let manager = NotificationManager(requestAuthorization: { true }, deliver: { _ in deliveries += 1 })
+        let vm = makeViewModel(provider: provider, notificationManager: manager)
+        vm.setNotificationEnabled(true)
+        await setWeekly(85, provider: provider)
+        await vm.refresh()
+        now = now.addingTimeInterval(604_800)
+        await setWeekly(89, provider: provider, end: 1_795_478_400)
+        await vm.refresh()
+        XCTAssertEqual(deliveries, 2)
+        XCTAssertNil(vm.lastJump)
+        await vm.refresh()
+        XCTAssertEqual(deliveries, 2)
+    }
+
+    func testAccountAndCredentialChangesRearmWithoutCrossOwnerJump() async {
+        for changesAccount in [false, true] {
+            let provider = SharedUsageFixtureProvider()
+            let network = SharedRefreshNetwork()
+            var deliveries = 0
+            let manager = NotificationManager(requestAuthorization: { true }, deliver: { _ in deliveries += 1 })
+            let vm = makeViewModel(provider: provider, network: network, notificationManager: manager)
+            vm.setNotificationEnabled(true)
+            await setWeekly(85, provider: provider)
+            await vm.refresh()
+            if changesAccount { network.configure(subject: "new-owner") }
+            else { vm.testHook_setCookieHeader("WorkosCursorSessionToken=replaced") }
+            await setWeekly(89, provider: provider)
+            await vm.refresh()
+            XCTAssertEqual(deliveries, 2)
+            XCTAssertNil(vm.lastJump)
+            await vm.refresh()
+            XCTAssertEqual(deliveries, 2)
+        }
+    }
+
+    func testLegacySharedTransitionsDoNotReuseAlertOrJumpState() async {
+        let provider = SharedUsageFixtureProvider()
+        var deliveries = 0
+        let manager = NotificationManager(requestAuthorization: { true }, deliver: { _ in deliveries += 1 })
+        let vm = makeViewModel(provider: provider, notificationManager: manager)
+        vm.setNotificationEnabled(true)
+        await setWeekly(85, provider: provider)
+        await vm.refresh()
+        await provider.setPlan(#"{"isMerged":false}"#)
+        await vm.refresh()
+        XCTAssertEqual(vm.sharedUsage.mode, .legacy)
+        XCTAssertTrue(manager.notifiedThresholds.isEmpty)
+        XCTAssertNil(vm.lastJump)
+        await setWeekly(89, provider: provider)
+        await vm.refresh()
+        XCTAssertEqual(deliveries, 2)
+        XCTAssertNil(vm.lastJump)
+    }
+
+    func testWeeklyFailureRetiresPendingBoldEvenIfFreshnessRecoversBeforePermission() async {
+        let provider = SharedUsageFixtureProvider()
+        let requested = expectation(description: "Shared Bold requests permission")
+        var permission: CheckedContinuation<Bool, Never>?
+        var deliveries = 0
+        let manager = NotificationManager(requestAuthorization: {
+            await withCheckedContinuation { permission = $0; requested.fulfill() }
+        }, deliver: { _ in deliveries += 1 })
+        let vm = makeViewModel(provider: provider, notificationManager: manager)
+        vm.setJumpIntensity(.bold)
+        await vm.refresh()
+        await setWeekly(40, provider: provider)
+        await vm.refresh()
+        await fulfillment(of: [requested], timeout: 1)
+        await provider.setFailures(period: .transport)
+        await vm.refresh()
+        await provider.setFailures()
+        await setWeekly(60, provider: provider)
+        await vm.refresh()
+        XCTAssertNil(vm.lastJump)
+        permission?.resume(returning: true)
+        await manager.waitUntilUsageIdle()
+        XCTAssertEqual(deliveries, 0)
+    }
+
+    func testSharedPermissionWaitCannotDeliverExpiredOrRetiredObservation() async {
+        for invalidation in ["expired", "logout", "reconnect"] {
+            let provider = SharedUsageFixtureProvider()
+            let requested = expectation(description: "Shared threshold requests permission")
+            var permission: CheckedContinuation<Bool, Never>?
+            var deliveries = 0
+            let manager = NotificationManager(requestAuthorization: {
+                await withCheckedContinuation { permission = $0; requested.fulfill() }
+            }, deliver: { _ in deliveries += 1 })
+            let vm = makeViewModel(provider: provider, notificationManager: manager)
+            vm.setNotificationEnabled(true)
+            await setWeekly(85, provider: provider)
+            let pending = Task { await vm.refresh() }
+            await fulfillment(of: [requested], timeout: 1)
+            switch invalidation {
+            case "expired": now = Date(timeIntervalSince1970: 1_794_873_601)
+            case "logout": vm.logout()
+            default:
+                vm.keychainSaveHandler = { _ in }
+                vm.onLoginSuccess(cookieHeader: "WorkosCursorSessionToken=reconnected")
+                vm.stopAutoRefreshForTests()
+                vm.setNotificationEnabled(false)
+            }
+            permission?.resume(returning: true)
+            await pending.value
+            XCTAssertEqual(deliveries, 0, invalidation)
+            XCTAssertTrue(manager.notifiedThresholds.isEmpty, invalidation)
+            vm.stopAutoRefreshForTests()
+            now = Date(timeIntervalSince1970: 1_794_873_500)
+        }
     }
 
     func testSharedPlanPublishesIndependentSnapshotWithoutLegacyCollection() async {

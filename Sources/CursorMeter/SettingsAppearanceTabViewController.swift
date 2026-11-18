@@ -204,10 +204,11 @@ final class SettingsAppearanceTabViewController: NSViewController {
             ? (sharedWeekly ? "Shared usage has fixed ring meanings; this saved choice applies to legacy plans."
                 : "Ring settings are unavailable until a supported usage plan is confirmed.") : nil
 
-        jumpEffectToggle.isEnabled = !shared
-        jumpIntensitySegmented.isEnabled = !shared
-        jumpGlyphStyleSegmented.isEnabled = !shared
-        jumpEffectToggle.toolTip = shared ? "Usage jump effects apply to legacy monthly usage." : nil
+        jumpEffectToggle.isEnabled = !shared || sharedWeekly
+        jumpIntensitySegmented.isEnabled = !shared || sharedWeekly
+        jumpGlyphStyleSegmented.isEnabled = !shared || sharedWeekly
+        jumpEffectToggle.toolTip = sharedWeekly ? "Highlights increases in weekly included usage."
+            : (shared ? "Usage jump effects are unavailable until a supported usage plan is confirmed." : nil)
         jumpEffectToggle.state = viewModel.jumpEffectEnabled ? .on : .off
         jumpIntensitySegmented.selectedSegment = viewModel.jumpIntensity.rawValue
         jumpGlyphStyleSegmented.selectedSegment = viewModel.jumpGlyphStyle.rawValue

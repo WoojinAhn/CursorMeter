@@ -18,6 +18,7 @@ enum NotificationMode: Sendable, Equatable {
     /// pair, so the body carries no fraction — a "(0 / 0)" suffix would be
     /// meaningless (#104).
     case percentOnly
+    case sharedWeekly
 }
 
 extension NotificationMode {
@@ -36,7 +37,7 @@ extension NotificationMode {
             return limit > 0 ? "\(used) of \(limit) requests" : nil
         case let .creditPlan(used, limit), let .onDemand(used, limit):
             return limit > 0 ? "\(Self.formatUSD(used)) of \(Self.formatUSD(limit))" : nil
-        case .percentOnly: return nil
+        case .percentOnly, .sharedWeekly: return nil
         }
     }
 
@@ -45,6 +46,7 @@ extension NotificationMode {
         case .requestQuota: return "Request quota"
         case .creditPlan, .percentOnly: return "Included usage"
         case .onDemand: return "Paid budget"
+        case .sharedWeekly: return "Weekly included usage"
         }
     }
 }
@@ -110,6 +112,7 @@ final class NotificationManager {
     private struct PendingLegacyBold {
         let content: UsageNotificationContent
         let revision: UInt64
+        let isCurrent: @MainActor () -> Bool
     }
     private(set) var notifiedThresholds: Set<Int> = []
     private var notificationRevision: UInt64 = 0
@@ -158,9 +161,10 @@ final class NotificationManager {
         criticalThreshold: Int,
         enabled: Bool,
         mode: NotificationMode,
-        jump: LegacyUsageJumpSnapshot? = nil
+        jump: LegacyUsageJumpSnapshot? = nil,
+        isCurrent: @escaping @MainActor () -> Bool = { true }
     ) async {
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled, isCurrent() else { return }
         let revision = notificationRevision
 
         let level = enabled ? Self.evaluateThreshold(
@@ -174,12 +178,13 @@ final class NotificationManager {
         guard let content = Self.legacyUsageContent(percentUsed: percentUsed, level: level,
                                                     threshold: threshold, mode: mode, jump: jump) else { return }
         if level == .none {
-            scheduleLegacyBold(content, revision: revision)
+            scheduleLegacyBold(content, revision: revision, isCurrent: isCurrent)
             return
         }
         await sendNotification(title: content.title, body: content.body,
-                               identifier: "usage-threshold-\(UUID().uuidString)", revision: revision)
-        guard revision == notificationRevision, !Task.isCancelled else { return }
+                               identifier: "usage-threshold-\(UUID().uuidString)", revision: revision,
+                               isCurrent: isCurrent)
+        guard revision == notificationRevision, !Task.isCancelled, isCurrent() else { return }
         // Keep the legacy acknowledgement contract, including authorization denial
         // and delivery failure; the persistent split ledger has a different policy.
         if level != .none { notifiedThresholds.insert(threshold) }
@@ -196,20 +201,25 @@ final class NotificationManager {
                                             body: rows.joined(separator: "\n"))
         }
         guard let jump else { return nil }
-        return UsageNotificationContent(title: jump.title,
+        return UsageNotificationContent(title: mode == .sharedWeekly ? "Weekly included usage increased" : jump.title,
             body: ([jump.changeBody] + (jump.currentBody.map { [$0] } ?? [])).joined(separator: "\n"))
     }
 
     func resetNotifications() {
-        notificationRevision += 1
         notifiedThresholds.removeAll()
+        invalidatePendingUsageNotifications()
+    }
+
+    func invalidatePendingUsageNotifications() {
+        notificationRevision += 1
         pendingLegacyBold = nil
     }
 
-    private func scheduleLegacyBold(_ content: UsageNotificationContent, revision: UInt64) {
+    private func scheduleLegacyBold(_ content: UsageNotificationContent, revision: UInt64,
+                                    isCurrent: @escaping @MainActor () -> Bool) {
         // Keep at most the active send and the newest pending observation while
         // macOS authorization waits; later refreshes must remain free to finish.
-        pendingLegacyBold = PendingLegacyBold(content: content, revision: revision)
+        pendingLegacyBold = PendingLegacyBold(content: content, revision: revision, isCurrent: isCurrent)
         if legacyBoldWorker == nil {
             legacyBoldWorker = Task { await drainLegacyBold() }
         }
@@ -218,9 +228,10 @@ final class NotificationManager {
     private func drainLegacyBold() async {
         while let pending = pendingLegacyBold {
             pendingLegacyBold = nil
-            guard pending.revision == notificationRevision else { continue }
+            guard pending.revision == notificationRevision, pending.isCurrent() else { continue }
             await sendNotification(title: pending.content.title, body: pending.content.body,
-                identifier: "\(Self.usageJumpIdentifierPrefix)-\(UUID().uuidString)", revision: pending.revision)
+                identifier: "\(Self.usageJumpIdentifierPrefix)-\(UUID().uuidString)", revision: pending.revision,
+                isCurrent: pending.isCurrent)
         }
         legacyBoldWorker = nil
     }
@@ -272,11 +283,12 @@ final class NotificationManager {
         body: String,
         identifier: String = UUID().uuidString,
         userInfo: [AnyHashable: Any]? = nil,
-        revision: UInt64? = nil
+        revision: UInt64? = nil,
+        isCurrent: @MainActor () -> Bool = { true }
     ) async {
         do {
             let granted = try await requestAuthorization()
-            guard granted, !Task.isCancelled,
+            guard granted, !Task.isCancelled, isCurrent(),
                   revision == nil || revision == notificationRevision else { return }
 
             let content = UNMutableNotificationContent()

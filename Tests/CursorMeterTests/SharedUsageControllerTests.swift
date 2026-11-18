@@ -167,6 +167,7 @@ actor SharedUsageFixtureProvider: CursorSharedUsageFetching {
     var capFailure: CursorSharedAPIError?
     var planJSON: String?
     var prepaidJSON: String?
+    var periodJSON: String?
     private var periodStarted: (@Sendable () -> Void)?
     private var heldPeriod: CheckedContinuation<CurrentPeriodUsageResponse, Error>?
 
@@ -186,6 +187,7 @@ actor SharedUsageFixtureProvider: CursorSharedUsageFetching {
     }
     func setPlan(_ json: String) { planJSON = json }
     func setPrepaid(_ json: String) { prepaidJSON = json }
+    func setPeriod(_ json: String) { periodJSON = json }
     func fetchPlanInfo(cookieHeader: String) async throws -> CursorPlanInfoResponse {
         calls.append("plan")
         if let planFailure { throw planFailure }
@@ -201,7 +203,7 @@ actor SharedUsageFixtureProvider: CursorSharedUsageFetching {
                 started()
             }
         }
-        return try Self.period()
+        return try periodJSON.map { try Self.decode($0) } ?? Self.period()
     }
     func fetchPrepaid(cookieHeader: String) async throws -> CursorPrepaidBillingResponse {
         calls.append("prepaid")

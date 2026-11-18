@@ -16,7 +16,7 @@ final class SettingsNotificationsTabViewController: NSViewController {
     private var scopeCards: [SplitAlertScope: AlertCard] = [:]
     private var legacyCard: AlertCard?
     private var permissionCard = NSView()
-    private let sharedCaption = SettingsCardFactory.makeCaption("Usage thresholds apply to legacy monthly plans. Shared usage alerts are unavailable; app status notifications remain available.")
+    private let sharedCaption = SettingsCardFactory.makeCaption("")
     private let screenHeight: (() -> CGFloat)?
     private let scrollView = NSScrollView()
     private var content = NSView()
@@ -110,12 +110,13 @@ final class SettingsNotificationsTabViewController: NSViewController {
 
     func updateUI() {
         let shared = viewModel.sharedUsage.suppressesLegacyMeter
-        sharedCaption.stringValue = viewModel.sharedUsage.mode == .sharedWeekly
-            ? "Usage thresholds apply to legacy monthly plans. Shared usage alerts are unavailable; app status notifications remain available."
+        let sharedWeekly = viewModel.sharedUsage.mode == .sharedWeekly
+        sharedCaption.stringValue = sharedWeekly
+            ? "Weekly included usage alerts use these percentage thresholds and reset each week."
             : "Usage alerts are unavailable until a supported usage plan is confirmed. App status notifications remain available."
         sharedCaption.superview?.isHidden = !shared
-        notificationToggle.isEnabled = !shared
-        let enabled = viewModel.notificationEnabled && !shared
+        notificationToggle.isEnabled = !shared || sharedWeekly
+        let enabled = viewModel.notificationEnabled && (!shared || sharedWeekly)
         let split = viewModel.splitUsage.eligibility == .eligible
         notificationToggle.state = viewModel.notificationEnabled ? .on : .off
         appStatusToggle.state = viewModel.appStatusNotificationEnabled ? .on : .off

@@ -95,6 +95,12 @@ final class SharedUsageController {
         if provider == nil { mode = .disabled }
     }
 
+    var currentWeeklyUsage: SharedWeeklyUsage? {
+        guard mode == .sharedWeekly, owner != nil,
+              snapshot?.weeklyAvailability(at: now()) == .current else { return nil }
+        return snapshot?.weekly.value
+    }
+
     func isBound(to owner: SharedUsageOwner) -> Bool { self.owner == owner }
 
     func recordFailure(_ error: Error) {
