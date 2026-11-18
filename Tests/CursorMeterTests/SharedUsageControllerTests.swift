@@ -77,8 +77,8 @@ final class SharedUsageControllerTests: XCTestCase {
         }
     }
 
-    func testMissingOrMalformedAutoTopUpPreservesVerifiedSettingWhileWalletUpdates() async throws {
-        for replacement in ["", #","autoTopUp":{"enabled":"invalid"}"#] {
+    func testMalformedAutoTopUpPreservesVerifiedSettingWhileWalletUpdates() async throws {
+        for replacement in [#","autoTopUp":{"enabled":"invalid"}"#] {
             let provider = SharedUsageFixtureProvider()
             await provider.setPrepaid(#"{"billingMode":"PREPAID_BILLING_MODE_PREPAID","eligible":true,"availableCents":6200,"spentThisMonthCents":700,"autoTopUp":{"enabled":true,"thresholdCents":200,"topUpAmountCents":500}}"#)
             let controller = SharedUsageController(provider: provider, now: { self.now })
@@ -100,12 +100,12 @@ final class SharedUsageControllerTests: XCTestCase {
         }
     }
 
-    func testFirstMissingAutoTopUpRemainsUnknown() async throws {
+    func testEligibleMissingAutoTopUpIsCurrentOff() async throws {
         let controller = SharedUsageController(provider: SharedUsageFixtureProvider(), now: { self.now })
         controller.acceptPlan(.success(try SharedUsageFixtureProvider.plan()), owner: owner, personalScope: true)
         _ = await controller.refresh(cookieHeader: "fixture", owner: owner, isCurrent: { true })
-        XCTAssertNil(controller.snapshot?.autoTopUp.value)
-        XCTAssertEqual(controller.snapshot?.autoTopUp.availability, .unavailable)
+        XCTAssertEqual(controller.snapshot?.autoTopUp.value?.enabled, false)
+        XCTAssertEqual(controller.snapshot?.autoTopUp.availability, .current)
         XCTAssertEqual(controller.snapshot?.credit.availability, .current)
     }
 

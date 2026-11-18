@@ -177,7 +177,7 @@ final class SettingsAppearanceTabViewController: NSViewController {
         splitMenuBarPercentagesToggle.state = viewModel.splitMenuBarPercentagesEnabled ? .on : .off
         let center: UsagePoolID = viewModel.splitOuterPool == .other ? .cursor : .other
         poolLegend.stringValue = "Outer: \(viewModel.splitOuterPool.displayName)\nCenter: \(center.displayName)"
-        let sharedPresentation = SharedUsagePresentation(mode: viewModel.sharedUsage.mode, snapshot: viewModel.sharedUsage.snapshot)
+        let sharedPresentation = SharedUsagePresentation(mode: viewModel.sharedUsage.mode, snapshot: viewModel.sharedUsage.snapshot, paidReset: viewModel.sharedActivity.paidReset)
         if shared {
             poolLegend.stringValue = sharedWeekly
                 ? "Outer: Weekly included\nCenter: Prepaid credit\nFixed for shared usage."
@@ -217,16 +217,14 @@ final class SettingsAppearanceTabViewController: NSViewController {
 
         // Keep chart preferences reachable when the weekly endpoint is unavailable.
         weeklyChartSection.isHidden = viewModel.authState != .loggedIn
-        weeklyChartToggle.isEnabled = !shared
+        weeklyChartToggle.isEnabled = !shared || sharedWeekly
         weeklyChartToggle.state = viewModel.weeklyChartEnabled ? .on : .off
         weeklyChartStyleSegmented.selectedSegment = viewModel.weeklyChartStyle.rawValue
-        weeklyChartStyleSegmented.isEnabled = !shared && viewModel.weeklyChartEnabled
+        weeklyChartStyleSegmented.isEnabled = (!shared || sharedWeekly) && viewModel.weeklyChartEnabled
         updateWeeklyChartMetric()
-        if shared {
+        if shared && !sharedWeekly {
             weeklyChartMetricPopUp.isEnabled = false
-            weeklyChartMetricCaption.stringValue = sharedWeekly
-                ? "Shared activity history is unavailable. Chart and Today settings apply to legacy plans."
-                : "Activity history is unavailable. Chart and Today preferences are preserved."
+            weeklyChartMetricCaption.stringValue = "Activity history is unavailable. Chart and Today preferences are preserved."
         }
         updateViewport()
     }
@@ -245,16 +243,18 @@ final class SettingsAppearanceTabViewController: NSViewController {
     }
 
     private func updateWeeklyChartMetric() {
-        let amountAvailable = viewModel.weeklyData?.isAmountAvailable == true
+        let shared = viewModel.sharedUsage.mode == .sharedWeekly
+        let amountAvailable = viewModel.displayedWeeklyData?.isAmountAvailable == true
+        weeklyChartMetricPopUp.item(at: 1)?.title = shared ? "Tokens" : "Usage units"
         weeklyChartMetricPopUp.item(at: 0)?.isEnabled = amountAvailable
         weeklyChartMetricPopUp.selectItem(at: viewModel.effectiveWeeklyChartMetric == .amount ? 0 : 1)
         weeklyChartMetricPopUp.isEnabled = viewModel.weeklyChartEnabled
         if !amountAvailable {
-            weeklyChartMetricCaption.stringValue = "Showing usage units; costs unavailable."
+            weeklyChartMetricCaption.stringValue = shared ? "Tokens per UTC day; costs unavailable." : "Showing usage units; costs unavailable."
         } else if viewModel.effectiveWeeklyChartMetric == .amount {
-            weeklyChartMetricCaption.stringValue = "Includes plan-covered and paid usage."
+            weeklyChartMetricCaption.stringValue = shared ? "Reported amounts per UTC day." : "Includes plan-covered and paid usage."
         } else {
-            weeklyChartMetricCaption.stringValue = "Requests weighted by model."
+            weeklyChartMetricCaption.stringValue = shared ? "Reported tokens per UTC day." : "Requests weighted by model."
         }
     }
 

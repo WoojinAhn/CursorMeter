@@ -9,6 +9,7 @@ func makeTestUsageViewModel(
     notificationManager: NotificationManager? = nil,
     splitUsage: SplitUsageController? = nil,
     sharedUsage: SharedUsageController? = nil,
+    sharedActivity: SharedActivityController? = nil,
     splitAlertStore: SplitUsageAlertStore? = nil,
     defaults: UserDefaults = .standard,
     updateCheckRunner: @escaping @MainActor () async -> UpdateCheckResult = { .upToDate }
@@ -24,6 +25,7 @@ func makeTestUsageViewModel(
         ),
         splitUsage: splitUsage,
         sharedUsage: sharedUsage,
+        sharedActivity: sharedActivity,
         splitAlertStore: splitAlertStore,
         defaults: defaults
     )

@@ -603,7 +603,7 @@ final class MenuBarPopoverViewController: NSViewController {
     // MARK: - Apply state
 
     private func applySharedData() {
-        let presentation = SharedUsagePresentation(mode: viewModel.sharedUsage.mode, snapshot: viewModel.sharedUsage.snapshot)
+        let presentation = SharedUsagePresentation(mode: viewModel.sharedUsage.mode, snapshot: viewModel.sharedUsage.snapshot, paidReset: viewModel.sharedActivity.paidReset)
         nameLabel.stringValue = viewModel.authenticatedUserInfo?.name ?? "Cursor account"
         emailLabel.stringValue = viewModel.authenticatedUserInfo?.email ?? ""
         let sharedWeekly = viewModel.sharedUsage.mode == .sharedWeekly
@@ -630,10 +630,8 @@ final class MenuBarPopoverViewController: NSViewController {
         splitMeter.toolTip = presentation.tooltip
         splitDetailLabel.stringValue = (presentation.detailLines + [presentation.status].compactMap { $0 }).joined(separator: "\n")
         splitDetailLabel.isHidden = false
-        setWeeklyChartVisible(false)
-        weeklyStatusLabel.stringValue = sharedWeekly ? "Shared activity history unavailable" : "Activity history unavailable"
-        weeklyStatusLabel.toolTip = "View usage history in the official dashboard."
-        weeklyStatusLabel.isHidden = false
+        updateWeeklyChart()
+        updateWeeklyStatus()
         resetLabel.stringValue = ""
         resetLabel.toolTip = nil
         syncIntervalPopUp()
@@ -697,20 +695,7 @@ final class MenuBarPopoverViewController: NSViewController {
             splitDetailLabel.isHidden = presentation.detailLines.isEmpty
         }
 
-        // Weekly chart (availability + master toggle gate).
-        if viewModel.weeklyChartEnabled,
-           viewModel.weeklyChartAvailable,
-           let weekly = viewModel.weeklyData, weekly.count == 7
-        {
-            weeklyChartView.update(
-                days: weekly,
-                style: viewModel.weeklyChartStyle,
-                metric: viewModel.weeklyChartMetric
-            )
-            setWeeklyChartVisible(true)
-        } else {
-            setWeeklyChartVisible(false)
-        }
+        updateWeeklyChart()
 
         updateWeeklyStatus()
 
@@ -722,18 +707,47 @@ final class MenuBarPopoverViewController: NSViewController {
         syncIntervalPopUp()
     }
 
+    private func updateWeeklyChart() {
+        if viewModel.weeklyChartEnabled,
+           viewModel.displayedWeeklyChartAvailable,
+           let weekly = viewModel.displayedWeeklyData, weekly.count == 7
+        {
+            weeklyChartView.update(
+                days: weekly,
+                style: viewModel.weeklyChartStyle,
+                metric: viewModel.effectiveWeeklyChartMetric
+            )
+            setWeeklyChartVisible(true)
+        } else {
+            setWeeklyChartVisible(false)
+        }
+
+    }
+
     private func updateWeeklyStatus() {
         weeklyStatusLabel.isHidden = true
+        weeklyStatusLabel.textColor = CircularProgressIcon.warnColor
         guard viewModel.authState == .loggedIn else { return }
-        switch viewModel.weeklyChartStatus {
+        switch viewModel.displayedWeeklyChartStatus {
         case .stale:
-            guard let updated = viewModel.weeklyLastUpdated else { return }
-            weeklyStatusLabel.stringValue = "Weekly data: \(Self.weeklyTimeFormatter.string(from: updated))"
-            weeklyStatusLabel.toolTip = "Weekly refresh failed. Showing the last successful data; retrying on the next refresh."
+            guard let updated = viewModel.displayedWeeklyLastUpdated else { return }
+            if viewModel.sharedUsage.mode == .sharedWeekly {
+                weeklyStatusLabel.stringValue = "UTC data: \(RecentUsageFormatter.cachedTime(updated, mode: .utc)) · Stale"
+                weeklyStatusLabel.toolTip = "Daily activity uses UTC calendar days. Showing the last successful data; retrying on the next refresh."
+            } else {
+                weeklyStatusLabel.stringValue = "Weekly data: \(Self.weeklyTimeFormatter.string(from: updated))"
+                weeklyStatusLabel.toolTip = "Weekly refresh failed. Showing the last successful data; retrying on the next refresh."
+            }
         case .unavailable:
             weeklyStatusLabel.stringValue = "Weekly activity unavailable — retrying"
             weeklyStatusLabel.toolTip = "Weekly activity could not be loaded; retrying on the next refresh."
-        case .hidden, .ready:
+        case .ready:
+            guard viewModel.sharedUsage.mode == .sharedWeekly else { return }
+            let hasUnknown = viewModel.displayedWeeklyData?.contains { viewModel.effectiveWeeklyChartMetric.value(for: $0) == nil } == true
+            if !hasUnknown { weeklyStatusLabel.textColor = .secondaryLabelColor }
+            weeklyStatusLabel.stringValue = "Daily activity · UTC" + (hasUnknown ? " · Values unavailable" : "")
+            weeklyStatusLabel.toolTip = "Seven UTC calendar days, including today. A question mark means the reported value is unavailable."
+        case .hidden:
             return
         }
         weeklyStatusLabel.isHidden = false

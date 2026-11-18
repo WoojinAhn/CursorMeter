@@ -8,7 +8,7 @@ protocol CursorSharedUsageFetching: Sendable {
 }
 
 enum CursorSharedAPIError: Error, Equatable, Sendable {
-    case invalidCredential, unauthorized, forbidden
+    case invalidCredential, unauthorized, forbidden, identityUnlinked
     case httpStatus(Int)
     case emptyResponse, invalidResponse, responseTooLarge
     case transport, cancelled

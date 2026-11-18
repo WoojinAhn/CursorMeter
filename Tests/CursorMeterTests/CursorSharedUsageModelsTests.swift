@@ -2,6 +2,21 @@ import XCTest
 @testable import CursorMeter
 
 final class CursorSharedUsageModelsTests: XCTestCase {
+    func testEligiblePrepaidOmittedAutoTopUpMeansOffButMalformedAndIneligibleStayUnknown() throws {
+        let omitted: CursorPrepaidBillingResponse = try decode(#"{"billingMode":"PREPAID_BILLING_MODE_PREPAID","eligible":true,"availableCents":1200}"#)
+        XCTAssertEqual(omitted.autoTopUp?.enabled, false)
+        XCTAssertEqual(omitted.creditUsage.remainingCents, 1200)
+        for suffix in [", \"autoTopUp\":null", ", \"autoTopUp\":\"invalid\"", ", \"autoTopUp\":{\"enabled\":\"invalid\"}"] {
+            let malformed: CursorPrepaidBillingResponse = try decode(#"{"billingMode":"PREPAID_BILLING_MODE_PREPAID","eligible":true,"availableCents":1200"# + suffix + "}")
+            XCTAssertNil(malformed.autoTopUp)
+            XCTAssertEqual(malformed.creditUsage.remainingCents, 1200)
+        }
+        let badCounter: CursorPrepaidBillingResponse = try decode(#"{"billingMode":"PREPAID_BILLING_MODE_PREPAID","eligible":true,"availableCents":1200,"autoTopUp":{"enabled":true,"thresholdCents":"bad"}}"#)
+        XCTAssertNil(badCounter.autoTopUp)
+        XCTAssertEqual(badCounter.creditUsage.remainingCents, 1200)
+        let ineligible: CursorPrepaidBillingResponse = try decode(#"{"billingMode":"PREPAID_BILLING_MODE_PREPAID","eligible":false}"#)
+        XCTAssertNil(ineligible.autoTopUp)
+    }
     private func decode<T: Decodable>(_ json: String, as type: T.Type = T.self) throws -> T {
         try JSONDecoder().decode(type, from: Data(json.utf8))
     }
@@ -104,7 +119,7 @@ final class CursorSharedUsageModelsTests: XCTestCase {
         XCTAssertEqual(zero.creditUsage.remainingCents, 0)
         XCTAssertTrue(zero.creditUsage.hasNoPurchases)
         XCTAssertNil(zero.monthlyUsedCents)
-        XCTAssertNil(zero.autoTopUp)
+        XCTAssertEqual(zero.autoTopUp?.enabled, false)
         for json in ["{}", #"{"billingMode":"PREPAID_BILLING_MODE_PREPAID"}"#, #"{"billingMode":"PREPAID_BILLING_MODE_ON_DEMAND","eligible":true}"#, #"{"billingMode":"FUTURE","eligible":true}"#] {
             let response: CursorPrepaidBillingResponse = try decode(json)
             XCTAssertNil(response.creditUsage.remainingCents)

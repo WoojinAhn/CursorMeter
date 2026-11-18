@@ -4,6 +4,20 @@ import XCTest
 
 @MainActor
 final class SharedUsageUITests: XCTestCase {
+    func testSharedActivityControlsRemainReachableWithNoActivityResponse() async throws {
+        let vm = await makeSharedUsageUIViewModel(test: self)
+        let appearance = SettingsAppearanceTabViewController(viewModel: vm)
+        let recent = SettingsUsageTabViewController(viewModel: vm)
+        _ = appearance.view
+        _ = recent.view
+        let controls = views(appearance.view).compactMap { $0 as? NSControl }
+        for action in ["weeklyChartToggleChanged", "weeklyChartStyleChanged", "weeklyChartMetricChanged"] {
+            XCTAssertTrue(try XCTUnwrap(controls.first { $0.action == NSSelectorFromString(action) }).isEnabled, action)
+        }
+        let zone = try XCTUnwrap(views(recent.view).compactMap { $0 as? NSSegmentedControl }.first)
+        XCTAssertTrue(zone.isEnabled)
+        XCTAssertFalse(zone.isHiddenOrHasHiddenAncestor)
+    }
     func testSharedPopoverPreservesHeaderActionsAndFixedMeterPlacement() async throws {
         let vm = await makeSharedUsageUIViewModel(test: self)
         vm.setSplitOuterPool(.cursor)
@@ -207,7 +221,7 @@ final class SharedUsageUITests: XCTestCase {
             let vm = await makeSharedUsageUIViewModel(.init(cap: cap, autoTopUp: nil), test: self)
             let strings = labels(popover(vm).view)
             XCTAssertTrue(strings.contains { $0.contains(expected) }, strings.description)
-            XCTAssertTrue(strings.contains { $0.contains("Auto Top-up: Unknown") })
+            XCTAssertTrue(strings.contains { $0.contains("Auto Top-up: Off") })
             XCTAssertTrue(strings.contains { $0.contains("Paid reset unknown") })
         }
     }
@@ -237,7 +251,7 @@ final class SharedUsageUITests: XCTestCase {
         let appearance = SettingsAppearanceTabViewController(viewModel: vm)
         _ = appearance.view
         let controls = views(appearance.view).compactMap { $0 as? NSControl }
-        for name in ["Outer ring", "Popover values", "Show estimated limits", "Chart metric"] {
+        for name in ["Outer ring", "Popover values", "Show estimated limits"] {
             let control = try XCTUnwrap(controls.first { $0.accessibilityLabel() == name }, name)
             XCTAssertFalse(control.isEnabled, name)
         }
@@ -262,7 +276,7 @@ final class SharedUsageUITests: XCTestCase {
         XCTAssertTrue(vm.weeklyChartEnabled)
     }
 
-    func testSharedRecentPanelHidesRetainedLegacyRowsAndExplainsMeterRefresh() async throws {
+    func testSharedRecentPanelHidesRetainedLegacyRowsAndAllowsActivityRefresh() async throws {
         let vm = await makeSharedUsageUIViewModel(test: self)
         vm.recentUsage.beginSession(generation: 1)
         let context = try XCTUnwrap(vm.recentUsage.selectCredential(cookieHeader: "WorkosCursorSessionToken=synthetic", generation: 1, attemptID: 1))
@@ -274,10 +288,10 @@ final class SharedUsageUITests: XCTestCase {
         let table = try XCTUnwrap(views(vc.view).compactMap { $0 as? NSTableView }.first)
         XCTAssertEqual(vc.numberOfRows(in: table), 0)
         XCTAssertTrue(table.isHiddenOrHasHiddenAncestor)
-        XCTAssertTrue(labels(vc.view).contains("Shared usage history unavailable."))
-        XCTAssertTrue(labels(vc.view).contains { $0.contains("Refresh updates the shared meter") })
+        XCTAssertTrue(labels(vc.view).contains("Loading recent usage…"))
+        XCTAssertTrue(labels(vc.view).contains { $0.contains("Latest 30 activity entries") })
         let refresh = try XCTUnwrap(views(vc.view).compactMap { $0 as? RefreshFeedbackButton }.first { !$0.isHiddenOrHasHiddenAncestor })
-        XCTAssertEqual(refresh.accessibilityLabel(), "Refresh shared meter")
+        XCTAssertEqual(refresh.accessibilityLabel(), "Refresh recent usage")
         XCTAssertNotEqual(refresh.accessibilityValue() as? String, "Retry later")
     }
 
@@ -344,7 +358,7 @@ final class SharedUsageUITests: XCTestCase {
         XCTAssertTrue(stale.tooltip.contains("Center: Prepaid credit consumed 38%"))
     }
 
-    func testSharedRefreshSuccessDoesNotDisplayMissingHistoryAsMeterFailure() async throws {
+    func testSharedRecentFailureDoesNotBorrowSuccessfulMeterFeedback() async throws {
         let now = ContinuousClock.now
         var sleeps = 0
         let feedback = RefreshFeedback(now: { now }, sleepUntil: { _ in
@@ -360,11 +374,48 @@ final class SharedUsageUITests: XCTestCase {
         let vc = SettingsUsageTabViewController(viewModel: vm)
         _ = vc.view
         let refresh = try XCTUnwrap(views(vc.view).compactMap { $0 as? RefreshFeedbackButton }.first)
-        XCTAssertEqual(refresh.accessibilityValue() as? String, "Updated")
+        XCTAssertEqual(refresh.accessibilityValue() as? String, "Retry later")
+    }
+
+    func testSharedCurrentRowsChartAndPaidResetUseCurrentActivityAndPreserveTodayPreference() async throws {
+        let vm = await makeSharedUsageUIViewModel(activity: SharedActivityUIFixture(), test: self)
+        vm.setWeeklyChartStyle(.both)
+        vm.setWeeklyChartMetric(.usageUnits)
+        let vc = SettingsUsageTabViewController(viewModel: vm)
+        _ = vc.view
+        let table = try XCTUnwrap(views(vc.view).compactMap { $0 as? NSTableView }.first)
+        XCTAssertEqual(vc.numberOfRows(in: table), 4)
+        XCTAssertFalse(table.isHiddenOrHasHiddenAncestor)
+        XCTAssertEqual(vm.sharedActivity.recent.value?.entries[2].kind, .creditGrant)
+        XCTAssertEqual(vm.sharedActivity.recent.value?.entries[3].kind, .adjustment)
+        XCTAssertEqual(vm.effectiveWeeklyChartMetric, .tokens)
+        XCTAssertEqual(vm.weeklyChartMetric, .usageUnits)
+        XCTAssertEqual(vm.weeklyChartStyle, .both)
+        XCTAssertEqual(vm.displayedWeeklyData?.last?.tokens, 84000)
+        let strings = labels(popover(vm).view)
+        XCTAssertTrue(strings.contains("Daily activity · UTC"), strings.description)
+        XCTAssertTrue(strings.contains { $0.contains("Paid resets") && !$0.contains("unknown") })
+        let display = SettingsAppearanceTabViewController(viewModel: vm)
+        _ = display.view
+        let metric = try XCTUnwrap(views(display.view).compactMap { $0 as? NSPopUpButton }.first { $0.accessibilityLabel() == "Chart metric" })
+        XCTAssertEqual(metric.selectedItem?.title, "Tokens")
+        XCTAssertTrue(metric.isEnabled)
+    }
+
+    func testStaleSharedChartRetainsUTCDaySemantics() async {
+        let vm = await makeSharedUsageUIViewModel(activity: SharedActivityUIFixture(), test: self)
+        vm.sharedActivity.recordFailure()
+        let vc = popover(vm)
+        let status = views(vc.view).compactMap { $0 as? NSTextField }.first { $0.accessibilityIdentifier() == "weeklyChartStatus" }
+        XCTAssertEqual(vm.displayedWeeklyChartStatus, .stale)
+        XCTAssertTrue(status?.stringValue.contains("UTC") == true)
+        XCTAssertTrue(status?.toolTip?.contains("UTC") == true)
+        XCTAssertFalse(status?.isHiddenOrHasHiddenAncestor ?? true)
     }
 
     func testSharedSurfacesRenderSyntheticArtifacts() async throws {
-        let normal = await makeSharedUsageUIViewModel(test: self)
+        let normal = await makeSharedUsageUIViewModel(activity: SharedActivityUIFixture(), test: self)
+        normal.notificationEnabled = true
         normal.setSplitMenuBarPercentagesEnabled(true)
         let stale = await makeSharedUsageUIViewModel(.init(purchased: nil, autoTopUp: nil), test: self)
         stale.sharedUsage.recordFailure(CursorSharedAPIError.transport)

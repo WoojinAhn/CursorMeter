@@ -19,10 +19,12 @@ final class WeeklyUsageChartView: NSView {
     }()
 
     nonisolated static func tooltipText(for day: DayUsage, metric: WeeklyChartMetric) -> String {
-        guard let value = metric.value(for: day) else { return "Amount unavailable" }
+        guard let value = metric.value(for: day) else { return metric == .tokens ? "Tokens unavailable" : "Amount unavailable" }
         switch metric {
         case .amount:
             return String(format: "$%.2f", value / 100)
+        case .tokens:
+            return "\(day.tokens.map(String.init) ?? "—") tokens"
         case .usageUnits:
             if value > 0, value < 0.01 { return "<0.01 units" }
             let number = String(format: "%.2f", value)
@@ -134,11 +136,20 @@ final class WeeklyUsageChartView: NSView {
 
     private func drawBars(in ctx: CGContext, chart: NSRect, weeklyMax: Double, yMax: Double) {
         for (i, day) in days.enumerated() {
-            let value = metric.value(for: day) ?? 0
+            guard let value = metric.value(for: day) else {
+                let frame = barFrame(index: i, height: 0)
+                let label = NSAttributedString(string: "?", attributes: [
+                    .font: NSFont.systemFont(ofSize: 10), .foregroundColor: NSColor.secondaryLabelColor,
+                ])
+                label.draw(at: NSPoint(x: frame.midX - label.size().width / 2, y: chart.minY))
+                drawWeekdayLabel(day: day, chart: chart, index: i)
+                continue
+            }
             let normalized = value / yMax
             let h = max(CGFloat(normalized) * chart.height, 0)
 
-            let dimmed = (style == .dimOthers || style == .both) && !day.isToday
+            let today = isToday(day)
+            let dimmed = (style == .dimOthers || style == .both) && !today
             let alpha: CGFloat = dimmed ? 0.35 : 1.0
 
             if value == 0 {
@@ -153,7 +164,7 @@ final class WeeklyUsageChartView: NSView {
                 color.withAlphaComponent(alpha).setFill()
                 path.fill()
 
-                if day.isToday, style == .outline || style == .both {
+                if today, style == .outline || style == .both {
                     NSColor.white.setStroke()
                     path.lineWidth = 1.5
                     path.stroke()
@@ -172,10 +183,15 @@ final class WeeklyUsageChartView: NSView {
         return CircularProgressIcon.accentColor
     }
 
+    private func isToday(_ day: DayUsage) -> Bool {
+        day.usesUTCDays ? SharedActivityValue.utc.isDate(day.date, inSameDayAs: Date()) : day.isToday
+    }
+
     private func drawWeekdayLabel(day: DayUsage, chart: NSRect, index: Int) {
+        Self.weekdayFormatter.timeZone = day.usesUTCDays ? TimeZone(secondsFromGMT: 0)! : .current
         let label = Self.weekdayFormatter.string(from: day.date)
-        let font = NSFont.systemFont(ofSize: 9, weight: day.isToday ? .semibold : .regular)
-        let color: NSColor = day.isToday ? .labelColor : .secondaryLabelColor
+        let font = NSFont.systemFont(ofSize: 9, weight: isToday(day) ? .semibold : .regular)
+        let color: NSColor = isToday(day) ? .labelColor : .secondaryLabelColor
         let attr = NSAttributedString(string: label, attributes: [
             .font: font, .foregroundColor: color,
         ])

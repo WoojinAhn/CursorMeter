@@ -115,8 +115,10 @@ monthly paid usage and cap matched fresh DashboardService responses. Pressing th
 native Refresh usage control reported Updated and retained those readings. The
 capture was driven by the popover's accessibility frame and its matching native
 window; identity was cropped, and real billing values remain in private evidence.
-An omitted Auto Top-up rule is still Unknown; shared activity history remains
-unavailable. These are distinct from the repaired unsupported-plan error.
+In that build, an omitted Auto Top-up rule still displayed Unknown and shared
+activity history remained unavailable. These were distinct from the repaired
+unsupported-plan error; [#148's capability restoration](design-148-shared-capabilities.md)
+tracks their subsequent source verification and integration.
 Independent specification review and fresh Argon High/Grok XHigh quality reviews
 approved the bounded correction. The two external reviews used a self-contained
 source packet without tools; neither executed tests nor observed the installed app.

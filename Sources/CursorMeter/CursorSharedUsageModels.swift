@@ -76,7 +76,8 @@ struct CursorPrepaidBillingResponse: Decodable, Sendable {
         fundedCents = c.nonnegativeInt64(.fundedCents, omittedZero: acceptsProtoZeros)
         spentCents = c.nonnegativeInt64(.spentCents, omittedZero: acceptsProtoZeros)
         spentThisMonthCents = c.nonnegativeInt64(.spentThisMonthCents)
-        autoTopUp = try? c.decode(CursorAutoTopUp.self, forKey: .autoTopUp)
+        autoTopUp = acceptsProtoZeros
+            ? (c.contains(.autoTopUp) ? try? c.decode(CursorAutoTopUp.self, forKey: .autoTopUp) : .disabled) : nil
         // An invalid history must not hide independently valid balance or monthly usage.
         topUps = c.contains(.topUps) ? try? c.decode([CursorPrepaidTopUp].self, forKey: .topUps) : []
     }
@@ -114,6 +115,8 @@ struct CursorPrepaidBillingResponse: Decodable, Sendable {
 }
 
 struct CursorAutoTopUp: Decodable, Sendable {
+    static let disabled = CursorAutoTopUp()
+    private init() { enabled = false; thresholdCents = nil; topUpAmountCents = nil; monthlyCapCents = nil }
     let enabled: Bool
     let thresholdCents: Int64?
     let topUpAmountCents: Int64?
@@ -127,6 +130,11 @@ struct CursorAutoTopUp: Decodable, Sendable {
         thresholdCents = c.nonnegativeInt64(.thresholdCents, omittedZero: true)
         topUpAmountCents = c.nonnegativeInt64(.topUpAmountCents, omittedZero: true)
         monthlyCapCents = c.nonnegativeInt64(.monthlyCapCents)
+        for (key, value) in [(CodingKeys.thresholdCents, thresholdCents), (.topUpAmountCents, topUpAmountCents), (.monthlyCapCents, monthlyCapCents)] {
+            if c.contains(key), value == nil {
+                throw DecodingError.dataCorruptedError(forKey: key, in: c, debugDescription: "Invalid auto top-up amount")
+            }
+        }
     }
 }
 

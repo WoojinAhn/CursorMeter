@@ -286,3 +286,61 @@ A live tiny third-party request appeared in billing items with a sub-cent USD
 These endpoints have different precision and update timing. Do not manufacture a
 new wallet balance by subtracting event prices or claim the displayed rounded
 row cost is the exact charge.
+
+### Current shared activity and monthly period (#148)
+
+Verified on 2026-11-19 using the existing IDE-derived Cursor session cookie and
+the same authenticated primary profile. All three reads returned HTTP 200 at
+`https://cursor.com`; redirects were refused. No extra login, inference, or
+billing mutation was required. These are read-only dashboard queries even when
+the HTTP method is POST.
+
+| Method and path | Request | Relevant response |
+| --- | --- | --- |
+| GET `/api/dashboard/v2/usage-status` | `scope=user` | `availability`, `monthlyUsage.{usedCents,limitCents,additionalUsageOff,periodStart,resetsAt}` |
+| GET `/api/dashboard/v2/query-billing-items` | `scope=user`, ISO `startTime`/`endTime`, `pageSize`, optional opaque `cursor` | `data[]`, `pagination.{hasMore,nextCursor}` |
+| POST `/api/dashboard/v2/query-daily-usage` | `scope:"user"`, ISO `startTime`/`endTime`, `groupBy:["usageType"]`, `filters:{}`, `topN:20` | range, `series[]`, `other`, totals and daily `points[]` |
+
+The official web source supplies these relative paths through its same-origin
+JSON fetch wrapper. The observed Cursor host accepts the existing cookie; the
+Grok-hosted dashboard uses its own `/dashboard` mount. Do not transfer Grok
+cookies to Cursor or introduce a separate account binding for these queries.
+The old `GetFilteredUsageEvents` RPC returned historical events but no events
+for the recent seven-day window; HTTP success alone does not make that old
+ledger a current shared-activity source.
+
+Billing item `eventTime` is ISO8601 with an offset, not epoch milliseconds.
+`pricing.contracted` is a decimal USD string (the official schema uses ten
+fractional digits); convert with Decimal before formatting or converting to
+cents. `totalTokens` is a string. Optional `product`, `hasTokenMeters` and model
+metadata must remain optional. Do not retain principal IDs or email fields just
+to render a recent row. `chargeCategory` distinguishes `usage`, `credit` and
+`adjustment`; `usageType` distinguishes `included`, `on_demand`, `credits` and
+`free`. The official label for `credits` is **Credit grants**, not purchased
+prepaid credit. Negative prices can represent non-usage adjustments.
+
+Daily points contain `dayStartTime`, decimal USD `contractedCost`, numeric
+`tokens` and `includedTokens`. Current responses use **UTC-midnight buckets**,
+including when the request start has a local timezone offset. A local date
+label must not silently reinterpret those totals. For ranked grouped results,
+the official cost chart selects `costRank <= topN` and adds `other.points`;
+the token chart uses `tokenRank <= topN` and adds `other.points`. A combined union
+of ranked series can double-count. Weighted legacy request units are not tokens.
+
+`monthlyUsage.periodStart` and `resetsAt` are server-provided ISO dates for the
+paid period. They are separate from weekly included resets and subscription
+billing dates. `creditsUsedCents` is not evidence of a wallet decrement and must
+not be subtracted from the prepaid balance. `identity_unlinked` and malformed
+responses are unavailable data, not zero usage or primary authentication failure.
+
+The installed official Cursor commerce bridge also clarifies Auto Top-up:
+for an eligible prepaid response, an omitted `autoTopUp` maps to `null`, which
+the UI renders as Off / Set Auto Top-Up. Apply that meaning only to a verified
+eligible prepaid response; a failed or malformed read remains unavailable.
+
+Source evidence: official dashboard
+[`2lep6thelp200.js`](https://grok.com/dashboard/_next/static/immutable/chunks/2lep6thelp200.js)
+and [`2x5blx2ii_ux0.js`](https://grok.com/dashboard/_next/static/immutable/chunks/2x5blx2ii_ux0.js),
+inspected from the already authenticated browser's loaded public source; installed
+Cursor `workbench.xai-commerce-prepaid.js` (`cursorSettingsFromReads` and
+`CreditsCardView`). Only contract details are retained here, not live account data.

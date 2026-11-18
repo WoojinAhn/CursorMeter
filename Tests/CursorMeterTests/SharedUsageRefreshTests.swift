@@ -13,7 +13,8 @@ final class SharedUsageRefreshTests: XCTestCase {
 
     private func makeViewModel(provider: SharedUsageFixtureProvider, network: SharedRefreshNetwork = .init(),
                                capturedCookie: String? = SharedUsageRefreshTests.cookie,
-                               notificationManager: NotificationManager? = nil) -> UsageViewModel {
+                               notificationManager: NotificationManager? = nil,
+                               activity: (any CursorSharedActivityFetching)? = nil) -> UsageViewModel {
         MockURLProtocol.requestHandler = { try network.respond($0) }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MockURLProtocol.self]
@@ -23,12 +24,43 @@ final class SharedUsageRefreshTests: XCTestCase {
         addTeardownBlock { defaults.removePersistentDomain(forName: suite) }
         let vm = makeTestUsageViewModel(apiClient: CursorAPIClient(configuration: configuration),
             refreshFeedback: RefreshFeedback(timing: .immediate), notificationManager: notificationManager,
-            sharedUsage: controller, defaults: defaults)
+            sharedUsage: controller,
+            sharedActivity: SharedActivityController(provider: activity, now: { self.now }), defaults: defaults)
         vm.keychainLoadHandler = { nil }
         if let capturedCookie { vm.testHook_setCookieHeader(capturedCookie) }
         vm.notificationEnabled = false
         vm.authState = .loggedIn
         return vm
+    }
+
+    func testCurrentSharedActivityUsesIndependentFeedbackAndPreservesLegacyPreference() async {
+        let provider = SharedUsageFixtureProvider()
+        let activity = SharedActivityFixture()
+        let vm = makeViewModel(provider: provider, activity: activity)
+        var deleted = 0
+        vm.keychainDeleteHandler = { deleted += 1 }
+        vm.setWeeklyChartMetric(.usageUnits)
+        await vm.refresh()
+        XCTAssertEqual(vm.sharedActivity.recent.value?.entries.first?.model, "cursor · fixture-model")
+        XCTAssertEqual(vm.displayedWeeklyData?.count, 7)
+        XCTAssertEqual(vm.effectiveWeeklyChartMetric, .tokens)
+        XCTAssertEqual(vm.weeklyChartMetric, .usageUnits)
+        XCTAssertNil(vm.recentUsage.snapshot)
+        XCTAssertNotNil(vm.sharedActivity.paidReset.value)
+        let credit = vm.sharedUsage.snapshot?.credit.value?.remainingCents
+        await activity.setFailures(recent: true, daily: false, reset: true)
+        await vm.refresh()
+        XCTAssertEqual(vm.authState, .loggedIn)
+        XCTAssertEqual(deleted, 0)
+        XCTAssertEqual(vm.sharedActivity.recent.availability, .stale)
+        XCTAssertEqual(vm.sharedActivity.daily.availability, .current)
+        XCTAssertEqual(vm.sharedUsage.snapshot?.credit.value?.remainingCents, credit)
+        await provider.setPlan(#"{"isMerged":false}"#)
+        await vm.refresh()
+        XCTAssertNil(vm.sharedActivity.recent.value)
+        XCTAssertNil(vm.sharedActivity.daily.value)
+        XCTAssertNil(vm.sharedActivity.paidReset.value)
+        XCTAssertEqual(vm.effectiveWeeklyChartMetric, .usageUnits)
     }
 
     private func setWeekly(_ percent: Double, provider: SharedUsageFixtureProvider,
@@ -361,7 +393,7 @@ final class SharedUsageRefreshTests: XCTestCase {
         XCTAssertEqual(vm.sharedUsage.snapshot?.credit.value?.totalPurchasedCents, 2000)
         XCTAssertEqual(vm.sharedUsage.snapshot?.credit.value?.percentUsed, 0)
         XCTAssertEqual(vm.sharedUsage.snapshot?.monthlyUsed.value, 0)
-        XCTAssertNil(vm.sharedUsage.snapshot?.autoTopUp.value)
+        XCTAssertEqual(vm.sharedUsage.snapshot?.autoTopUp.value?.enabled, false)
         XCTAssertEqual(vm.authState, .loggedIn)
         XCTAssertEqual(vm.activeAuthSource, .cursorIDE)
         XCTAssertTrue(network.requests.allSatisfy { $0.value(forHTTPHeaderField: "Cookie") == "WorkosCursorSessionToken=ide-fixture" })

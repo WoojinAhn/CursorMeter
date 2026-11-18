@@ -190,6 +190,7 @@ struct TeamMember: Codable, Sendable {
 enum WeeklyChartMetric: String, CaseIterable, Sendable {
     case amount
     case usageUnits
+    case tokens
 
     init(storedValue: String?) {
         self = storedValue.flatMap(Self.init(rawValue:)) ?? .amount
@@ -200,6 +201,7 @@ enum WeeklyChartMetric: String, CaseIterable, Sendable {
         switch self {
         case .amount: day.amountCents
         case .usageUnits: day.usageUnits
+        case .tokens: day.tokens.map(Double.init)
         }
     }
 }
@@ -221,6 +223,8 @@ struct DayUsage: Sendable, Equatable {
     /// Unrounded cents across every event, or nil if any monetary value is missing.
     /// A day with no events has a known zero amount.
     let amountCents: Double?
+    let tokens: Int?
+    let usesUTCDays: Bool
 
     init(
         date: Date,
@@ -230,7 +234,9 @@ struct DayUsage: Sendable, Equatable {
         onDemandCents: Int,
         totalChargedCents: Int,
         usageUnits: Double? = nil,
-        amountCents: Double? = nil
+        amountCents: Double? = nil,
+        tokens: Int? = nil,
+        usesUTCDays: Bool = false
     ) {
         self.date = date
         self.requests = requests
@@ -240,6 +246,8 @@ struct DayUsage: Sendable, Equatable {
         self.totalChargedCents = totalChargedCents
         self.usageUnits = usageUnits ?? Double(requests)
         self.amountCents = amountCents
+        self.tokens = tokens
+        self.usesUTCDays = usesUTCDays
     }
 }
 
@@ -250,7 +258,7 @@ extension Array where Element == DayUsage {
 
     /// Keep the entire chart on one comparable scale when monetary data is incomplete.
     func effectiveMetric(preferred: WeeklyChartMetric) -> WeeklyChartMetric {
-        preferred == .amount && !isAmountAvailable ? .usageUnits : preferred
+        preferred == .amount && !isAmountAvailable ? (first?.usesUTCDays == true ? .tokens : .usageUnits) : preferred
     }
 }
 

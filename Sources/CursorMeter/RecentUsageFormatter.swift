@@ -15,6 +15,16 @@ enum RecentUsageFormatter {
         return formatter.string(from: NSNumber(value: cents / 100)) ?? "—"
     }
 
+    static func amount(entry: RecentUsageEntry) -> String {
+        guard let cents = entry.exactChargedCents else { return amount(cents: entry.chargedCents) }
+        let magnitude = cents < 0 ? -cents : cents
+        let sign = cents < 0 ? "−" : ""
+        if magnitude > 0, magnitude < 0.01 { return sign + "<$0.0001" }
+        let digits = magnitude > 0 && magnitude < 1 ? 4 : 2
+        let formatter = numberFormatter(minimumDigits: digits, maximumDigits: digits)
+        return sign + "$" + (formatter.string(from: NSDecimalNumber(decimal: magnitude / 100)) ?? "—")
+    }
+
     static func tokens(_ count: Int?) -> String {
         guard let count, count >= 0 else { return "—" }
         guard count >= 1000 else { return String(count) }

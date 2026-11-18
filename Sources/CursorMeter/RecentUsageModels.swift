@@ -5,6 +5,9 @@ enum RecentUsageKind: String, Codable, Sendable {
     case onDemand
     case free
     case other
+    case additionalUsage
+    case creditGrant
+    case adjustment
 
     var title: String {
         switch self {
@@ -12,6 +15,9 @@ enum RecentUsageKind: String, Codable, Sendable {
         case .onDemand: "On-demand"
         case .free: "Free"
         case .other: "Other"
+        case .additionalUsage: "Additional usage"
+        case .creditGrant: "Credit grant"
+        case .adjustment: "Adjustment"
         }
     }
 
@@ -35,13 +41,15 @@ struct RecentUsageEntry: Codable, Equatable, Sendable {
     let kind: RecentUsageKind
     let tokens: Int?
     let chargedCents: Double?
+    let exactChargedCents: Decimal?
 
-    init(date: Date, model: String?, kind: RecentUsageKind, tokens: Int?, chargedCents: Double?) {
+    init(date: Date, model: String?, kind: RecentUsageKind, tokens: Int?, chargedCents: Double?, exactChargedCents: Decimal? = nil) {
         self.date = date
         self.model = model
         self.kind = kind
         self.tokens = tokens
         self.chargedCents = chargedCents
+        self.exactChargedCents = exactChargedCents
     }
 
     init?(event: UsageEvent) {

@@ -17,7 +17,7 @@ struct SharedUsagePresentation {
     let status: String?
     let statusItemAccessibilityLabel: String
 
-    init(mode: SharedUsageMode, snapshot: SharedUsageSnapshot?, at date: Date = Date()) {
+    init(mode: SharedUsageMode, snapshot: SharedUsageSnapshot?, paidReset: SharedUsageReading<SharedPaidPeriod>? = nil, at date: Date = Date()) {
         let sharedWeekly = mode == .sharedWeekly
         let snapshot = sharedWeekly ? (snapshot ?? .empty) : .empty
         statusItemAccessibilityLabel = sharedWeekly
@@ -55,8 +55,13 @@ struct SharedUsagePresentation {
         }
         let capText = cap + (snapshot.paidCap.isStale ? " (stale)" : "")
         let auto = snapshot.autoTopUp.value.map { $0.enabled ? "On" : "Off" } ?? "Unknown"
+        let paidResetText: String
+        if sharedWeekly, let period = paidReset?.value {
+            let stale = paidReset?.isStale == true || date < period.start || date >= period.end
+            paidResetText = "Paid resets " + Self.resetDate(period.end) + (stale ? " (stale)" : "")
+        } else { paidResetText = "Paid reset unknown" }
         detailLines = ["Monthly paid: \(monthly) / \(capText)",
-            "Auto Top-up: \(auto)\(snapshot.autoTopUp.isStale ? " (stale)" : "") · Paid reset unknown"]
+            "Auto Top-up: \(auto)\(snapshot.autoTopUp.isStale ? " (stale)" : "") · \(paidResetText)"]
         switch mode {
         case .checking: status = "Checking usage plan…"
         case .unsupported: status = "This usage plan is not supported yet."

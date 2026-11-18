@@ -63,6 +63,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             ), notificationManager: manager,
                 splitUsage: SplitUsageController(apiClient: apiClient, store: CycleUsageStore(fileURL: amountURL)),
                 sharedUsage: SharedUsageController(provider: CursorSharedAPIClient()),
+                sharedActivity: SharedActivityController(provider: CursorSharedActivityAPIClient()),
                 splitAlertStore: SplitUsageAlertStore(directory: SplitUsageAlertStore.applicationDirectory))
         }
         let delegate = AppDelegate(viewModel: viewModel, releaseSmokeTest: smoke)
@@ -262,7 +263,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
 
     private var sharedPresentation: SharedUsagePresentation? {
         guard viewModel.authState == .loggedIn, viewModel.sharedUsage.suppressesLegacyMeter else { return nil }
-        return SharedUsagePresentation(mode: viewModel.sharedUsage.mode, snapshot: viewModel.sharedUsage.snapshot)
+        return SharedUsagePresentation(mode: viewModel.sharedUsage.mode, snapshot: viewModel.sharedUsage.snapshot, paidReset: viewModel.sharedActivity.paidReset)
     }
 
     func currentStatusImage(activeJump: ActiveJump?) -> NSImage {
@@ -544,6 +545,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             _ = viewModel.sharedUsage.detectionError
             _ = viewModel.sharedUsage.lastCompleteSuccessAt
             _ = viewModel.sharedUsage.isStale
+            _ = viewModel.sharedActivity.recent
+            _ = viewModel.sharedActivity.daily
+            _ = viewModel.sharedActivity.paidReset
             _ = viewModel.authenticatedUserInfo
             _ = viewModel.usageData
             _ = viewModel.splitPresentation
@@ -571,6 +575,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             _ = viewModel.sharedUsage.detectionError
             _ = viewModel.sharedUsage.lastCompleteSuccessAt
             _ = viewModel.sharedUsage.isStale
+            _ = viewModel.sharedActivity.recent
+            _ = viewModel.sharedActivity.daily
+            _ = viewModel.sharedActivity.paidReset
             _ = viewModel.authenticatedUserInfo
             _ = viewModel.activeAuthSource
             _ = viewModel.splitAlertTargets
@@ -708,6 +715,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             _ = viewModel.sharedUsage.detectionError
             _ = viewModel.sharedUsage.lastCompleteSuccessAt
             _ = viewModel.sharedUsage.isStale
+            _ = viewModel.sharedActivity.recent
+            _ = viewModel.sharedActivity.daily
+            _ = viewModel.sharedActivity.paidReset
             _ = viewModel.authenticatedUserInfo
             _ = viewModel.usageData
             _ = viewModel.popoverValueMode

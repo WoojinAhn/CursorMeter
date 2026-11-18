@@ -139,6 +139,7 @@ final class UsageViewModel {
     let refreshFeedback: RefreshFeedback
     let splitUsage: SplitUsageController
     let sharedUsage: SharedUsageController
+    let sharedActivity: SharedActivityController
     private(set) var authenticatedUserInfo: UserInfoResponse?
     let notificationManager: NotificationManager
     @ObservationIgnored private let splitAlerts: SplitUsageAlertDispatcher
@@ -301,8 +302,33 @@ final class UsageViewModel {
     var weeklyChartStyle: WeeklyChartStyle = .outline
     var weeklyChartMetric: WeeklyChartMetric = .amount
 
+    var displayedWeeklyData: [DayUsage]? {
+        sharedUsage.suppressesLegacyMeter
+            ? (sharedUsage.mode == .sharedWeekly ? sharedActivity.daily.value : nil) : weeklyData
+    }
+
+    var displayedWeeklyChartAvailable: Bool {
+        sharedUsage.suppressesLegacyMeter ? displayedWeeklyData != nil : weeklyChartAvailable
+    }
+
     var effectiveWeeklyChartMetric: WeeklyChartMetric {
-        (weeklyData ?? []).effectiveMetric(preferred: weeklyChartMetric)
+        let preferred: WeeklyChartMetric = sharedUsage.mode == .sharedWeekly && weeklyChartMetric == .usageUnits
+            ? .tokens : weeklyChartMetric
+        return (displayedWeeklyData ?? []).effectiveMetric(preferred: preferred)
+    }
+
+    var displayedWeeklyLastUpdated: Date? {
+        sharedUsage.suppressesLegacyMeter ? sharedActivity.daily.lastSuccessAt : weeklyLastUpdated
+    }
+
+    var displayedWeeklyChartStatus: WeeklyChartStatus {
+        guard sharedUsage.suppressesLegacyMeter else { return weeklyChartStatus }
+        guard weeklyChartEnabled else { return .hidden }
+        guard sharedUsage.mode == .sharedWeekly else { return .unavailable }
+        guard let data = sharedActivity.daily.value else {
+            return sharedActivity.daily.error == nil ? .hidden : .unavailable
+        }
+        return sharedActivity.daily.isStale || data.last?.date != SharedActivityValue.utc.startOfDay(for: Date()) ? .stale : .ready
     }
     private(set) var weeklyLastUpdated: Date?
     private(set) var weeklyConsecutiveFailureCount = 0
@@ -564,6 +590,7 @@ final class UsageViewModel {
         notificationManager: NotificationManager? = nil,
         splitUsage: SplitUsageController? = nil,
         sharedUsage: SharedUsageController? = nil,
+        sharedActivity: SharedActivityController? = nil,
         splitAlertStore: SplitUsageAlertStore? = nil,
         defaults: UserDefaults = .standard
     ) {
@@ -575,6 +602,7 @@ final class UsageViewModel {
         self.notificationManager = manager
         self.splitUsage = splitUsage ?? SplitUsageController(apiClient: apiClient)
         self.sharedUsage = sharedUsage ?? SharedUsageController()
+        self.sharedActivity = sharedActivity ?? SharedActivityController()
         self.splitAlerts = SplitUsageAlertDispatcher(manager: manager, store: splitAlertStore ?? SplitUsageAlertStore())
         loadSettings()
         lastUpdateCheckAt = Date()
@@ -670,6 +698,7 @@ final class UsageViewModel {
 
     private func resetPerAccountState(clearDiscovery: Bool = true) {
         sharedUsage.reset()
+        sharedActivity.reset()
         authenticatedUserInfo = nil
         resetLegacyUsageState(clearDiscovery: clearDiscovery)
     }
@@ -739,6 +768,7 @@ final class UsageViewModel {
         sessionGeneration += 1
         if sharedEffectScope != nil { resetSharedUsageEffects() }
         sharedUsage.reset()
+        sharedActivity.reset()
         authenticatedUserInfo = nil
         splitUsage.suspend(removePersisted: revokePersisted,
             subjectDigest: UsageRevisionIdentity.accountDigest(subject: lastAccountSubject, email: nil))
@@ -785,6 +815,7 @@ final class UsageViewModel {
         cancelOptimisticTasks()
         sessionGeneration += 1
         sharedUsage.reset()
+        sharedActivity.reset()
         authenticatedUserInfo = nil
         cancelDeferredRefreshes()
         recentUsage.invalidate(generation: sessionGeneration, revokePersisted: revokePersisted)
@@ -898,6 +929,7 @@ final class UsageViewModel {
             }
             activeAuthSource = nil
             sharedUsage.reset()
+            sharedActivity.reset()
             authenticatedUserInfo = nil
             clearWeeklyDiscoveryCaches()
             resetWeeklyChartState()
@@ -938,6 +970,7 @@ final class UsageViewModel {
         let apiClient = self.apiClient
         if credentialOwner != nil && credentialOwner != selectedOwner {
             sharedUsage.reset()
+            sharedActivity.reset()
             authenticatedUserInfo = nil
         }
 
@@ -1067,6 +1100,7 @@ final class UsageViewModel {
                     previouslyShared: previouslyShared && !accountSwitched)
             }
             if sharedUsage.suppressesLegacyMeter {
+                sharedActivity.bind(sharedUsage.mode == .sharedWeekly ? owner : nil)
                 cancelOptimisticTasks()
                 resetLegacyUsageState(preservingSharedEffects: sharedUsage.mode == .sharedWeekly
                     && sharedEffectScope.map { $0.owner == owner } == true)
@@ -1078,6 +1112,19 @@ final class UsageViewModel {
                 if let freshProfile {
                     retainedProfile = credentialDigest.map { (credentialDigest: $0, profile: freshProfile) }
                 }
+                let activityContext = context
+                let activityTask: Task<Bool, Never>?
+                if let owner, freshProfile != nil, personalScope == true, sharedUsage.mode == .sharedWeekly,
+                   sharedUsage.detectionError == nil {
+                    activityTask = Task { @MainActor in
+                        await self.sharedActivity.refresh(cookieHeader: cookieHeader, owner: owner,
+                            isCurrent: { self.isCurrent(activityContext) })
+                    }
+                } else {
+                    sharedActivity.recordFailure()
+                    activityTask = nil
+                }
+                defer { activityTask?.cancel() }
                 let success: Bool
                 if let owner, freshProfile != nil, personalScope == true, sharedUsage.mode == .sharedWeekly {
                     let acceptedContext = context
@@ -1106,8 +1153,12 @@ final class UsageViewModel {
                 }
                 await updateSharedUsageEffects(owner: owner)
                 try requireCurrent(context)
+                let recentSuccess = await activityTask?.value ?? false
+                try requireCurrent(context)
+                activeRefresh?.recent = recentSuccess ? .success : .failure
                 return
             }
+            sharedActivity.reset()
             if sharedEffectScope != nil { resetSharedUsageEffects() }
             if ownsOptimisticScope, !accountSwitched, !modeContradicted {
                 optimisticWeekly = makeOptimisticWeeklyTask(cookieHeader: cookieHeader)
@@ -1420,6 +1471,7 @@ final class UsageViewModel {
     private func handleRefreshError(_ error: Error, context: RefreshContext) async {
         guard isCurrent(context), !UsageEventCollection.isCancellation(error) else { return }
         sharedUsage.recordFailure(error)
+        sharedActivity.recordFailure()
         if case APIError.forbidden = error {
             errorMessage = "Access denied (subscription may be inactive)"
             await registerRefreshFailure()

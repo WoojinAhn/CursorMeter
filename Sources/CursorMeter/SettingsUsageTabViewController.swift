@@ -156,19 +156,17 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
     func updateUI() {
         let shared = viewModel.sharedUsage.suppressesLegacyMeter
         let sharedWeekly = viewModel.sharedUsage.mode == .sharedWeekly
-        refreshButton.setAccessibilityLabel(shared ? (sharedWeekly ? "Refresh shared meter" : "Refresh usage") : "Refresh recent usage")
-        refreshButton.toolTip = shared
-            ? (sharedWeekly ? "Refresh updates the shared meter, not request history."
-                : "Refresh checks the usage plan and updates available usage.") : nil
-        zoneControl.isEnabled = !shared
-        openButton.title = viewModel.sharedUsage.mode == .sharedWeekly ? "Open Dashboard ↗" : "Open Cursor ↗"
-        openButton.setAccessibilityLabel(viewModel.sharedUsage.mode == .sharedWeekly ? "Open Dashboard" : "Open Cursor")
-        caption.stringValue = shared
-            ? (sharedWeekly ? "Refresh updates the shared meter. View history in the dashboard."
-                : "Refresh checks the usage plan. View history in the dashboard.")
-            : "Included amounts show usage value covered by your plan."
-        let snapshot = shared ? nil : viewModel.recentUsage.snapshot
-        let candidate = snapshot?.candidate
+        refreshButton.setAccessibilityLabel(shared && !sharedWeekly ? "Refresh usage" : "Refresh recent usage")
+        refreshButton.toolTip = sharedWeekly ? "Refresh current activity and the shared meter." : nil
+        zoneControl.isEnabled = !shared || sharedWeekly
+        openButton.title = sharedWeekly ? "Open Dashboard ↗" : "Open Cursor ↗"
+        openButton.setAccessibilityLabel(sharedWeekly ? "Open Dashboard" : "Open Cursor")
+        caption.stringValue = sharedWeekly
+            ? "Latest 30 activity entries from the past 30 days. Reported amounts include grants and adjustments."
+            : (shared ? "Refresh checks the usage plan. View history in the dashboard."
+                : "Included amounts show usage value covered by your plan.")
+        let candidate = shared ? (sharedWeekly ? viewModel.sharedActivity.recent.value : nil) : viewModel.recentUsage.snapshot?.candidate
+        let failed = shared ? viewModel.sharedActivity.recent.error != nil : viewModel.recentUsage.status == .failed
         let mode = viewModel.recentUsageTimeZone
         let revision = viewModel.recentUsageTimeZoneRevision
         if candidate != renderedCandidate || mode != renderedTimeZone || revision != renderedTimeZoneRevision {
@@ -180,17 +178,12 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
         }
         let authenticated = viewModel.authState == .loggedIn
         let feedback = viewModel.refreshFeedback
-        let phase: RefreshPhase
-        if shared, case .result(let meter, _) = feedback.phase {
-            phase = .result(meter: meter, recent: meter)
-        } else {
-            phase = feedback.phase
-        }
+        let phase = feedback.phase
         refreshButton.render(phase: phase, isReady: feedback.isReady,
                              attempt: feedback.currentAttempt, isAuthenticated: authenticated,
                              reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
-        zoneControl.isHidden = shared
-        zoneLabel.isHidden = shared
+        zoneControl.isHidden = shared && !sharedWeekly
+        zoneLabel.isHidden = shared && !sharedWeekly
         zoneControl.selectedSegment = mode == .local ? 0 : 1
         zoneLabel.stringValue = RecentUsageFormatter.zoneLabel(mode: mode)
         let zoneIdentifier = RecentUsageFormatter.zoneIdentifier(mode: mode)
@@ -204,14 +197,15 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
         let cacheStatus = NSMutableAttributedString(string: cachedText, attributes: [
             .font: NSFont.systemFont(ofSize: 10), .foregroundColor: NSColor.tertiaryLabelColor,
         ])
-        if candidate != nil, viewModel.recentUsage.status == .failed, feedback.phase != .updating {
+        if candidate != nil, failed, feedback.phase != .updating {
             cacheStatus.append(NSAttributedString(string: " · Update failed", attributes: [
                 .font: NSFont.systemFont(ofSize: 10), .foregroundColor: failureColor,
             ]))
         }
         cachedLabel.attributedStringValue = cacheStatus
         countLabel.stringValue = candidate.map {
-            $0.entries.count == 1 ? "Latest 1 request" : "\($0.entries.isEmpty ? "0 requests" : "Latest \($0.entries.count) requests")"
+            if sharedWeekly { return "Latest \($0.entries.count) activity entries" }
+            return $0.entries.count == 1 ? "Latest 1 request" : "\($0.entries.isEmpty ? "0 requests" : "Latest \($0.entries.count) requests")"
         } ?? ""
         scrollView.isHidden = rows.isEmpty
         placeholderLabel.isHidden = !rows.isEmpty
@@ -219,10 +213,10 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
         if !authenticated {
             placeholderLabel.stringValue = "Connect Cursor to view recent usage."
             placeholderDetail.stringValue = ""
-        } else if shared {
-            placeholderLabel.stringValue = sharedWeekly ? "Shared usage history unavailable." : "Usage history unavailable."
+        } else if shared && !sharedWeekly {
+            placeholderLabel.stringValue = "Usage history unavailable."
             placeholderDetail.stringValue = "Open the dashboard for your full history."
-        } else if candidate == nil, viewModel.recentUsage.status == .failed, feedback.phase != .updating {
+        } else if candidate == nil, failed, feedback.phase != .updating {
             placeholderLabel.stringValue = "Unable to load recent usage."
             placeholderDetail.stringValue = "Try again later."
         } else if candidate == nil {
@@ -230,7 +224,7 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
             placeholderDetail.stringValue = ""
         } else {
             placeholderLabel.stringValue = "No recent usage"
-            placeholderDetail.stringValue = "New requests will appear here after Cursor reports them."
+            placeholderDetail.stringValue = sharedWeekly ? "No activity entries in the past 30 days." : "New requests will appear here after Cursor reports them."
         }
     }
 
@@ -258,7 +252,7 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
             primary.setAccessibilityHelp(entry.tokens.map { "\($0) tokens" } ?? "Tokens unavailable")
             detail = nil
         default:
-            primary = text(RecentUsageFormatter.amount(cents: entry.chargedCents), size: 12, color: .labelColor)
+            primary = text(RecentUsageFormatter.amount(entry: entry), size: 12, color: .labelColor)
             primary.font = .systemFont(ofSize: 12, weight: .medium)
             primary.alignment = .right
             detail = nil
