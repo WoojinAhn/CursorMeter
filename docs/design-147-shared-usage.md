@@ -108,7 +108,15 @@ tests did not cover the real new-plan trigger. The correction adds the four exac
 current membership tokens verified in the official Cursor client, retains the
 team/unknown/owner boundaries, and uses `premium` in shared UI fixtures. The new
 regressions failed before the fix, and the full suite now passes 1,250 tests.
-Installed-app verification of this correction is tracked separately from tests.
+The installed development build `8997357` was verified separately from tests.
+The displayed account matched a fresh authenticated primary profile, the badge
+was Shared, and the native weekly percentage/reset, remaining/purchased credit,
+monthly paid usage and cap matched fresh DashboardService responses. Pressing the
+native Refresh usage control reported Updated and retained those readings. The
+capture was driven by the popover's accessibility frame and its matching native
+window; identity was cropped, and real billing values remain in private evidence.
+An omitted Auto Top-up rule is still Unknown; shared activity history remains
+unavailable. These are distinct from the repaired unsupported-plan error.
 Independent specification review and fresh Argon High/Grok XHigh quality reviews
 approved the bounded correction. The two external reviews used a self-contained
 source packet without tools; neither executed tests nor observed the installed app.

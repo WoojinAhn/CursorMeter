@@ -66,4 +66,17 @@ Task 3 passed independent specification and quality review. Final UI copy correc
 - [x] Inspect package/signing/install effects, preserve any explicitly selected signing identity, and package a dev app after remote freshness check. Back up an installed bundle before replacing it if installation is authorized.
 - [ ] Verify the local app with the existing IDE login, fresh API values, visible native dual meter, refresh and account lifecycle. Capture affected screenshots with synthetic identity or cropped user information. Report source/test/build/installed-app evidence separately; keep unresolved cap/coverage semantics explicit.
 
+2026-11-18 follow-up: the actual `premium` membership exposed a legacy-only
+personal-scope allowlist that all earlier `pro` fixtures missed. The four current
+individual wire tokens were verified in the official Cursor client and added
+without changing authentication or layout. The regressions failed before the fix;
+full regression passed 1,250 tests, release build passed, and independent spec plus
+fresh Argon High/Grok XHigh inline quality reviews approved the correction.
+Installed build `8997357` has matching packaged/installed executable hashes and
+strict signature checks. Its displayed account, weekly percentage/reset, wallet
+remaining/purchased amounts, monthly spend and cap matched fresh server reads;
+native Refresh usage reported Updated. This closes the core personal-account
+display/refresh gap. The broader checkbox remains open for interactive account
+switching and keyboard-focus checks; those are not claimed from fixture tests.
+
 Development candidates were packaged and installed with verified backups and matching executable hashes. The unchanged startup Keychain read is waiting for a macOS access grant, so native acceptance is still pending. Argon High approved the initial native candidate. Grok XHigh's initial and correction reviews identified unsupported membership transitions, the no-purchase track, a missing Settings preview flag, and ring-stroke test coverage. These were corrected with RED/GREEN tests and independent native specification/quality reviews. The final full regression passed 1,247 tests. Argon correction review ended without an answer after a file-read permission denial and is not counted as a pass. The final one-line Settings wiring correction has local review/test evidence, without a further external-model approval claim. No additional paid Cursor inference was used.
