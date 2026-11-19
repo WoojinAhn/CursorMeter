@@ -289,7 +289,7 @@ final class SharedUsageUITests: XCTestCase {
         XCTAssertEqual(vc.numberOfRows(in: table), 0)
         XCTAssertTrue(table.isHiddenOrHasHiddenAncestor)
         XCTAssertTrue(labels(vc.view).contains("Loading recent usage…"))
-        XCTAssertTrue(labels(vc.view).contains { $0.contains("Latest 30 activity entries") })
+        XCTAssertTrue(views(vc.view).contains { $0.toolTip?.contains("Latest 30 activity entries") == true })
         let refresh = try XCTUnwrap(views(vc.view).compactMap { $0 as? RefreshFeedbackButton }.first { !$0.isHiddenOrHasHiddenAncestor })
         XCTAssertEqual(refresh.accessibilityLabel(), "Refresh recent usage")
         XCTAssertNotEqual(refresh.accessibilityValue() as? String, "Retry later")
@@ -423,6 +423,71 @@ final class SharedUsageUITests: XCTestCase {
         XCTAssertEqual(status.stringValue, "Daily activity unavailable · UTC")
         XCTAssertTrue(status.toolTip?.contains("UTC calendar days") == true)
         XCTAssertFalse(status.isHiddenOrHasHiddenAncestor)
+    }
+
+    func testSharedAllowanceDetailUsesWeeklyUnitsWithoutChangingRowOrMoneyLayout() async throws {
+        let vm = await makeSharedUsageUIViewModel(activity: SharedActivityUIFixture(), test: self)
+        let vc = SettingsUsageTabViewController(viewModel: vm)
+        _ = vc.view
+        let table = try XCTUnwrap(views(vc.view).compactMap { $0 as? NSTableView }.first)
+        XCTAssertEqual(table.rowHeight, 44)
+        let tokenColumn = try XCTUnwrap(table.tableColumns.first { $0.identifier.rawValue == "tokens" })
+        XCTAssertEqual(tokenColumn.width, 70)
+        let included = try XCTUnwrap(vc.tableView(table, viewFor: tokenColumn, row: 1))
+        let detail = views(included).compactMap { $0 as? NSTextField }.first { $0.stringValue.hasPrefix("≈") }
+        XCTAssertEqual(detail?.stringValue, "≈0.677 pp")
+        XCTAssertEqual(detail?.font?.pointSize, 10)
+        XCTAssertEqual(detail?.textColor, .secondaryLabelColor)
+        for points in [99.9999, 0.0000001] {
+            detail?.stringValue = "≈\(SharedAllowanceFormatter.points(points)) pp"
+            XCTAssertLessThanOrEqual(try XCTUnwrap(detail).intrinsicContentSize.width, tokenColumn.width - 8)
+        }
+        XCTAssertTrue(detail?.toolTip?.contains("weekly allowance") == true)
+        XCTAssertTrue(detail?.toolTip?.contains("input/output/cache") == true)
+        XCTAssertEqual(detail?.toolTip, detail?.accessibilityHelp())
+        let paid = try XCTUnwrap(vc.tableView(table, viewFor: tokenColumn, row: 0))
+        XCTAssertFalse(labels(paid).contains { $0.contains("pp") })
+        XCTAssertTrue(labels(vc.view).contains { $0.contains("Reported week: 25%") && $0.contains("current mix") })
+        vm.sharedUsage.recordFailure(CursorSharedAPIError.transport)
+        vc.updateUI()
+        let stale = try XCTUnwrap(vc.tableView(table, viewFor: tokenColumn, row: 1))
+        XCTAssertFalse(labels(stale).contains { $0.contains("pp") })
+        XCTAssertFalse(labels(vc.view).contains { $0.contains("Reported week:") })
+    }
+
+    func testReportedWeeklyFactSurvivesIneligibleOrUnavailableCalibration() async throws {
+        for percent in [0.05, 100] {
+            let vm = await makeSharedUsageUIViewModel(.init(weekly: percent), activity: SharedActivityUIFixture(), test: self)
+            let vc = SettingsUsageTabViewController(viewModel: vm)
+            _ = vc.view
+            XCTAssertTrue(labels(vc.view).contains { $0.contains("Reported week:") })
+            XCTAssertFalse(labels(vc.view).contains { $0.contains("Est. capacity") })
+        }
+        let vm = await makeSharedUsageUIViewModel(activity: SharedActivityFixture(), test: self)
+        let vc = SettingsUsageTabViewController(viewModel: vm)
+        _ = vc.view
+        XCTAssertTrue(labels(vc.view).contains { $0.contains("Reported week: 25%") })
+        XCTAssertFalse(labels(vc.view).contains { $0.contains("Est. capacity") })
+    }
+
+    func testRenderedAllowanceCellsDisappearWhenWeeklyBecomesStaleWithoutRowChanges() async throws {
+        let vm = await makeSharedUsageUIViewModel(activity: SharedActivityUIFixture(), test: self)
+        let vc = SettingsUsageTabViewController(viewModel: vm)
+        let window = NSWindow(contentViewController: vc)
+        window.isReleasedWhenClosed = false
+        window.setContentSize(vc.view.fittingSize)
+        defer { window.contentViewController = nil; window.close() }
+        vc.view.layoutSubtreeIfNeeded()
+        let table = try XCTUnwrap(views(vc.view).compactMap { $0 as? NSTableView }.first)
+        let included = try XCTUnwrap(table.view(atColumn: 1, row: 1, makeIfNecessary: true))
+        XCTAssertTrue(labels(included).contains("≈0.677 pp"))
+        let candidate = vm.sharedActivity.recent.value
+        vm.sharedUsage.recordFailure(CursorSharedAPIError.transport)
+        vc.updateUI()
+        vc.view.layoutSubtreeIfNeeded()
+        XCTAssertEqual(vm.sharedActivity.recent.value, candidate)
+        let stale = try XCTUnwrap(table.view(atColumn: 1, row: 1, makeIfNecessary: true))
+        XCTAssertFalse(labels(stale).contains { $0.contains("pp") })
     }
 
     func testSharedAmountCellsKeepCompactWidthAndExposeReportedUSD() async throws {

@@ -549,6 +549,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             _ = viewModel.sharedActivity.recent
             _ = viewModel.sharedActivity.daily
             _ = viewModel.sharedActivity.paidReset
+            _ = viewModel.sharedActivity.allowance
+            _ = viewModel.sharedActivity.observation
             _ = viewModel.authenticatedUserInfo
             _ = viewModel.usageData
             _ = viewModel.splitPresentation
@@ -579,6 +581,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             _ = viewModel.sharedActivity.recent
             _ = viewModel.sharedActivity.daily
             _ = viewModel.sharedActivity.paidReset
+            _ = viewModel.sharedActivity.allowance
+            _ = viewModel.sharedActivity.observation
             _ = viewModel.authenticatedUserInfo
             _ = viewModel.activeAuthSource
             _ = viewModel.splitAlertTargets
@@ -719,6 +723,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             _ = viewModel.sharedActivity.recent
             _ = viewModel.sharedActivity.daily
             _ = viewModel.sharedActivity.paidReset
+            _ = viewModel.sharedActivity.allowance
+            _ = viewModel.sharedActivity.observation
             _ = viewModel.authenticatedUserInfo
             _ = viewModel.usageData
             _ = viewModel.popoverValueMode

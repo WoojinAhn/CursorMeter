@@ -327,6 +327,37 @@ the official cost chart selects `costRank <= topN` and adds `other.points`;
 the token chart uses `tokenRank <= topN` and adds `other.points`. A combined union
 of ranked series can double-count. Weighted legacy request units are not tokens.
 
+### Shared allowance estimates
+
+An exact weekly-range `query-daily-usage` request, starting at the accepted
+`billingCycleStart` rather than UTC midnight, supplies `totalIncludedTokens`.
+The response echoes the exact range; its buckets still begin at UTC midnight.
+The complete paginated included ledger was independently reconciled with this
+aggregate during live verification. A separate non-midnight start within the
+same UTC day also reconciled a proper subset of that ledger, confirming that
+the observed endpoint honored the interior timestamp rather than whole-day totals.
+This establishes the aggregate source's
+observed coverage, not equal consumption weights or synchronized reporting.
+
+Calibration uses only included tokens and a matching current-period percentage
+of at least 0.1% and below 100%.
+The aggregate's point, series, other-bucket and root token totals must agree.
+Visible groups outside the token-ranked set must fit within the token `other`
+bucket, including its daily included and non-included counts. The bucket can
+also contain undisplayed groups, so subset consistency is not exact equality.
+The current-period cycle and percentage must remain unchanged on confirmation.
+Paid tokens stay outside the included denominator. Unlike the latest-30 list,
+the aggregate covers the complete requested weekly interval.
+
+For included token total `T` and reported percentage `p`, effective token capacity
+is estimated as `100 * T / p`. An included entry with `t` tokens is allocated
+`p * t / T` **percentage points**, explicitly labeled estimated. These values
+describe the observed usage mix; they are neither a contractual token limit nor
+measured request deductions. Product, model, input/output and cache weights may
+differ, and server reporting can be delayed. Missing, inconsistent, stale or
+saturated inputs withhold estimates. Same-account, same-cycle changes between
+reported percentages are separate interval observations, not request attribution.
+
 `monthlyUsage.periodStart` and `resetsAt` are server-provided ISO dates for the
 paid period. They are separate from weekly included resets and subscription
 billing dates. `creditsUsedCents` is not evidence of a wallet decrement and must

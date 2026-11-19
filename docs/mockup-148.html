@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CursorMeter #148 — Weekly allowance estimate</title>
+<style>
+  :root { color-scheme: dark; font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #202020; color: #efefef; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 28px; }
+  main { max-width: 936px; margin: auto; }
+  h1 { font-size: 22px; margin: 0 0 10px; font-weight: 600; }
+  p { color: #bcbcbc; line-height: 1.5; font-size: 13px; max-width: 78ch; }
+  .compare { display: flex; gap: 24px; flex-wrap: wrap; margin-top: 24px; }
+  section { width: 440px; }
+  h2 { font-size: 14px; font-weight: 500; margin: 0 0 12px; }
+  .window { background: #303030; padding: 18px; border-radius: 10px; }
+  .card { border: 1px solid #555; border-radius: 11px; background: #393939; overflow: hidden; }
+  .header { padding: 12px 14px 6px; display: flex; align-items: center; justify-content: space-between; }
+  .heading { font-size: 12px; font-weight: 600; }
+  .updated { color: #bcbcbc; font-size: 10px; margin-top: 3px; }
+  .refresh { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; padding: 4px 16px; border-radius: 6px; background: #656565; }
+  .refresh svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.5; }
+  .table { margin: 0 11px; background: #282828; border-top: 1px solid #555; height: 264px; }
+  .row { height: 44px; display: grid; grid-template-columns: minmax(0, 1fr) 70px 79px; align-items: center; }
+  .model { padding: 7px 8px; min-width: 0; }
+  .title { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .detail { font-size: 10px; color: #bcbcbc; margin-top: 2px; }
+  .tokens, .amount { padding-right: 8px; text-align: right; font-variant-numeric: tabular-nums; }
+  .tokens { font-size: 11px; color: #bcbcbc; }
+  .share { font-size: 10px; margin-top: 3px; color: #d3d3d3; }
+  .amount { font-size: 12px; font-weight: 500; }
+  .count { padding: 9px 14px; border-top: 1px solid #555; font-size: 11px; color: #d3d3d3; display: flex; align-items: center; justify-content: space-between; }
+  .zone { display: flex; gap: 6px; align-items: center; font-size: 10px; color: #bcbcbc; }
+  .segments { display: flex; gap: 7px; font-size: 11px; }
+  .selected { border-radius: 4px; padding: 1px 5px; background: #656565; color: #efefef; }
+  .caption { margin: 0; padding: 7px 14px 12px; min-height: 63px; color: #d3d3d3; font-size: 11px; line-height: 1.35; }
+  .footer { margin: 0 14px; padding: 9px 0; border-top: 1px solid #555; font-size: 11px; display: flex; justify-content: space-between; color: #d3d3d3; }
+  .link { color: #8fc4ff; }
+  .explanation { margin-top: 22px; }
+  @media(max-width: 520px) { body { padding: 16px; } section { width: 100%; } .window { padding: 8px; } }
+</style>
+<main>
+  <h1>Estimate activity against the full weekly allowance</h1>
+  <p>Design preview for #148. All values below are synthetic. The full weekly included history contains 50M tokens and the server reports 12.5% used. These six recent entries are only a sample of that history.</p>
+  <div class="compare">
+    <section><h2>Current</h2><div class="window" id="before"></div></section>
+    <section><h2>Proposed — estimated allowance per entry</h2><div class="window" id="after"></div></section>
+  </div>
+  <p class="explanation">Server-reported weekly usage and interval changes are observations. Per-entry allowance and total token capacity are estimates calibrated to the complete weekly included history. Product, model, input, output and cache weights may differ. Paid usage keeps its actual charge.</p>
+</main>
+<script>
+  const entries = [
+    {product:'grok-bot', tokens:200000, time:'12:06', kind:'Included', amount:'Included'},
+    {product:'cursor · Demo model', tokens:50000, time:'12:05', kind:'Additional usage', amount:'$0.04'},
+    {product:'grok-bot', tokens:350000, time:'12:04', kind:'Included', amount:'Included'},
+    {product:'grok-build', tokens:250000, time:'12:03', kind:'Included', amount:'Included'},
+    {product:'grok-bot', tokens:100000, time:'12:02', kind:'Included', amount:'Included'},
+    {product:'grok-bot', tokens:50000, time:'12:01', kind:'Included', amount:'Included'},
+  ];
+  const total = 50000000;
+  const percentUsed = 12.5;
+  for (const id of ['before','after']) {
+    const after = id === 'after';
+    document.getElementById(id).innerHTML = `<div class="card">
+      <div class="header"><div><div class="heading">Recent usage</div><div class="updated">Updated Nov 20, 12:07 GMT+9</div></div><span class="refresh"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M12.5 5A5 5 0 1 0 13 10M9 4h4V0"/></svg>Refresh</span></div>
+      <div class="table">${entries.map(row => `<div class="row">
+        <div class="model"><div class="title">${row.product}</div><div class="detail">Nov 20, ${row.time} · ${row.kind}</div></div>
+        <div class="tokens" ${after ? `title="Token-proportional estimate against the complete weekly included history; model and cache weights may differ."` : ''}>${(row.tokens/1000).toFixed(1)}K${after && row.kind === 'Included' ? `<div class="share">≈${(row.tokens/total*percentUsed).toFixed(3)} pp</div>` : ''}</div>
+        <div class="amount">${row.amount}</div></div>`).join('')}</div>
+      <div class="count"><span>Latest 6 activity entries</span><span class="zone">GMT+9 <span class="segments"><span class="selected">Local</span><span>UTC</span></span></span></div>
+      <p class="caption">${after ? 'Week: 12.5% used · +0.2 pp since 12:05.<br>Est. capacity: 400M tokens at current mix.<br>≈ values estimate weekly allowance use per entry.' : 'Latest 30 activity entries from the past 30 days. Reported amounts include grants and adjustments.'}</p>
+      <div class="footer"><span>Full history and billing</span><span class="link">Open Dashboard ↗</span></div>
+    </div>`;
+  }
+</script>
+</html>

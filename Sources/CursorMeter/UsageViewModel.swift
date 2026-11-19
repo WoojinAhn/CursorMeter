@@ -1112,19 +1112,7 @@ final class UsageViewModel {
                 if let freshProfile {
                     retainedProfile = credentialDigest.map { (credentialDigest: $0, profile: freshProfile) }
                 }
-                let activityContext = context
-                let activityTask: Task<Bool, Never>?
-                if let owner, freshProfile != nil, personalScope == true, sharedUsage.mode == .sharedWeekly,
-                   sharedUsage.detectionError == nil {
-                    activityTask = Task { @MainActor in
-                        await self.sharedActivity.refresh(cookieHeader: cookieHeader, owner: owner,
-                            isCurrent: { self.isCurrent(activityContext) })
-                    }
-                } else {
-                    sharedActivity.recordFailure()
-                    activityTask = nil
-                }
-                defer { activityTask?.cancel() }
+                sharedActivity.suspendAllowance()
                 let success: Bool
                 if let owner, freshProfile != nil, personalScope == true, sharedUsage.mode == .sharedWeekly {
                     let acceptedContext = context
@@ -1134,6 +1122,22 @@ final class UsageViewModel {
                 } else {
                     success = false
                 }
+                let activityContext = context
+                let activityTask: Task<Bool, Never>?
+                if let owner, freshProfile != nil, personalScope == true, sharedUsage.mode == .sharedWeekly,
+                   sharedUsage.detectionError == nil {
+                    activityTask = Task { @MainActor in
+                        await self.sharedActivity.refresh(cookieHeader: cookieHeader, owner: owner,
+                            weekly: self.sharedUsage.currentWeeklyUsage,
+                            weeklyObservedAt: self.sharedUsage.snapshot?.weekly.lastSuccessAt,
+                            confirmationProvider: self.sharedUsage.provider,
+                            currentWeekly: { self.sharedUsage.currentWeeklyUsage }, isCurrent: { self.isCurrent(activityContext) })
+                    }
+                } else {
+                    sharedActivity.recordFailure()
+                    activityTask = nil
+                }
+                defer { activityTask?.cancel() }
                 if success {
                     lastSuccessAt = sharedUsage.lastCompleteSuccessAt
                     consecutiveFailureCount = 0

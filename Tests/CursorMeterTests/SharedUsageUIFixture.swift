@@ -107,7 +107,7 @@ struct SharedActivityUIFixture: CursorSharedActivityFetching {
     func fetchDaily(cookieHeader: String, start: Date, end: Date) async throws -> SharedDailyUsageResponse {
         var points: [[String: Any]] = []
         for offset in 0..<7 {
-            let day = start.addingTimeInterval(Double(offset * 86400))
+            let day = SharedActivityValue.utc.startOfDay(for: start).addingTimeInterval(Double(offset * 86400))
             let tokens = (offset + 1) * 12000
             let cost = String(format: "%.10f", Double(offset + 1) / 4)
             points.append(["dayStartTime": timestamp(day), "contractedCost": cost,

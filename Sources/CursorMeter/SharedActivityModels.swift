@@ -234,10 +234,89 @@ struct SharedDailyUsageResponse: Decodable, Sendable {
         }
     }
 
+    /// The exact weekly query can span eight UTC dates when its first day is partial.
+    func includedTokens(start: Date, end: Date, topN: Int = 20) throws -> Int {
+        if identityUnlinked { throw CursorSharedAPIError.identityUnlinked }
+        let calendar = SharedActivityValue.utc
+        let firstDay = calendar.startOfDay(for: start)
+        let lastDay = calendar.startOfDay(for: end)
+        guard available, topN > 0, topN <= 1000, start < end,
+              let responseStart = SharedActivityValue.date(startTime),
+              let responseEnd = SharedActivityValue.date(endTime),
+              abs(responseStart.timeIntervalSince(start)) < 0.001,
+              abs(responseEnd.timeIntervalSince(end)) < 0.001,
+              let dayCount = calendar.dateComponents([.day], from: firstDay, to: lastDay).day,
+              (0...7).contains(dayCount), series.count <= topN * 2,
+              let other, let summary, let rootTokens = summary.tokens,
+              let rootIncluded = summary.includedTokens else { throw CursorSharedAPIError.invalidResponse }
+        func add(_ first: Int, _ second: Int) throws -> Int {
+            let sum = first.addingReportingOverflow(second)
+            guard !sum.overflow, sum.partialValue <= SharedActivityValue.maximumTokens else {
+                throw CursorSharedAPIError.invalidResponse
+            }
+            return sum.partialValue
+        }
+        typealias TokenCounts = (tokens: Int, included: Int)
+        func validate(_ points: [Point], _ summary: Summary) throws -> (tokens: Int, included: Int, days: [Date: TokenCounts]) {
+            guard points.count <= dayCount + 1, let total = summary.tokens,
+                  let included = summary.includedTokens else { throw CursorSharedAPIError.invalidResponse }
+            var seen = Set<Date>()
+            var tokenSum = 0
+            var includedSum = 0
+            var days: [Date: TokenCounts] = [:]
+            for point in points {
+                guard let day = SharedActivityValue.date(point.dayStartTime), day == calendar.startOfDay(for: day),
+                      day >= firstDay, day <= lastDay, seen.insert(day).inserted,
+                      let tokens = point.tokens, let included = point.includedTokens,
+                      tokens >= 0, tokens <= SharedActivityValue.maximumTokens,
+                      included >= 0, included <= tokens else { throw CursorSharedAPIError.invalidResponse }
+                tokenSum = try add(tokenSum, tokens)
+                includedSum = try add(includedSum, included)
+                days[day] = (tokens, included)
+            }
+            guard tokenSum == total, includedSum == included else { throw CursorSharedAPIError.invalidResponse }
+            return (total, included, days)
+        }
+        var dimensions = Set<String>()
+        var total = 0
+        var included = 0
+        var excludedDays: [Date: TokenCounts] = [:]
+        for item in series {
+            guard item.costRank > 0, item.tokenRank > 0,
+                  let dimension = SharedActivityValue.text(item.dimensions.usageType),
+                  dimensions.insert(dimension).inserted else { throw CursorSharedAPIError.invalidResponse }
+            let sums = try validate(item.points, item.summary)
+            // Cost-ranked union members are already represented by the token-ranked other bucket.
+            if item.tokenRank <= topN {
+                total = try add(total, sums.0)
+                included = try add(included, sums.1)
+            } else {
+                for (day, counts) in sums.days {
+                    let previous = excludedDays[day] ?? (0, 0)
+                    excludedDays[day] = (try add(previous.tokens, counts.tokens), try add(previous.included, counts.included))
+                }
+            }
+        }
+        let remaining = try validate(other.points, other.summary)
+        // Known cost-only groups jointly form a subset of token-other, including its non-included tokens.
+        for (day, counts) in excludedDays {
+            let otherCounts = remaining.days[day] ?? (0, 0)
+            guard counts.tokens <= otherCounts.tokens, counts.included <= otherCounts.included,
+                  counts.tokens - counts.included <= otherCounts.tokens - otherCounts.included else {
+                throw CursorSharedAPIError.invalidResponse
+            }
+        }
+        total = try add(total, remaining.0)
+        included = try add(included, remaining.1)
+        guard total == rootTokens, included == rootIncluded else { throw CursorSharedAPIError.invalidResponse }
+        return included
+    }
+
     private struct Dimensions: Decodable, Sendable { let usageType: String? }
     private struct Summary: Decodable, Sendable {
         let cost: Decimal?
         let tokens: Int?
+        let includedTokens: Int?
         private enum CodingKeys: String, CodingKey { case totalContractedCost, totalTokens, totalIncludedTokens }
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -246,7 +325,8 @@ struct SharedDailyUsageResponse: Decodable, Sendable {
             let included = try? c.decode(Int.self, forKey: .totalIncludedTokens)
             if let total, let included, total >= 0, total <= SharedActivityValue.maximumTokens, included >= 0, included <= total {
                 tokens = total
-            } else { tokens = nil }
+                includedTokens = included
+            } else { tokens = nil; includedTokens = nil }
         }
     }
     private struct Series: Decodable, Sendable {

@@ -22,6 +22,7 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
     private let scrollView = RecentUsageScrollView()
     private var rows: [RecentUsageEntry] = []
     private var renderedCandidate: RecentUsageCandidate?
+    private var renderedAllowance: SharedAllowanceCalibration?
     private var renderedTimeZone: RecentUsageTimeZone?
     private var renderedTimeZoneRevision: UInt64?
 
@@ -165,13 +166,23 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
             ? "Latest 30 activity entries from the past 30 days. Reported amounts include grants and adjustments."
             : (shared ? "Refresh checks the usage plan. View history in the dashboard."
                 : "Included amounts show usage value covered by your plan.")
+        let allowance = sharedWeekly ? viewModel.sharedActivity.currentAllowance(matching: viewModel.sharedUsage.currentWeeklyUsage) : nil
+        if sharedWeekly, let weekly = viewModel.sharedUsage.currentWeeklyUsage,
+           let reported = SharedAllowanceFormatter.caption(weekly: weekly, calibration: allowance,
+                observation: viewModel.sharedActivity.observation, mode: viewModel.recentUsageTimeZone) {
+            caption.toolTip = caption.stringValue + " " + SharedAllowanceFormatter.explanation
+                + " Observed changes are account-wide percentage points between the displayed times, not per-request charges."
+            caption.stringValue = reported
+        } else { caption.toolTip = nil }
+        caption.setAccessibilityHelp(caption.toolTip)
         let candidate = shared ? (sharedWeekly ? viewModel.sharedActivity.recent.value : nil) : viewModel.recentUsage.snapshot?.candidate
         let failed = shared ? viewModel.sharedActivity.recent.error != nil : viewModel.recentUsage.status == .failed
         let mode = viewModel.recentUsageTimeZone
         let revision = viewModel.recentUsageTimeZoneRevision
-        if candidate != renderedCandidate || mode != renderedTimeZone || revision != renderedTimeZoneRevision {
+        if candidate != renderedCandidate || mode != renderedTimeZone || revision != renderedTimeZoneRevision || allowance != renderedAllowance {
             rows = candidate?.entries ?? []
             renderedCandidate = candidate
+            renderedAllowance = allowance
             renderedTimeZone = mode
             renderedTimeZoneRevision = revision
             tableView.reloadData()
@@ -250,7 +261,15 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
             primary = text(RecentUsageFormatter.tokens(entry.tokens), size: 11, color: .secondaryLabelColor)
             primary.alignment = .right
             primary.setAccessibilityHelp(entry.tokens.map { "\($0) tokens" } ?? "Tokens unavailable")
-            detail = nil
+            if viewModel.sharedUsage.mode == .sharedWeekly,
+               let allowance = viewModel.sharedActivity.currentAllowance(matching: viewModel.sharedUsage.currentWeeklyUsage),
+               let estimate = allowance.detail(for: entry) {
+                let label = text(estimate, size: 10, color: .secondaryLabelColor)
+                label.alignment = .right
+                label.toolTip = SharedAllowanceFormatter.explanation
+                label.setAccessibilityHelp(SharedAllowanceFormatter.explanation)
+                detail = label
+            } else { detail = nil }
         default:
             primary = text(RecentUsageFormatter.amount(entry: entry), size: 12, color: .labelColor)
             primary.font = .systemFont(ofSize: 12, weight: .medium)
