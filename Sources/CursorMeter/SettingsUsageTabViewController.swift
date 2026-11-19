@@ -255,6 +255,8 @@ final class SettingsUsageTabViewController: NSViewController, NSTableViewDataSou
             primary = text(RecentUsageFormatter.amount(entry: entry), size: 12, color: .labelColor)
             primary.font = .systemFont(ofSize: 12, weight: .medium)
             primary.alignment = .right
+            primary.toolTip = RecentUsageFormatter.reportedAmount(entry: entry)
+            primary.setAccessibilityHelp(primary.toolTip)
             detail = nil
         }
         host.addSubview(primary)

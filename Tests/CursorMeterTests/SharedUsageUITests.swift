@@ -413,6 +413,37 @@ final class SharedUsageUITests: XCTestCase {
         XCTAssertFalse(status?.isHiddenOrHasHiddenAncestor ?? true)
     }
 
+    func testUnavailableSharedChartRetainsDailyUTCCaption() async throws {
+        let vm = await makeSharedUsageUIViewModel(test: self)
+        vm.sharedActivity.recordFailure()
+        let vc = popover(vm)
+        let status = try XCTUnwrap(views(vc.view).compactMap { $0 as? NSTextField }
+            .first { $0.accessibilityIdentifier() == "weeklyChartStatus" })
+        XCTAssertEqual(vm.displayedWeeklyChartStatus, .unavailable)
+        XCTAssertEqual(status.stringValue, "Daily activity unavailable · UTC")
+        XCTAssertTrue(status.toolTip?.contains("UTC calendar days") == true)
+        XCTAssertFalse(status.isHiddenOrHasHiddenAncestor)
+    }
+
+    func testSharedAmountCellsKeepCompactWidthAndExposeReportedUSD() async throws {
+        let vm = await makeSharedUsageUIViewModel(activity: SharedActivityUIFixture(), test: self)
+        let vc = SettingsUsageTabViewController(viewModel: vm)
+        _ = vc.view
+        let table = try XCTUnwrap(views(vc.view).compactMap { $0 as? NSTableView }.first)
+        let column = try XCTUnwrap(table.tableColumns.first { $0.identifier.rawValue == "amount" })
+        XCTAssertEqual(column.width, 79)
+        for (index, expected, reported) in [
+            (0, "$0.42", "$0.421"), (1, "Included", "$0.00"),
+            (2, "−$5.00", "−$5.00"), (3, "−$0.12", "−$0.12"),
+        ] {
+            let cell = try XCTUnwrap(vc.tableView(table, viewFor: column, row: index))
+            let amount = try XCTUnwrap(views(cell).compactMap { $0 as? NSTextField }.first)
+            XCTAssertEqual(amount.stringValue, expected)
+            XCTAssertEqual(amount.toolTip, "Reported amount: \(reported) USD")
+            XCTAssertEqual(amount.accessibilityHelp(), "Reported amount: \(reported) USD")
+        }
+    }
+
     func testSharedSurfacesRenderSyntheticArtifacts() async throws {
         let normal = await makeSharedUsageUIViewModel(activity: SharedActivityUIFixture(), test: self)
         normal.notificationEnabled = true

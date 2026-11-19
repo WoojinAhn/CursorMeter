@@ -81,7 +81,7 @@ struct SharedBillingItemsResponse: Decodable, Sendable {
                 }
             default: kind = .other
             }
-            let context = [item.product, item.model ?? item.displayLabel].compactMap { $0 }
+            let context = [item.product, item.model].compactMap { $0 }
             return RecentUsageEntry(date: date, model: context.isEmpty ? nil : context.joined(separator: " · "),
                 kind: kind, tokens: item.hasTokenMeters == false ? nil : SharedActivityValue.tokenCount(item.tokens),
                 chargedCents: nil, exactChargedCents: item.currency == "USD"
@@ -97,7 +97,6 @@ struct SharedBillingItemsResponse: Decodable, Sendable {
         let id: String?
         let product: String?
         let model: String?
-        let displayLabel: String?
         let chargeCategory: String
         let usageType: String?
         let tokens: String?
@@ -106,7 +105,7 @@ struct SharedBillingItemsResponse: Decodable, Sendable {
         let cost: String?
         private enum CodingKeys: String, CodingKey { case eventTime, billingItemId, product, chargeCategory, usageType, totalTokens, hasTokenMeters, pricing, displayExtras }
         private enum PricingKeys: String, CodingKey { case currency, contracted }
-        private enum ExtrasKeys: String, CodingKey { case model, displayLabel }
+        private enum ExtrasKeys: String, CodingKey { case model }
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             eventTime = try c.decode(String.self, forKey: .eventTime)
@@ -121,7 +120,6 @@ struct SharedBillingItemsResponse: Decodable, Sendable {
             cost = try? pricing?.decode(String.self, forKey: .contracted)
             let extras = try? c.nestedContainer(keyedBy: ExtrasKeys.self, forKey: .displayExtras)
             model = SharedActivityValue.text(try? extras?.decode(String.self, forKey: .model))
-            displayLabel = SharedActivityValue.text(try? extras?.decode(String.self, forKey: .displayLabel))
         }
     }
 }

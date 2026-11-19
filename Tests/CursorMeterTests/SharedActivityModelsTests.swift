@@ -33,6 +33,47 @@ final class SharedActivityModelsTests: XCTestCase {
         XCTAssertThrowsError(try decode("{}", SharedBillingItemsResponse.self))
     }
 
+    func testOnlySharedIncludedKnownZeroUsesIncludedAmountLabel() {
+        for (kind, cents, expected): (RecentUsageKind, Decimal?, String) in [
+            (.included, 0, "Included"), (.included, nil, "—"), (.included, 125, "$1.25"),
+            (.additionalUsage, 0, "$0.00"), (.creditGrant, -125, "−$1.25"),
+            (.adjustment, Decimal(string: "-0.00000001"), "−<$0.0001"),
+            (.included, Decimal(string: "0.00000001"), "<$0.0001"),
+        ] {
+            let entry = RecentUsageEntry(date: now, model: nil, kind: kind, tokens: nil,
+                                         chargedCents: nil, exactChargedCents: cents)
+            XCTAssertEqual(RecentUsageFormatter.amount(entry: entry), expected)
+        }
+        let legacy = RecentUsageEntry(date: now, model: nil, kind: .included, tokens: nil, chargedCents: 0)
+        XCTAssertEqual(RecentUsageFormatter.amount(entry: legacy), "$0.00")
+    }
+
+    func testRecentNeverStoresDisplayLabelOrPrincipalAsModelContext() throws {
+        let response: SharedBillingItemsResponse = try decode(#"{"data":[{"eventTime":"2026-11-18T00:00:00Z","product":"cursor","chargeCategory":"usage","usageType":"included","displayExtras":{"displayLabel":"Synthetic Account Holder","principal":"private@example.invalid"}},{"eventTime":"2026-11-18T00:00:00Z","chargeCategory":"credit","displayExtras":{"displayLabel":"Synthetic Account Holder"}}],"pagination":{"hasMore":false}}"#)
+        let candidate = try response.candidate(start: now.addingTimeInterval(-30 * 86400), end: now)
+        XCTAssertEqual(candidate.entries[0].model, "cursor")
+        XCTAssertNil(candidate.entries[1].model)
+        XCTAssertEqual(candidate.entries[1].kind, .creditGrant)
+        for value in ["Synthetic Account Holder", "private@example.invalid"] {
+            XCTAssertFalse(String(describing: response).contains(value))
+            XCTAssertFalse(String(describing: candidate).contains(value))
+        }
+    }
+
+    func testReportedUSDUsesExactDecimalsForSmallSignedAndLargeValues() throws {
+        for usd in ["0.00", "12.30", "0.1234567891", "0.0000000001", "-0.0000000001", "-123.4567890123", "9999999999999.1234567891"] {
+            let cents = try XCTUnwrap(SharedActivityValue.cents(usd, signed: true))
+            let entry = RecentUsageEntry(date: now, model: nil, kind: .adjustment, tokens: nil,
+                                         chargedCents: nil, exactChargedCents: cents)
+            let expected = usd.hasPrefix("-") ? "−$" + usd.dropFirst() : "$" + usd
+            XCTAssertEqual(RecentUsageFormatter.reportedAmount(entry: entry), "Reported amount: \(expected) USD")
+        }
+        let unknown = RecentUsageEntry(date: now, model: nil, kind: .included, tokens: nil, chargedCents: nil)
+        let legacy = RecentUsageEntry(date: now, model: nil, kind: .included, tokens: nil, chargedCents: 12.34)
+        XCTAssertNil(RecentUsageFormatter.reportedAmount(entry: unknown))
+        XCTAssertNil(RecentUsageFormatter.reportedAmount(entry: legacy))
+    }
+
     func testDailyRanksDoNotDoubleCountUnionAndUseSevenUTCDateBuckets() throws {
         let response: SharedDailyUsageResponse = try decode(daily(series: [series(type: "included", costRank: 1, tokenRank: 21, cost: "1.25", tokens: 900), series(type: "on_demand", costRank: 21, tokenRank: 1, cost: "8", tokens: 100)], otherCost: "0.01", otherTokens: 5))
         let days = try response.days(start: start, end: now)

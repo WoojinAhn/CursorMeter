@@ -1,5 +1,15 @@
 import Foundation
 
+enum PopoverDayBoundary {
+    static func next(after instant: Date, sharedWeekly: Bool) -> Date? {
+        guard let kstEnd = TodayUsageDay(containing: instant)?.end else { return nil }
+        guard sharedWeekly, let utcEnd = SharedActivityValue.utc.dateInterval(of: .day, for: instant)?.end else {
+            return kstEnd
+        }
+        return min(kstEnd, utcEnd)
+    }
+}
+
 struct TodayUsageDay: Codable, Equatable, Hashable, Sendable {
     let start: Date
     let end: Date

@@ -344,3 +344,15 @@ and [`2x5blx2ii_ux0.js`](https://grok.com/dashboard/_next/static/immutable/chunk
 inspected from the already authenticated browser's loaded public source; installed
 Cursor `workbench.xai-commerce-prepaid.js` (`cursorSettingsFromReads` and
 `CreditsCardView`). Only contract details are retained here, not live account data.
+
+### Shared included-zero display (#148 follow-up)
+
+Fresh current-account activity verified that `usageType: included` can carry
+exactly zero `pricing.contracted`, even with nonzero tokens. This is reported
+billing amount, not the retail value of included tokens. Keep zero distinct
+from missing cost and do not infer a retail charge. The UI exposes precise
+reported USD in hover/accessibility help while retaining compact visible values.
+
+`displayExtras.displayLabel` is not a model identifier: current usage responses
+can place the account display name there with no `model` field. Retain only the
+explicit product/model context, not that label as a model fallback.

@@ -412,9 +412,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
 
     private func schedulePopoverDayTimer() {
         cancelPopoverDayTimer()
-        guard popover?.isShown == true, let day = TodayUsageDay(containing: Date()) else { return }
+        guard popover?.isShown == true,
+              let boundary = PopoverDayBoundary.next(after: Date(), sharedWeekly: viewModel.sharedUsage.mode == .sharedWeekly) else { return }
         // This boundary only retires yesterday's highlight; normal refresh owns networking.
-        let timer = Timer(fire: day.end, interval: 0, repeats: false) { [weak self] _ in
+        let timer = Timer(fire: boundary, interval: 0, repeats: false) { [weak self] _ in
             Task { @MainActor [weak self] in self?.refreshPopoverDay() }
         }
         popoverDayTimer = timer
@@ -761,6 +762,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
                 // stop forever after the first skipped change.
                 if self.popover.isShown {
                     (self.popover.contentViewController as? MenuBarPopoverViewController)?.updateUI()
+                    self.schedulePopoverDayTimer()
                 }
                 self.observePopover()
             }

@@ -17,12 +17,26 @@ enum RecentUsageFormatter {
 
     static func amount(entry: RecentUsageEntry) -> String {
         guard let cents = entry.exactChargedCents else { return amount(cents: entry.chargedCents) }
+        if entry.kind == .included, cents == 0 { return "Included" }
         let magnitude = cents < 0 ? -cents : cents
         let sign = cents < 0 ? "−" : ""
         if magnitude > 0, magnitude < 0.01 { return sign + "<$0.0001" }
         let digits = magnitude > 0 && magnitude < 1 ? 4 : 2
         let formatter = numberFormatter(minimumDigits: digits, maximumDigits: digits)
         return sign + "$" + (formatter.string(from: NSDecimalNumber(decimal: magnitude / 100)) ?? "—")
+    }
+
+    static func reportedAmount(entry: RecentUsageEntry) -> String? {
+        guard let cents = entry.exactChargedCents else { return nil }
+        let sign = cents < 0 ? "−" : ""
+        var dollars = (cents < 0 ? -cents : cents) / 100
+        var rounded = Decimal()
+        NSDecimalRound(&rounded, &dollars, 10, .plain)
+        // NumberFormatter can lose significant digits when bridging a large decimal.
+        let parts = NSDecimalNumber(decimal: rounded).stringValue.split(separator: ".")
+        let fraction = parts.count == 2 ? String(parts[1]) : ""
+        let digits = fraction.padding(toLength: max(2, fraction.count), withPad: "0", startingAt: 0)
+        return "Reported amount: \(sign)$\(parts[0]).\(digits) USD"
     }
 
     static func tokens(_ count: Int?) -> String {

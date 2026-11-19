@@ -56,6 +56,27 @@ boundary explicitly and use UTC for day names and Today emphasis. Legacy chart
 calendar behavior remains unchanged. Server-ranked series must be selected for
 the chosen metric before adding the `other` bucket, avoiding double-counting.
 
+## Included amounts and rollover follow-up
+
+The existing 79-point amount column remains compact. A shared included entry
+with a confirmed zero contracted amount shows `Included`; paid zero remains
+`$0.00`, missing amounts remain unavailable, and nonzero amounts retain the
+existing precision and signed formatting. Hover and accessibility help expose
+the precise reported USD amount (up to ten fractional digits). No retail-cost
+estimate is substituted for an included entry. See the
+[before/after mockup](mockup-148-recent-amounts.html).
+
+Only an explicit model is appended to the product. `displayExtras.displayLabel`
+can contain a person's name and is not stored or used as a model fallback.
+Shared daily unavailable text identifies UTC, and an open shared popover redraws
+at the earlier of the next UTC and legacy KST boundary. Legacy day semantics
+remain unchanged.
+
+Review disposition: compact currency rounding is intentional presentation;
+exact-value disclosure addresses the missing detail. Strict page validation is
+retained because no observed API contract supports dropping out-of-range or
+conflicting duplicate records and calling the remainder a complete valid page.
+
 ## Verification
 
 Task 1 (`201465a`) passed independent specification and quality review and

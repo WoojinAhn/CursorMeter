@@ -739,8 +739,13 @@ final class MenuBarPopoverViewController: NSViewController {
                 weeklyStatusLabel.toolTip = "Weekly refresh failed. Showing the last successful data; retrying on the next refresh."
             }
         case .unavailable:
-            weeklyStatusLabel.stringValue = "Weekly activity unavailable — retrying"
-            weeklyStatusLabel.toolTip = "Weekly activity could not be loaded; retrying on the next refresh."
+            if viewModel.sharedUsage.mode == .sharedWeekly {
+                weeklyStatusLabel.stringValue = "Daily activity unavailable · UTC"
+                weeklyStatusLabel.toolTip = "Daily activity uses UTC calendar days. Data could not be loaded; retrying on the next refresh."
+            } else {
+                weeklyStatusLabel.stringValue = "Weekly activity unavailable — retrying"
+                weeklyStatusLabel.toolTip = "Weekly activity could not be loaded; retrying on the next refresh."
+            }
         case .ready:
             guard viewModel.sharedUsage.mode == .sharedWeekly else { return }
             let hasUnknown = viewModel.displayedWeeklyData?.contains { viewModel.effectiveWeeklyChartMetric.value(for: $0) == nil } == true
