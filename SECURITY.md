@@ -30,6 +30,7 @@ If you discover a security vulnerability in CursorMeter, **please do not open a 
 CursorMeter is a menu bar app that calls undocumented Cursor API endpoints using cookie-based session credentials. The protected assets are:
 
 - **Cursor session cookies** (Keychain-stored), reusable for the lifetime of the session token
+- **Cursor Safe Storage derived key** (memory only), used to decrypt the IDE access token with macOS-granted access
 - **Account email / name**, derived from `/api/auth/me`
 - **Recent usage snapshot**, containing up to 30 bounded display entries and their original retrieval time
 
@@ -51,9 +52,11 @@ When a Cursor IDE installation is signed in on the same Mac, CursorMeter derives
 
 - **What is read:** `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`, a single key — `cursorAuth/accessToken`.
 - **How:** a read-only SQLite connection (`SQLITE_OPEN_READONLY`, 250 ms busy timeout), opened and closed within each read. The IDE's store is never written or locked.
-- **What is never read:** `cursorAuth/refreshToken` or any other key. CursorMeter never performs token refresh itself — it only reuses the access token the IDE already maintains.
+- **Encrypted tokens (#149):** recognize the bounded `cursor-safe-storage:v1:` envelope and Chromium `v10` ciphertext. The exact `Cursor Safe Storage` Keychain service and current `Cursor Key` account (or legacy `Cursor`) supply the decryption secret. Derived keys stay in process memory; secrets and decrypted tokens are never logged or written to a new credential file. Identity/expiry validation still applies after decryption.
+- **Authorization:** automatic reads and availability probes are noninteractive. Only explicit IDE reconnect can request a bounded macOS authorization; denial does not create an automatic prompt loop. CursorMeter never changes the item access controls, trust settings, or Cursor encryption setting. A changed local signing identity can require a fresh macOS grant; see [local development signing](docs/LOCAL_SIGNING.md).
+- **What is never read from the IDE database:** `cursorAuth/refreshToken` or any other key. CursorMeter never performs token refresh itself — it only reuses the access token the IDE already maintains.
 - **Logging:** the synthesized session header is treated like every other credential — never logged (see LogRedactor policy).
-- **Threat model:** this is the user's own credential on the user's own machine, inside the same trust boundary as the Keychain-stored cookie CursorMeter already holds. No new secret class is introduced; the browser-login (WebView) path remains available and is used as fallback.
+- **Threat model:** this is the user's own credential on the user's own machine, inside the same trust boundary as the Keychain-stored cookie CursorMeter already holds. Access to Cursor Safe Storage is a separate macOS permission from CursorMeter’s saved session cookie. The browser-login (WebView) path remains available and is used as fallback.
 - **Profile 404 resilience (#128):** only an IDE attempt with exact profile HTTP 404 and usable usage-summary from the same credential/batch can display usage without a fresh profile. Unauthorized responses still take precedence. Usage access does not verify identity: JWT claims and cached IDE text are not promoted to authenticated subjects. A previously authenticated profile may label the same credential's in-memory display, but grants no fresh persistent authority or new roster lookup. This exception does not fall through to a different saved browser account or fix the upstream 404.
 
 ## Local Recent Usage Snapshot

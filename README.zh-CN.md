@@ -39,7 +39,7 @@ Cursor [于 2026 年 2 月 11 日宣布为个人套餐引入两类使用额度](
 - 设置界面（刷新间隔、通知阈值、菜单栏显示格式、突增效果强度、每周图表样式、最近使用记录）
 - 支持登录时启动
 - 应用内更新检查
-- **零配置登录** — 如果同一台 Mac 上的 Cursor IDE 已登录，CursorMeter 会自动连接，无需单独登录。如果 IDE 尚未登录，弹出面板会提供引导：一键打开 IDE，完成登录后应用便会自动连接。退出登录会暂停自动连接 IDE，直到你重新连接。
+- **零配置登录** — 如果同一台 Mac 上的 Cursor IDE 已登录，CursorMeter 会自动连接，无需单独登录。如果 IDE 尚未登录，弹出面板会提供引导：一键打开 IDE，完成登录后应用便会自动连接。退出登录会暂停自动连接 IDE，直到你重新连接。 支持加密的IDE令牌。如需授权，请选择 **Connect Cursor IDE**，并在macOS提示中允许访问 **Cursor Safe Storage**；自动检查不会弹出此提示。
 - **浏览器（WebView）登录已弃用** — 该方式仍可使用（Google、GitHub、Enterprise SSO），但默认隐藏，需要在 Settings → General → "Enable browser login" 中主动开启。仅当未安装 Cursor IDE 应用时，它才会自动重新显示，以确保始终至少有一种连接方式。
 - 可配置自动刷新间隔（1/2/5/15 分钟）
 - **活动触发刷新** — 本地 Cursor 活动会在约 1 分钟内触发刷新，无需等待下一次轮询。定时轮询仍作为后备方式，包括获取其他设备上的使用量。何时可见取决于 Cursor 的上报延迟。可在 Settings → Refresh → "Refresh on Cursor activity" 中开关。

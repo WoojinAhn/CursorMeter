@@ -108,7 +108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             // #54: IDE credential source. Wired here (nil default in the view
             // model) so the SPM test host can never read the real state.vscdb.
             let authReader = CursorAppAuthReader()
-            viewModel.ideCredentialProvider = { authReader.read() }
+            viewModel.ideCredentialResultProvider = { authReader.readResult(allowInteraction: $0) }
 
             // #88: IDE app presence + launcher for the sign-in inducement.
             viewModel.ideAppPresenceCheck = { Self.cursorIDEAppURL() != nil }
@@ -750,6 +750,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             _ = viewModel.weeklyConsecutiveFailureCount
             _ = viewModel.lastSuccessAt
             _ = viewModel.ideCredentialAvailable
+            _ = viewModel.ideEncryptedCredentialUnavailable
+            _ = viewModel.ideAuthorizationRequired
+            _ = viewModel.isAuthorizingIDE
             _ = viewModel.browserLoginEnabled
             _ = viewModel.recentUsage.snapshot
             _ = viewModel.recentUsage.status

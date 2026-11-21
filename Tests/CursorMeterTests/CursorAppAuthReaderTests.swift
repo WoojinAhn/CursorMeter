@@ -79,6 +79,15 @@ final class CursorAppAuthReaderTests: XCTestCase {
                        now.timeIntervalSince1970 + 7200, accuracy: 1)
     }
 
+    func testReadEncryptedTokenRegression() {
+        // Independent fixture: Python hashlib PBKDF2 + OpenSSL AES-CBC.
+        let stored = "cursor-safe-storage:v1:djEwLkDopNkTvjwEEL2FVrrPwqwUL8f2wSmwTL6vuTe9am9Q/5/LlO496MBtiUglOK1oxSjXI0MD6/XisxgGvaAJ4G22jw4/hgyT45iXZCW6ruE="
+        let reader = CursorAppAuthReader(dbPath: makeFixtureDB(token: stored),
+            safeStorage: CursorSafeStorage(readSecret: { _, _ in .found(Data("synthetic-password".utf8)) }))
+        XCTAssertEqual(reader.read(now: now)?.cookieHeader,
+                       "WorkosCursorSessionToken=user_synthetic%3A%3Ae30.eyJzdWIiOiJhdXRoMHx1c2VyX3N5bnRoZXRpYyIsImV4cCI6NDEwMjQ0NDgwMH0.sig")
+    }
+
     func testReadRejectsNearExpiredToken() {
         let jwt = makeJWT(exp: now.timeIntervalSince1970 + 30)  // < 60s guard
         let reader = CursorAppAuthReader(dbPath: makeFixtureDB(token: jwt))

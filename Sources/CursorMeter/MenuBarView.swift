@@ -838,6 +838,10 @@ final class MenuBarPopoverViewController: NSViewController {
         let bodyText: String
         if !ideInstalled {
             bodyText = "Log in with your browser to connect."
+        } else if viewModel.ideAuthorizationRequired {
+            bodyText = "Cursor IDE credentials are encrypted. Connect to allow access to Cursor Safe Storage."
+        } else if viewModel.ideEncryptedCredentialUnavailable {
+            bodyText = "Cursor IDE's encrypted sign-in could not be read. Open Cursor IDE, then try connecting again."
         } else if ideUnavailable {
             bodyText = "Cursor IDE is not signed in. Open it and sign in — this app connects automatically."
         } else {
@@ -868,6 +872,7 @@ final class MenuBarPopoverViewController: NSViewController {
                     target: self,
                     action: #selector(connectIDETapped))
                 connectButton.bezelStyle    = .rounded
+                connectButton.isEnabled = !viewModel.isAuthorizingIDE
                 connectButton.keyEquivalent = "\r"
                 statusStack.addArrangedSubview(connectButton)
             }

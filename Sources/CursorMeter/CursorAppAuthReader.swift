@@ -7,23 +7,61 @@ struct IDECredential: Sendable, Equatable {
     let expiresAt: Date
 }
 
+enum IDECredentialReadResult: Equatable, Sendable {
+    case available(IDECredential), authorizationRequired, encryptedUnavailable, unavailable
+
+    var credential: IDECredential? {
+        if case .available(let credential) = self { return credential }
+        return nil
+    }
+}
+
 /// Reads the Cursor IDE's access token from its local state DB and synthesizes
 /// the dashboard cookie header (CodexBar's production-proven pattern). The IDE
 /// refreshes this token itself, so re-reading per refresh yields a credential
 /// that tracks the IDE's live session. Read-only; never touches refreshToken.
 ///
 /// Concurrency: no stored sqlite3 handle — open/query/close within a single
-/// read() call, so plain Sendable holds. busy_timeout can block ~250ms;
-/// callers invoke off the MainActor.
+/// read() call. Safe Storage serializes key access; manual authorization can
+/// wait for system UI. Callers perform all reads off the MainActor.
 struct CursorAppAuthReader: Sendable {
     let dbPath: String
+    private let safeStorage: CursorSafeStorage
 
     init(dbPath: String = NSHomeDirectory()
-        + "/Library/Application Support/Cursor/User/globalStorage/state.vscdb") {
+        + "/Library/Application Support/Cursor/User/globalStorage/state.vscdb",
+         safeStorage: CursorSafeStorage = CursorSafeStorage()) {
         self.dbPath = dbPath
+        self.safeStorage = safeStorage
     }
 
     func read(now: Date = Date()) -> IDECredential? {
+        readResult(now: now).credential
+    }
+
+    func readResult(now: Date = Date(), allowInteraction: Bool = false) -> IDECredentialReadResult {
+        guard let stored = storedToken() else { return .unavailable }
+        let jwt: String
+        if stored.hasPrefix("cursor-safe-storage:") {
+            let prefix = "cursor-safe-storage:v1:"
+            guard stored.hasPrefix(prefix), stored.utf8.count <= 65_536,
+                  let payload = Data(base64Encoded: String(stored.dropFirst(prefix.count))),
+                  payload.starts(with: Data("v10".utf8)), payload.count > 3,
+                  (payload.count - 3).isMultiple(of: 16) else { return .encryptedUnavailable }
+            switch safeStorage.decrypt(Data(payload.dropFirst(3)), allowInteraction: allowInteraction) {
+            case .plaintext(let value): jwt = value
+            case .authorizationRequired: return .authorizationRequired
+            case .unavailable: return .encryptedUnavailable
+            }
+        } else { jwt = stored }
+        guard let claims = Self.parseJWTClaims(jwt),
+              claims.exp > now.addingTimeInterval(60),
+              let userID = Self.userID(fromSub: claims.sub) else { return .unavailable }
+        return .available(IDECredential(
+            cookieHeader: Self.makeCookieHeader(userID: userID, jwt: jwt), expiresAt: claims.exp))
+    }
+
+    private func storedToken() -> String? {
         guard FileManager.default.fileExists(atPath: dbPath) else { return nil }
         var db: OpaquePointer?
         guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
@@ -32,29 +70,17 @@ struct CursorAppAuthReader: Sendable {
         }
         defer { sqlite3_close(db) }
         sqlite3_busy_timeout(db, 250)
-
-        var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(
-            db, "SELECT value FROM ItemTable WHERE key = 'cursorAuth/accessToken'",
-            -1, &stmt, nil) == SQLITE_OK
-        else { return nil }
-        defer { sqlite3_finalize(stmt) }
-
-        guard sqlite3_step(stmt) == SQLITE_ROW,
-              let cString = sqlite3_column_text(stmt, 0)
-        else { return nil }
-        // Value may be stored as a bare string or JSON-quoted.
-        let jwt = String(cString: cString).trimmingCharacters(in: CharacterSet(charactersIn: "\""))
-
-        guard let claims = Self.parseJWTClaims(jwt),
-              claims.exp > now.addingTimeInterval(60),
-              let userID = Self.userID(fromSub: claims.sub)
-        else { return nil }
-
-        return IDECredential(
-            cookieHeader: Self.makeCookieHeader(userID: userID, jwt: jwt),
-            expiresAt: claims.exp
-        )
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT value FROM ItemTable WHERE key = 'cursorAuth/accessToken'",
+                                -1, &statement, nil) == SQLITE_OK else { return nil }
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_step(statement) == SQLITE_ROW, sqlite3_column_bytes(statement, 0) <= 65_536,
+              let text = sqlite3_column_text(statement, 0) else { return nil }
+        let stored = String(cString: text)
+        if stored.hasPrefix("\""), let data = stored.data(using: .utf8) {
+            return try? JSONDecoder().decode(String.self, from: data)
+        }
+        return stored
     }
 
     // MARK: - Pure helpers

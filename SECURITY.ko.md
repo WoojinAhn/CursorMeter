@@ -30,6 +30,7 @@ CursorMeter에서 보안 취약점을 발견하셨다면, **공개 이슈로 등
 CursorMeter는 비공개 Cursor API를 쿠키 기반 세션 자격증명으로 호출하는 메뉴바 앱입니다. 보호 대상 자산은 다음과 같습니다.
 
 - **Cursor 세션 쿠키** (Keychain 저장), 세션 토큰 유효기간 동안 재사용 가능
+- **Cursor Safe Storage 파생 키** (메모리 전용): macOS가 허용한 접근으로 IDE 액세스 토큰을 복호화하는 데 사용
 - **계정 이메일 / 이름** (`/api/auth/me`에서 추출)
 - **최근 사용 내역 스냅샷**, 최대 30건의 표시용 항목과 원래 조회 시각 포함
 
@@ -50,9 +51,11 @@ refresh token을 읽지 않고, 기존 IDE·브라우저 인증 및 Keychain 저
 
 - **읽는 대상:** `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`의 단일 키 — `cursorAuth/accessToken`.
 - **읽는 방식:** 읽기 전용 SQLite 연결(`SQLITE_OPEN_READONLY`, busy timeout 250 ms)을 매 읽기마다 열고 닫습니다. IDE의 저장소에 쓰거나 락을 걸지 않습니다.
-- **읽지 않는 것:** `cursorAuth/refreshToken` 및 그 외 모든 키. CursorMeter는 토큰 갱신을 직접 수행하지 않고, IDE가 이미 유지하는 액세스 토큰만 재사용합니다.
+- **암호화된 토큰 (#149):** 크기가 제한된 `cursor-safe-storage:v1:` envelope와 Chromium `v10` 암호문을 인식합니다. 정확한 `Cursor Safe Storage` Keychain 서비스와 현재 `Cursor Key` 계정(또는 레거시 `Cursor`)에서 복호화 비밀을 읽습니다. 파생 키는 프로세스 메모리에만 유지하며, 비밀이나 복호화 토큰을 로그 또는 새 자격증명 파일에 기록하지 않습니다. 복호화 후에도 신원·만료 검증을 적용합니다.
+- **접근 허용:** 자동 읽기와 가용성 확인은 인증 UI를 요청하지 않습니다. 사용자가 명시적으로 IDE 재연결을 선택한 경우에만 한정된 macOS 허용 요청을 할 수 있으며, 거부 후 자동 팝업 반복을 만들지 않습니다. 키체인 항목의 접근 제어·신뢰 설정·Cursor 암호화 설정을 바꾸지 않습니다. 로컬 서명 주체가 바뀌면 macOS 허용이 다시 필요할 수 있습니다. [로컬 개발 서명](docs/LOCAL_SIGNING.md)을 참고하세요.
+- **IDE 데이터베이스에서 읽지 않는 것:** `cursorAuth/refreshToken` 및 그 외 모든 키. CursorMeter는 토큰 갱신을 직접 수행하지 않고, IDE가 이미 유지하는 액세스 토큰만 재사용합니다.
 - **로깅:** 합성된 세션 헤더는 다른 모든 자격증명과 동일하게 취급되어 절대 로그에 남지 않습니다 (LogRedactor 정책 참고).
-- **위협 모델:** 사용자 자신의 머신에 있는 사용자 자신의 자격증명이며, CursorMeter가 이미 보유한 Keychain 저장 쿠키와 동일한 신뢰 경계 안에 있습니다. 새로운 비밀 자산 유형이 추가되지 않으며, 브라우저 로그인(WebView) 경로는 fallback으로 계속 사용 가능합니다.
+- **위협 모델:** 사용자 자신의 머신에 있는 사용자 자신의 자격증명이며, CursorMeter가 이미 보유한 Keychain 저장 쿠키와 동일한 신뢰 경계 안에 있습니다. Cursor Safe Storage 접근은 CursorMeter의 저장된 세션 쿠키 접근과 별개의 macOS 권한입니다. 브라우저 로그인(WebView) 경로는 fallback으로 계속 사용 가능합니다.
 - **프로필 404 완화 (#128):** IDE 요청에서 프로필이 정확히 HTTP 404를 반환하고, 같은 자격증명·배치의 usage-summary에 유효한 사용량이 있을 때만 새 프로필 없이 사용량을 표시합니다. 인증 거절 응답의 우선순위는 유지합니다. 사용량 접근 성공은 신원 확인이 아니며 JWT claim이나 IDE 캐시 정보를 인증된 subject로 승격하지 않습니다. 이전에 인증된 프로필은 동일 자격증명의 메모리 내 표시에만 사용할 수 있고, 새 영속 권한이나 로스터 조회 권한은 부여하지 않습니다. 이 예외로 다른 저장된 브라우저 계정으로 넘어가거나 서버의 404 원인 자체를 해결하지 않습니다.
 
 ## 최근 사용 내역의 로컬 스냅샷

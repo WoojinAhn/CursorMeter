@@ -415,12 +415,22 @@ final class UsageViewModel {
     /// never read the developer's real state.vscdb; production wires the real
     /// CursorAppAuthReader in CursorMeterApp (same pattern as the #83 seams).
     @ObservationIgnored internal var ideCredentialProvider: (@Sendable () -> IDECredential?)?
+    @ObservationIgnored internal var ideCredentialResultProvider: (@Sendable (Bool) -> IDECredentialReadResult)?
+    var ideEncryptedCredentialUnavailable = false
+    var ideAuthorizationRequired = false
+    var isAuthorizingIDE = false
+
+    private var ideReader: (@Sendable (Bool) -> IDECredentialReadResult)? {
+        if let provider = ideCredentialResultProvider { return provider }
+        guard let provider = ideCredentialProvider else { return nil }
+        return { _ in provider().map(IDECredentialReadResult.available) ?? .unavailable }
+    }
 
     // MARK: - IDE availability & sign-in watch (#88)
 
-    /// Whether the Cursor IDE currently has a session. nil until the first
-    /// check completes; drives the login-required layout branch. Presence
-    /// only — intentionally ignores `ideAuthSuppressed` (display concern).
+    /// Whether the IDE connection can be attempted, including a stored token
+    /// awaiting Keychain access. nil until the first check completes.
+    /// Intentionally ignores logout suppression for the recovery layout.
     var ideCredentialAvailable: Bool?
 
     /// Is the Cursor IDE app installed? Production wires NSWorkspace lookup.
@@ -458,23 +468,26 @@ final class UsageViewModel {
     /// read is in flight; writes the flag only on change so observation does
     /// not re-render (and re-probe) in a loop.
     func refreshIDEAvailability() {
-        guard let provider = ideCredentialProvider, !availabilityCheckInFlight else { return }
+        guard let provider = ideReader, !availabilityCheckInFlight else { return }
         availabilityCheckInFlight = true
         ideProbeGeneration += 1
         let generation = ideProbeGeneration
         Task { [weak self] in
-            let available = await Task.detached { provider() != nil }.value
+            let result = await Task.detached { provider(false) }.value
             guard let self else { return }
             self.availabilityCheckInFlight = false
             guard generation == self.ideProbeGeneration else { return }
-            self.setIDEAvailability(available)
+            self.setIDEAvailability(result)
         }
     }
 
-    private func setIDEAvailability(_ available: Bool) {
-        if ideCredentialAvailable != available {
-            ideCredentialAvailable = available
-        }
+    private func setIDEAvailability(_ result: IDECredentialReadResult) {
+        let authorizationRequired = result == .authorizationRequired
+        let available = result.credential != nil || authorizationRequired
+        if ideCredentialAvailable != available { ideCredentialAvailable = available }
+        if ideAuthorizationRequired != authorizationRequired { ideAuthorizationRequired = authorizationRequired }
+        let encryptedUnavailable = result == .encryptedUnavailable
+        if ideEncryptedCredentialUnavailable != encryptedUnavailable { ideEncryptedCredentialUnavailable = encryptedUnavailable }
     }
 
     /// [Open Cursor IDE]: launch the IDE; only a successful launch starts the
@@ -496,7 +509,7 @@ final class UsageViewModel {
     /// read via the generation token.
     func beginIDESignInWatch() {
         ideSignInWatchTask?.cancel()
-        guard let provider = ideCredentialProvider else { return }
+        guard let provider = ideReader else { return }
         ideWatchGeneration += 1
         let generation = ideWatchGeneration
         let interval = watchTickInterval
@@ -506,10 +519,13 @@ final class UsageViewModel {
             let deadline = clock.now.advanced(by: timeout)
             while !Task.isCancelled, clock.now < deadline {
                 guard let self, self.authState != .loggedIn else { return }
-                let found = await Task.detached { provider() != nil }.value
+                let result = await Task.detached { provider(false) }.value
                 guard !Task.isCancelled, generation == self.ideWatchGeneration else { return }
-                if found, self.authState != .loggedIn, !self.isRefreshing {
-                    self.connectViaIDE()
+                self.setIDEAvailability(result)
+                if result.credential != nil, self.authState != .loggedIn, !self.isRefreshing, !self.isAuthorizingIDE {
+                    self.ideAuthSuppressed = false
+                    self.defaults.set(false, for: .ideAuthSuppressed)
+                    self.startSession()
                 }
                 try? await Task.sleep(for: interval)
             }
@@ -626,7 +642,7 @@ final class UsageViewModel {
             Log.error("Failed to load keychain: \(error)")
         }
         // No captured cookie — the IDE source may still authenticate (#54).
-        if !ideAuthSuppressed, ideCredentialProvider != nil {
+        if !ideAuthSuppressed, ideReader != nil {
             return startSession()
         }
         return nil
@@ -635,9 +651,26 @@ final class UsageViewModel {
     /// Re-enables the IDE credential source after a logout and starts a
     /// session; the chain resolves the actual credential on refresh (#54).
     func connectViaIDE() {
+        guard !isAuthorizingIDE else { return }
         ideAuthSuppressed = false
         defaults.set(false, for: .ideAuthSuppressed)
-        startSession()
+        guard let provider = ideCredentialResultProvider else {
+            startSession()
+            return
+        }
+        isAuthorizingIDE = true
+        let generation = sessionGeneration
+        Task { [weak self] in
+            let result = await Task.detached { provider(true) }.value
+            guard let self else { return }
+            self.isAuthorizingIDE = false
+            guard self.sessionGeneration == generation, !self.ideAuthSuppressed else { return }
+            self.ideProbeGeneration += 1
+            self.setIDEAvailability(result)
+            // Re-read the current database through the normal noninteractive chain.
+            // The token observed before a system prompt must not become session authority.
+            if result.credential != nil { self.startSession() }
+        }
     }
 
     func onLoginSuccess(cookieHeader: String) {
@@ -895,11 +928,11 @@ final class UsageViewModel {
 
     private func runCredentialChain(networkID: UInt64) async {
         guard var context = currentContext(networkID: networkID) else { return }
-        if let provider = ideCredentialProvider, !ideAuthSuppressed {
-            let ideCredential = await Task.detached(operation: { provider() }).value
+        if let provider = ideReader, !ideAuthSuppressed {
+            let result = await Task.detached(operation: { provider(false) }).value
             guard isCurrent(context) else { return }
-            setIDEAvailability(ideCredential != nil)
-            if let ide = ideCredential {
+            setIDEAvailability(result)
+            if let ide = result.credential {
                 do {
                     context = try selectCredential(ide.cookieHeader, context: context)
                     try await runRefreshAttempt(cookieHeader: ide.cookieHeader, source: .cursorIDE, context: context)
