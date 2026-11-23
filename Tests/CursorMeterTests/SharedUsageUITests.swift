@@ -106,64 +106,245 @@ final class SharedUsageUITests: XCTestCase {
         XCTAssertTrue(strings.contains("$32.40 left / $40.00"))
     }
 
-    func testNoPurchasesExhaustedAndUnknownTotalsRemainDistinct() async {
-        for (balance, purchased, readout, detail) in [(0, Optional(0), "—", "No top-ups"),
-            (0, Optional(2000), "100%", "$0.00 left / $20.00"),
-            (1240, nil, "—", "$12.40 left · Total unknown")] {
-            let vm = await makeSharedUsageUIViewModel(.init(balance: balance, purchased: purchased), test: self)
-            let strings = labels(popover(vm).view)
-            XCTAssertTrue(strings.contains(readout), strings.description)
-            XCTAssertTrue(strings.contains { $0.contains(detail) }, strings.description)
+    func testCurrentZeroBalanceHidesPrepaidAcrossSurfacesRegardlessOfPurchaseHistory() async throws {
+        for purchased in [Optional(0), Optional(2000), nil] {
+            let vm = await makeSharedUsageUIViewModel(.init(balance: 0, purchased: purchased, monthly: 0), test: self)
+            let vc = popover(vm)
             let presentation = SharedUsagePresentation(mode: .sharedWeekly, snapshot: vm.sharedUsage.snapshot)
-            XCTAssertTrue(presentation.tooltip.contains("Remaining balance:"))
-            XCTAssertTrue(presentation.tooltip.contains(purchased == nil ? "Total purchased credit: unknown" : "Total purchased credit:"))
+            XCTAssertNil(presentation.readout.lower)
+            XCTAssertEqual(presentation.statusItemAccessibilityLabel, "CursorMeter weekly included usage")
+            XCTAssertEqual(presentation.detailLines, [])
+            XCTAssertFalse(presentation.tooltip.contains("credit"))
+            XCTAssertFalse(presentation.accessibilityValue.contains("Center:"))
+            let strings = labels(vc.view).filter { !$0.isEmpty }
+            XCTAssertTrue(strings.contains("Included usage"), strings.description)
+            let visibleLabels = views(vc.view).filter { !$0.isHiddenOrHasHiddenAncestor }
+                .compactMap { ($0 as? NSTextField)?.stringValue }
+            for unwanted in ["Prepaid credit", "No top-ups", "Monthly paid", "Auto Top-up", "Paid reset", "credits"] {
+                XCTAssertFalse(visibleLabels.contains { $0.contains(unwanted) }, "\(unwanted): \(visibleLabels)")
+            }
+            XCTAssertTrue(views(vc.view).compactMap { $0 as? NSButton }
+                .contains { $0.title == "Manage Credits..." && !$0.isHiddenOrHasHiddenAncestor })
+            let display = SettingsAppearanceTabViewController(viewModel: vm)
+            _ = display.view
+            let displayText = views(display.view).filter { !$0.isHiddenOrHasHiddenAncestor }.flatMap {
+                [$0.accessibilityLabel(), $0.toolTip, ($0 as? NSTextField)?.stringValue].compactMap { $0 }
+            }.joined(separator: "\n")
+            XCTAssertFalse(displayText.lowercased().contains("prepaid"), displayText)
+            XCTAssertFalse(displayText.contains("Center:"), displayText)
+            let layout = SplitMenuBarRenderer.layout(readout: presentation.readout)
+            XCTAssertEqual(layout.upperRowRect.midY, layout.size.height / 2)
         }
     }
 
-    func testNoPurchasesMeterIsDistinctFromUnknownAtBothSizes() async throws {
+    func testPositiveAndStaleZeroBalancesKeepPrepaidPresentation() async {
+        for (balance, purchased, stale) in [(1240, Optional(2000), false), (1240, nil, false),
+                                           (0, Optional(0), true), (0, nil, true)] {
+            let vm = await makeSharedUsageUIViewModel(.init(balance: balance, purchased: purchased), test: self)
+            if stale { vm.sharedUsage.recordFailure(CursorSharedAPIError.transport) }
+            let presentation = SharedUsagePresentation(mode: .sharedWeekly, snapshot: vm.sharedUsage.snapshot)
+            XCTAssertNotNil(presentation.readout.lower)
+            XCTAssertTrue(presentation.tooltip.contains("Remaining balance:"))
+            XCTAssertTrue(presentation.accessibilityValue.contains("Center:"))
+            let visibleLabels = views(popover(vm).view).filter { !$0.isHiddenOrHasHiddenAncestor }
+                .compactMap { ($0 as? NSTextField)?.stringValue }
+            XCTAssertTrue(visibleLabels.contains("Prepaid credit"), visibleLabels.description)
+        }
+    }
+
+    func testZeroBalanceOmitsAllCenterPixelsAtBothSizesAcrossAppearances() async throws {
         for appearanceName in [NSAppearance.Name.aqua, .darkAqua] {
-            let empty = await makeSharedUsageUIViewModel(.init(balance: 0, purchased: 0, monthly: 0), test: self)
-            let unknown = await makeSharedUsageUIViewModel(.init(balance: 0, purchased: nil), test: self)
-            empty.setSplitMenuBarPercentagesEnabled(false)
-            unknown.setSplitMenuBarPercentagesEnabled(false)
-            let emptyPopover = popover(empty)
-            let unknownPopover = popover(unknown)
-            let emptyMeter = try XCTUnwrap(views(emptyPopover.view).compactMap { $0 as? NSImageView }
-                .first { $0.frame.width == 112 }?.image)
-            let unknownMeter = try XCTUnwrap(views(unknownPopover.view).compactMap { $0 as? NSImageView }
-                .first { $0.frame.width == 112 }?.image)
-            let pairs = [(emptyMeter, unknownMeter),
-                         (AppDelegate(viewModel: empty).currentStatusImage(activeJump: nil),
-                          AppDelegate(viewModel: unknown).currentStatusImage(activeJump: nil))]
-            let appearance = try XCTUnwrap(NSAppearance(named: appearanceName))
-            var failure: Error?
-            appearance.performAsCurrentDrawingAppearance {
-                do {
-                    for (emptyImage, unknownImage) in pairs {
-                        XCTAssertFalse(try SplitMenuBarTestFixtures.pixels(emptyImage)
-                                       == SplitMenuBarTestFixtures.pixels(unknownImage),
-                                       "No purchases must be distinct at \(emptyImage.size) in \(appearanceName)")
-                        let bitmap = try scaledBitmap(emptyImage)
-                        let centerX = bitmap.pixelsWide / 2
-                        let centerY = bitmap.pixelsHigh / 2
-                        let center = try XCTUnwrap(bitmap.colorAt(x: centerX, y: centerY))
-                        XCTAssertEqual(center.alphaComponent, 0, accuracy: 0.01, "No purchases must have no inner fill")
-                        let radius = Double(min(bitmap.pixelsWide, bitmap.pixelsHigh)) * 0.27
-                        for step in 0..<12 {
-                            let angle = Double(step) * .pi / 6
-                            let x = Int((Double(centerX) + cos(angle) * radius).rounded())
-                            let y = Int((Double(centerY) + sin(angle) * radius).rounded())
-                            let alphas = (-1...1).flatMap { dx in
-                                (-1...1).compactMap { dy in bitmap.colorAt(x: x + dx, y: y + dy)?.alphaComponent }
+            for purchased in [Optional(0), Optional(2000), nil] {
+                let empty = await makeSharedUsageUIViewModel(.init(balance: 0, purchased: purchased, monthly: 0), test: self)
+                empty.setSplitMenuBarPercentagesEnabled(false)
+                let emptyPopover = popover(empty)
+                let emptyMeter = try XCTUnwrap(views(emptyPopover.view).compactMap { $0 as? NSImageView }
+                    .first { $0.frame.width == 112 }?.image)
+                let images = [emptyMeter, AppDelegate(viewModel: empty).currentStatusImage(activeJump: nil)]
+                let appearance = try XCTUnwrap(NSAppearance(named: appearanceName))
+                var failure: Error?
+                appearance.performAsCurrentDrawingAppearance {
+                    do {
+                        for image in images {
+                            let bitmap = try scaledBitmap(image)
+                            let centerX = Double(bitmap.pixelsWide) / 2
+                            let centerY = Double(bitmap.pixelsHigh) / 2
+                            let radius = Double(min(bitmap.pixelsWide, bitmap.pixelsHigh)) * 0.32
+                            var maximumAlpha: CGFloat = 0
+                            for x in 0..<bitmap.pixelsWide {
+                                for y in 0..<bitmap.pixelsHigh where hypot(Double(x) - centerX, Double(y) - centerY) < radius {
+                                    maximumAlpha = max(maximumAlpha, bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0)
+                                }
                             }
-                            XCTAssertGreaterThan(alphas.max() ?? 0, 0.1,
-                                "Missing empty ring at angle \(step) for \(emptyImage.size) in \(appearanceName)")
+                            XCTAssertEqual(maximumAlpha, 0, accuracy: 0.01,
+                                "Center must be absent at \(image.size) in \(appearanceName), purchased \(String(describing: purchased))")
+                            let reference = try scaledBitmap(CircularProgressIcon.makeDualPercentImage(
+                                outerPercent: 25, centerPercent: 38, size: image.size))
+                            var maximumOuterDifference: CGFloat = 0
+                            for x in 0..<bitmap.pixelsWide {
+                                for y in 0..<bitmap.pixelsHigh where hypot(Double(x) - centerX, Double(y) - centerY) > radius {
+                                    let actual = try XCTUnwrap(bitmap.colorAt(x: x, y: y))
+                                    let expected = try XCTUnwrap(reference.colorAt(x: x, y: y))
+                                    maximumOuterDifference = max(maximumOuterDifference,
+                                        abs(actual.alphaComponent - expected.alphaComponent),
+                                        abs(actual.redComponent - expected.redComponent),
+                                        abs(actual.greenComponent - expected.greenComponent),
+                                        abs(actual.blueComponent - expected.blueComponent))
+                                }
+                            }
+                            XCTAssertEqual(maximumOuterDifference, 0, accuracy: 0.01, "Outer ring geometry and color must stay unchanged")
                         }
-                    }
-                } catch { failure = error }
+                    } catch { failure = error }
+                }
+                if let failure { throw failure }
             }
-            if let failure { throw failure }
-            XCTAssertEqual(SharedUsagePresentation(mode: .sharedWeekly, snapshot: empty.sharedUsage.snapshot).credit.percentText, "—")
+        }
+    }
+
+    func testUnavailableCreditDoesNotBecomeConfirmedZero() async {
+        let vm = await makeSharedUsageUIViewModel(.init(prepaidFails: true), test: self)
+        let presentation = SharedUsagePresentation(mode: .sharedWeekly, snapshot: vm.sharedUsage.snapshot)
+        XCTAssertNotNil(presentation.readout.lower)
+        XCTAssertTrue(presentation.tooltip.contains("Remaining balance: unknown"))
+        XCTAssertTrue(labels(popover(vm).view).contains("Prepaid credit"))
+    }
+
+    func testZeroBalanceKeepsOnlyMeaningfulIndependentPaidDetails() async {
+        for (monthly, cap, auto, expected) in [
+            (760, Optional(50), false, ["Monthly paid: $7.60 / $50.00 cap"]),
+            (0, Optional(0), false, ["Monthly paid: $0.00 / $0.00 cap"]),
+            (0, nil, true, ["Auto Top-up: On"]),
+            (0, nil, false, []),
+        ] {
+            let vm = await makeSharedUsageUIViewModel(.init(balance: 0, monthly: monthly, cap: cap, autoTopUp: auto), test: self)
+            let presentation = SharedUsagePresentation(mode: .sharedWeekly, snapshot: vm.sharedUsage.snapshot)
+            XCTAssertEqual(presentation.detailLines, expected)
+            if cap == 0 { XCTAssertEqual(presentation.status, "Monthly paid cap reached.") }
+        }
+    }
+
+    func testUnhiddenPoolAndDetailRowsKeepTheirContainerWidths() async throws {
+        let initial = SharedUsageUIFixture(balance: 0, purchased: 0, monthly: 0)
+        let provider = SharedUsageUISequenceFixture(initial)
+        let vm = await makeSharedUsageUIViewModel(initial, provider: provider, test: self)
+        vm.setPopoverValueMode(.dollars)
+        let vc = popover(vm)
+        let window = NSWindow(contentViewController: vc)
+        window.isReleasedWhenClosed = false
+        defer { window.contentViewController = nil; window.close() }
+        for legacy in [false, true] {
+            if legacy {
+                await provider.setFixture(initial)
+                await vm.refresh()
+                vc.updateUI()
+                let plan = try JSONDecoder().decode(CursorPlanInfoResponse.self, from: Data(#"{"isMerged":false}"#.utf8))
+                vm.sharedUsage.acceptPlan(.success(plan), owner: nil, personalScope: true)
+                try SplitMenuBarTestFixtures.publishSplit(to: vm)
+            } else {
+                await provider.setFixture(.init(now: initial.now, balance: 1240, monthly: 760))
+                await vm.refresh()
+            }
+            vc.updateUI()
+            window.setContentSize(vc.preferredContentSize)
+            vc.view.layoutSubtreeIfNeeded()
+            let meter = try XCTUnwrap(views(vc.view).compactMap { $0 as? NSImageView }.first { $0.frame.width == 112 })
+            let meterRow = try XCTUnwrap(meter.superview as? NSStackView)
+            let readings = try XCTUnwrap(meterRow.arrangedSubviews.compactMap { $0 as? NSStackView }.first)
+            let rows = readings.arrangedSubviews.filter { !$0.isHidden }
+            XCTAssertEqual(rows.count, 2)
+            for row in rows { XCTAssertEqual(row.frame.width, readings.frame.width, accuracy: 0.1, "legacy: \(legacy)") }
+            let splitRows = try XCTUnwrap(meterRow.superview as? NSStackView)
+            let detail = try XCTUnwrap(splitRows.arrangedSubviews.compactMap { $0 as? NSTextField }.first)
+            XCTAssertFalse(detail.isHidden)
+            XCTAssertEqual(detail.alignmentRect(forFrame: detail.frame).width, splitRows.frame.width,
+                           accuracy: 0.1, "legacy: \(legacy)")
+        }
+    }
+
+    func testZeroBalancePaidResetBelongsOnlyToVisibleMonthlyUsage() async throws {
+        let now = Date()
+        let reset = SharedUsageReading<SharedPaidPeriod>.empty.received(
+            .init(start: now.addingTimeInterval(-3600), end: now.addingTimeInterval(3600)), at: now)
+        for monthly in [0, 760] {
+            let vm = await makeSharedUsageUIViewModel(.init(now: now, balance: 0, monthly: monthly, autoTopUp: true), test: self)
+            let presentation = SharedUsagePresentation(mode: .sharedWeekly, snapshot: vm.sharedUsage.snapshot, paidReset: reset, at: now)
+            if monthly == 0 { XCTAssertEqual(presentation.detailLines, ["Auto Top-up: On"]) }
+            else {
+                XCTAssertEqual(presentation.detailLines.count, 3)
+                XCTAssertTrue(presentation.detailLines[0].hasPrefix("Monthly paid:"))
+                XCTAssertTrue(presentation.detailLines[1].hasPrefix("Paid resets "))
+                XCTAssertEqual(presentation.detailLines[2], "Auto Top-up: On")
+            }
+        }
+    }
+
+    func testZeroBalanceStaleStatusOnlyDescribesVisibleReadings() async throws {
+        for (monthly, cap, auto, staleExpected) in [
+            (0, 50, false, false), (760, 50, false, true), (0, 0, false, true), (0, 50, true, true),
+        ] {
+            let vm = await makeSharedUsageUIViewModel(.init(balance: 0, monthly: monthly, cap: cap, autoTopUp: auto), test: self)
+            let current = try XCTUnwrap(vm.sharedUsage.snapshot)
+            let snapshot = SharedUsageSnapshot(weekly: current.weekly, credit: current.credit,
+                monthlyUsed: current.monthlyUsed.failed(.transport), paidCap: current.paidCap.failed(.transport),
+                autoTopUp: current.autoTopUp.failed(.transport))
+            let presentation = SharedUsagePresentation(mode: .sharedWeekly, snapshot: snapshot)
+            XCTAssertEqual(presentation.status, staleExpected ? "Stale readings — refresh to verify." : nil)
+            if !staleExpected { XCTAssertEqual(presentation.detailLines, []) }
+        }
+    }
+
+    func testZeroPositiveZeroTransitionsUpdateSameViewsAndJumpReadout() async throws {
+        let initial = SharedUsageUIFixture(balance: 0, purchased: 0, monthly: 0)
+        let provider = SharedUsageUISequenceFixture(initial)
+        let vm = await makeSharedUsageUIViewModel(initial, provider: provider, test: self)
+        vm.setSplitOuterPool(.cursor)
+        vm.setPopoverValueMode(.dollars)
+        vm.setEstimatedLimitsEnabled(true)
+        let vc = popover(vm)
+        let display = SettingsAppearanceTabViewController(viewModel: vm)
+        _ = display.view
+        let app = AppDelegate(viewModel: vm)
+        let jump = ActiveJump(emoji: "🚀", glow: true, fallbackSize: NSSize(width: 18, height: 18))
+        var firstHeight: CGFloat?
+        for balance in [0, 1240, 0] {
+            await provider.setFixture(.init(now: initial.now, balance: balance, purchased: 2000, monthly: 0))
+            await vm.refresh()
+            vc.updateUI()
+            display.updateUI()
+            vc.view.layoutSubtreeIfNeeded()
+            let visible = views(vc.view).filter { !$0.isHiddenOrHasHiddenAncestor }
+            let creditVisible = visible.compactMap { ($0 as? NSTextField)?.stringValue }.contains("Prepaid credit")
+            XCTAssertEqual(creditVisible, balance > 0)
+            XCTAssertTrue(visible.compactMap { $0 as? NSButton }.contains { $0.title == "Manage Credits..." })
+            let presentation = SharedUsagePresentation(mode: .sharedWeekly, snapshot: vm.sharedUsage.snapshot)
+            XCTAssertEqual(presentation.readout.lower == nil, balance == 0)
+            let preview = try XCTUnwrap(views(display.view).compactMap { $0 as? NSImageView }
+                .first { $0.accessibilityLabel()?.hasPrefix("Outer: Weekly included") == true })
+            for percentagesEnabled in [false, true] {
+                vm.setSplitMenuBarPercentagesEnabled(percentagesEnabled)
+                display.updateUI()
+                XCTAssertEqual(try SplitMenuBarTestFixtures.pixels(XCTUnwrap(preview.image)),
+                               try SplitMenuBarTestFixtures.pixels(app.currentStatusImage(activeJump: nil)))
+                let glyph = CircularProgressIcon.makeEmojiImage(emoji: jump.emoji, size: jump.fallbackSize, glow: jump.glow)
+                let expectedJump = percentagesEnabled ? SplitMenuBarRenderer.image(icon: glyph, readout: presentation.readout) : glyph
+                XCTAssertEqual(try SplitMenuBarTestFixtures.pixels(app.currentStatusImage(activeJump: jump)),
+                               try SplitMenuBarTestFixtures.pixels(expectedJump))
+                XCTAssertEqual(try SplitMenuBarTestFixtures.pixels(XCTUnwrap(preview.image)),
+                               try SplitMenuBarTestFixtures.pixels(app.currentStatusImage(activeJump: nil)))
+            }
+            if balance == 0 {
+                if let firstHeight { XCTAssertEqual(vc.preferredContentSize.height, firstHeight, accuracy: 0.1) }
+                else { firstHeight = vc.preferredContentSize.height }
+                let weekly = try XCTUnwrap(visible.compactMap { $0 as? NSTextField }.first { $0.stringValue == "Weekly included" })
+                let row = try XCTUnwrap(weekly.superview?.superview)
+                let readings = try XCTUnwrap(row.superview as? NSStackView)
+                XCTAssertEqual(readings.fittingSize.height, row.fittingSize.height, accuracy: 0.1)
+            } else {
+                XCTAssertGreaterThan(vc.preferredContentSize.height, try XCTUnwrap(firstHeight))
+            }
+            XCTAssertEqual(vm.splitOuterPool, .cursor)
+            XCTAssertEqual(vm.popoverValueMode, .dollars)
+            XCTAssertTrue(vm.estimatedLimitsEnabled)
         }
     }
 
@@ -318,6 +499,19 @@ final class SharedUsageUITests: XCTestCase {
         XCTAssertEqual(meter.accessibilityLabel(), "Split usage meter")
         XCTAssertEqual(SharedUsagePresentation.dashboardURL(mode: .legacy).absoluteString,
                        "https://www.cursor.com/dashboard?tab=usage")
+    }
+
+    func testLegacySplitRowsReturnAfterZeroCreditSharedView() async throws {
+        let vm = await makeSharedUsageUIViewModel(.init(balance: 0, purchased: 0, monthly: 0), test: self)
+        let vc = popover(vm)
+        let legacyPlan = try JSONDecoder().decode(CursorPlanInfoResponse.self, from: Data(#"{"isMerged":false}"#.utf8))
+        vm.sharedUsage.acceptPlan(.success(legacyPlan), owner: nil, personalScope: true)
+        try SplitMenuBarTestFixtures.publishSplit(to: vm)
+        vc.updateUI()
+        let visibleLabels = views(vc.view).filter { !$0.isHiddenOrHasHiddenAncestor }
+            .compactMap { ($0 as? NSTextField)?.stringValue }
+        XCTAssertTrue(visibleLabels.contains("Cursor Models"), visibleLabels.description)
+        XCTAssertTrue(visibleLabels.contains("Other Models"), visibleLabels.description)
     }
 
     func testSharedJumpRendersGlyphAndRestoresLatestFixedRingMeaning() async throws {

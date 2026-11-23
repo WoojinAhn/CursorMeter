@@ -19,7 +19,7 @@ Unlike in-editor extensions, CursorMeter runs independently as a native macOS ap
 
 Cursor [announced two usage pools for individual plans on February 11, 2026](https://cursor.com/blog/increased-agent-usage). CursorMeter now represents **Cursor Models** and **Other Models** separately, following Cursor’s reported usage percentages.
 
-The split meter has **one visual layout: a center pie and an outer ring**. For legacy monthly plans, Settings → Display lets you swap their placement and choose percentages, dollars, or both. Shared weekly plans keep weekly usage outside and prepaid consumption inside.
+The split meter has **one visual layout: a center pie and an outer ring**. For legacy monthly plans, Settings → Display lets you swap their placement and choose percentages, dollars, or both. Shared weekly plans keep weekly usage outside and prepaid consumption inside when credit remains. A verified zero balance uses a single weekly ring; Manage Credits stays available for funding.
 
 ## Features
 

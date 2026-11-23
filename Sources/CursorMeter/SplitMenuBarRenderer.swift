@@ -22,17 +22,19 @@ enum SplitMenuBarRenderer {
     static func layout(readout: SplitMenuBarReadout) -> Layout {
         let baselineLines = baselineStrings.map { line($0) }
         let upper = line(readout.upper)
-        let lower = line(readout.lower)
+        let lower = line(readout.lower ?? "")
         let upperWidth = CGFloat(CTLineGetTypographicBounds(upper, nil, nil, nil))
         let lowerWidth = CGFloat(CTLineGetTypographicBounds(lower, nil, nil, nil))
         let reservedWidth = CGFloat(CTLineGetTypographicBounds(line("99.9%"), nil, nil, nil))
-        let textWidth = ceil(max(reservedWidth, upperWidth, lowerWidth))
-        let upperRow = NSRect(x: 22, y: 11, width: textWidth, height: 11)
-        let lowerRow = NSRect(x: 22, y: 0, width: textWidth, height: 11)
+        let single = readout.lower == nil
+        let textWidth = ceil(single ? upperWidth : max(reservedWidth, upperWidth, lowerWidth))
+        let upperRow = NSRect(x: 22, y: single ? 0 : 11, width: textWidth, height: single ? 22 : 11)
+        let lowerRow = single ? .zero : NSRect(x: 22, y: 0, width: textWidth, height: 11)
         // AppKit's 13 pt line height exceeds each row; center glyph ink on a shared baseline instead.
         let referenceInk = baselineLines.map { CTLineGetBoundsWithOptions($0, .useGlyphPathBounds) }
             .reduce(CGRect.null) { $0.union($1) }
-        let upperOrigin = NSPoint(x: upperRow.maxX - upperWidth, y: upperRow.midY - referenceInk.midY)
+        let upperOrigin = NSPoint(x: single ? upperRow.minX : upperRow.maxX - upperWidth,
+                                  y: upperRow.midY - referenceInk.midY)
         let lowerOrigin = NSPoint(x: lowerRow.maxX - lowerWidth, y: lowerRow.midY - referenceInk.midY)
         return Layout(
             size: NSSize(width: upperRow.maxX, height: 22),
@@ -42,7 +44,7 @@ enum SplitMenuBarRenderer {
             upperTextWidth: upperWidth, lowerTextWidth: lowerWidth,
             upperInkBounds: CTLineGetBoundsWithOptions(upper, .useGlyphPathBounds)
                 .offsetBy(dx: upperOrigin.x, dy: upperOrigin.y),
-            lowerInkBounds: CTLineGetBoundsWithOptions(lower, .useGlyphPathBounds)
+            lowerInkBounds: single ? .zero : CTLineGetBoundsWithOptions(lower, .useGlyphPathBounds)
                 .offsetBy(dx: lowerOrigin.x, dy: lowerOrigin.y))
     }
 
@@ -56,8 +58,10 @@ enum SplitMenuBarRenderer {
             context.textMatrix = .identity
             context.textPosition = layout.upperTextOrigin
             CTLineDraw(line(readout.upper, color: .labelColor), context)
-            context.textPosition = layout.lowerTextOrigin
-            CTLineDraw(line(readout.lower, color: .labelColor), context)
+            if let lower = readout.lower {
+                context.textPosition = layout.lowerTextOrigin
+                CTLineDraw(line(lower, color: .labelColor), context)
+            }
             return true
         }
         image.isTemplate = false

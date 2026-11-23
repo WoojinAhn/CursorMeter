@@ -1,6 +1,6 @@
 struct SplitMenuBarReadout: Equatable, Sendable {
     let upper: String
-    let lower: String
+    let lower: String?
 
     static func make(
         enabled: Bool, isLoggedIn: Bool, hasUsageData: Bool,

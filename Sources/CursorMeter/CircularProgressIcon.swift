@@ -70,7 +70,7 @@ enum CircularProgressIcon {
     }
 
     static func makeDualPercentImage(
-        outerPercent: Double?, centerPercent: Double?, centerIsEmpty: Bool = false,
+        outerPercent: Double?, centerPercent: Double?, centerIsEmpty: Bool = false, showsCenter: Bool = true,
         size: NSSize = NSSize(width: 18, height: 18),
         outerToday: Double? = nil, centerToday: Double? = nil
     ) -> NSImage {
@@ -84,9 +84,11 @@ enum CircularProgressIcon {
             drawSplitRegion(in: context, center: origin, radius: ringRadius,
                             lineWidth: ringWidth, percent: outerPercent, filled: false,
                             todayPercentagePoints: outerToday)
-            drawSplitRegion(in: context, center: origin, radius: centerRadius,
-                            lineWidth: diameter / 24, percent: centerPercent, filled: true, isEmpty: centerIsEmpty,
-                            todayPercentagePoints: centerToday)
+            if showsCenter {
+                drawSplitRegion(in: context, center: origin, radius: centerRadius,
+                                lineWidth: diameter / 24, percent: centerPercent, filled: true, isEmpty: centerIsEmpty,
+                                todayPercentagePoints: centerToday)
+            }
             return true
         }
         image.isTemplate = false

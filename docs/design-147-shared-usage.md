@@ -2,13 +2,17 @@
 
 Issue: [#147](https://github.com/WoojinAhn/CursorMeter/issues/147). Source baseline: `efe90d025408b35e2d32dcd15d25bf9db7e3ec3a`. Status: dual-meter direction accepted. Live read-only Cursor DashboardService requests work with the existing Cursor authentication; the reviewed API client and models are implemented at `6f8b1a5`. Session integration is committed at `81bf6f4`; native UI integration and bounded corrections are implemented and tested. Installed-app acceptance remains pending. Cross-review coverage and limitations are recorded below and in the [native integration plan](superpowers/plans/2026-11-17-issue-147-native-integration.md).
 
+## Current zero-balance behavior (#150)
+
+The [#150 preview](mockup-150.html) supersedes the original empty-wallet presentation below. A current verified zero prepaid balance uses only the weekly ring and reading, regardless of purchase history. Prepaid text, secondary percentages, tooltip/accessibility content and Display previews are omitted together. No no-purchases or exhausted-credit message replaces them. Manage Credits remains available for funding. Positive credit restores the prepaid meter; unknown/stale credit is never treated as confirmed zero. Independently meaningful monthly paid usage/cap and enabled automatic top-up remain visible.
+
 ## Task and presentation
 
 A person checks the menu bar to understand remaining included capacity and prepaid credit, then opens the popover to distinguish weekly exhaustion, an empty wallet, and a reached monthly paid cap. The popover provides direct navigation to the official usage and billing pages. It never purchases credit or changes billing settings.
 
 The [before/after mockup](mockup-147.html) preserves the existing 300 pt AppKit popover, 112 pt left dual meter, right-side labels/readings, compact system typography, refresh control, chart position, reset/interval row, and all existing action rows. The outer ring shows shared weekly consumption; the existing inner filled-circle meter shows prepaid credit consumption. Right-side readings show both percentages and the remaining balance / total purchased credit. Two compact rows below the meter show paid usage/cap and Auto Top-up/monthly reset. A Manage Credits action opens billing. The committed legacy screenshot remains the visual reference.
 
-Menu-bar text follows the existing preference; this feature does not automatically append wallet amounts. Its icon retains both readings with the same outer/inner mapping. Each meter always retains its meaning; exhaustion does not silently change the mapping. Product-level breakdown is secondary. Preserve the existing history-chart presentation and unavailable behavior; the mockup's synthetic history is a layout fixture, not proof of new-plan history support.
+Menu-bar text follows the existing preference; this feature does not automatically append wallet amounts. When prepaid credit is shown, its icon retains both readings with the same outer/inner mapping; current zero balance retains only the weekly reading. Each meter always retains its meaning; exhaustion does not silently change the mapping. Product-level breakdown is secondary. Preserve the existing history-chart presentation and unavailable behavior; the mockup's synthetic history is a layout fixture, not proof of new-plan history support.
 
 Visual changes are limited to those required by the billing model. Do not move numeric readings into the ring, add large billing sections, change typography or spacing globally, remove existing actions, or redesign the app shell.
 
@@ -18,7 +22,7 @@ For purchased credit with a reconciled balance, consumption is `(totalPurchased 
 
 Example: $20 purchased and $12.40 remaining gives 38% consumed. Adding $20 changes the total to $40 and the balance to $32.40, giving 19% consumed. This expected reduction is useful feedback that capacity was replenished, not a reason to remove the meter. Weekly consumption and monthly paid spend/cap remain unchanged.
 
-Confirmed no purchases has no consumption percentage: show a neutral inner meter and "No top-ups". An unknown total keeps the balance visible with an unavailable percentage. Do not substitute a monthly cap or infer missing purchase history from a single observed top-up. Purchased balances must reconcile with the purchase total; grants, refunds and expiry need explicit ledger treatment before labeling a balance reduction as consumption.
+Current confirmed zero balance hides the prepaid meter, including never-funded and exhausted wallets. An unknown total with a positive balance keeps the balance visible with an unavailable percentage; stale or unavailable credit retains its distinct status. Do not substitute a monthly cap or infer missing purchase history from a single observed top-up. Purchased balances must reconcile with the purchase total; grants, refunds and expiry need explicit ledger treatment before labeling a balance reduction as consumption.
 
 ## Billing semantics
 
@@ -44,7 +48,7 @@ Validate a new-plan account with prepaid credit and a configured cap, a no-cap a
 
 ## Selected verification scenarios
 
-The mockup contains included-only, included-plus-credit, exhausted-weekly, reached-cap with included usage, both limits exhausted, empty-wallet, Auto Top-up enabled, explicit no-cap, partial data, unknown purchase total and stale data. Its synthetic transition controls demonstrate top-up, weekly reset and monthly reset independently. Verify 38% to 19% on the example top-up, neutral no-purchase state, 100% consumed credit, unknown total, and a functioning credit meter with no monthly cap.
+The mockup contains included-only, included-plus-credit, exhausted-weekly, reached-cap with included usage, both limits exhausted, empty-wallet, Auto Top-up enabled, explicit no-cap, partial data, unknown purchase total and stale data. Its synthetic transition controls demonstrate top-up, weekly reset and monthly reset independently. Verify 38% to 19% on the example top-up, hidden current-zero credit, restoration after funding, unknown/stale credit, and a functioning positive-credit meter with no monthly cap. The original #147 mockup records the earlier no-purchase/exhausted presentation; #150 supersedes it for current zero balance.
 
 Native acceptance must check menu/popover semantics, keyboard navigation and dashboard destinations through native accessibility. Browser verification of this HTML proves only the proposal's rendering and synthetic interactions; it does not prove native app behavior or billing behavior.
 
@@ -92,7 +96,7 @@ The existing-session controller and native UI passed separate specification and 
 
 Argon High approved the full native candidate before the bounded corrections. Grok XHigh identified explicit unsupported membership transitions, the neutral no-purchase track, a missed Settings preview caller, and missing positive ring-stroke test coverage. These findings were corrected with failing-to-passing regression tests. The renderer call-site audit covers the status item, popover, Settings preview, and unchanged legacy wrapper. Both external reviews were static; neither ran tests or validated the installed app. Existing Cursor authentication remains unchanged.
 
-The no-purchase inner meter is a solid, unfilled neutral circle, while an unknown purchase total remains dashed. Settings preview parity is tested with percentages on/off in both appearances; the empty center and ring stroke are tested at both meter sizes. Independent native specification and quality reviews cover the bounded follow-ups. Argon High correction review ended without an answer after a `read_file` permission denial; this is not counted as a pass or retried with broader permissions. The final wiring correction was validated locally; final external-model approval of that correction is not claimed.
+Before #150, the no-purchase inner meter was a solid, unfilled neutral circle, while an unknown purchase total remained dashed. The current zero-balance screenshots below reflect #150's single weekly meter; the rest of this paragraph records the original verification. Settings preview parity is tested with percentages on/off in both appearances; the empty center and ring stroke are tested at both meter sizes. Independent native specification and quality reviews cover the bounded follow-ups. Argon High correction review ended without an answer after a `read_file` permission denial; this is not counted as a pass or retried with broader permissions. The final wiring correction was validated locally; final external-model approval of that correction is not claimed.
 
 ![Synthetic shared-plan popover with no purchased credits](screenshots/popover-shared-no-purchases.png)
 

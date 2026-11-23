@@ -13,6 +13,7 @@ struct SharedUsagePresentation {
     let weekly: Reading
     let credit: Reading
     let creditHasNoPurchases: Bool
+    let showsPrepaidCredit: Bool
     let detailLines: [String]
     let status: String?
     let statusItemAccessibilityLabel: String
@@ -20,8 +21,11 @@ struct SharedUsagePresentation {
     init(mode: SharedUsageMode, snapshot: SharedUsageSnapshot?, paidReset: SharedUsageReading<SharedPaidPeriod>? = nil, at date: Date = Date()) {
         let sharedWeekly = mode == .sharedWeekly
         let snapshot = sharedWeekly ? (snapshot ?? .empty) : .empty
+        showsPrepaidCredit = !(sharedWeekly && snapshot.credit.availability == .current
+            && snapshot.credit.value?.remainingCents == 0)
         statusItemAccessibilityLabel = sharedWeekly
-            ? "CursorMeter weekly included and prepaid credit usage" : "CursorMeter usage plan"
+            ? (showsPrepaidCredit ? "CursorMeter weekly included and prepaid credit usage"
+                : "CursorMeter weekly included usage") : "CursorMeter usage plan"
         let weeklyAvailability = snapshot.weeklyAvailability(at: date)
         let weeklyReset = snapshot.weekly.value?.period.map { "Resets " + Self.resetDate($0.end) } ?? "Reset unknown"
         let weeklyDetail = (weeklyAvailability == .stale ? "Stale · " : "") + weeklyReset
@@ -55,19 +59,33 @@ struct SharedUsagePresentation {
         }
         let capText = cap + (snapshot.paidCap.isStale ? " (stale)" : "")
         let auto = snapshot.autoTopUp.value.map { $0.enabled ? "On" : "Off" } ?? "Unknown"
+        let showsMonthly = showsPrepaidCredit || (snapshot.monthlyUsed.value ?? 0) > 0 || snapshot.paid.isCapReached == true
+        let showsAutoTopUp = showsPrepaidCredit || snapshot.autoTopUp.value?.enabled == true
         let paidResetText: String
         if sharedWeekly, let period = paidReset?.value {
             let stale = paidReset?.isStale == true || date < period.start || date >= period.end
             paidResetText = "Paid resets " + Self.resetDate(period.end) + (stale ? " (stale)" : "")
         } else { paidResetText = "Paid reset unknown" }
-        detailLines = ["Monthly paid: \(monthly) / \(capText)",
-            "Auto Top-up: \(auto)\(snapshot.autoTopUp.isStale ? " (stale)" : "") · \(paidResetText)"]
+        let monthlyLine = "Monthly paid: \(monthly) / \(capText)"
+        let autoLine = "Auto Top-up: \(auto)\(snapshot.autoTopUp.isStale ? " (stale)" : "")"
+        if showsPrepaidCredit {
+            detailLines = [monthlyLine, autoLine + " · " + paidResetText]
+        } else {
+            var lines = showsMonthly ? [monthlyLine] : []
+            if showsMonthly, paidReset?.value != nil { lines.append(paidResetText) }
+            if showsAutoTopUp { lines.append(autoLine) }
+            detailLines = lines
+        }
+        let visibleReadingIsStale = weeklyAvailability == .stale
+            || (showsPrepaidCredit && snapshot.credit.isStale)
+            || (showsMonthly && (snapshot.monthlyUsed.isStale || snapshot.paidCap.isStale))
+            || (showsAutoTopUp && snapshot.autoTopUp.isStale)
         switch mode {
         case .checking: status = "Checking usage plan…"
         case .unsupported: status = "This usage plan is not supported yet."
         case .unavailable: status = "Usage plan unavailable — try refreshing."
         default:
-            if weeklyAvailability == .stale || snapshot.isStale {
+            if visibleReadingIsStale {
                 status = "Stale readings — refresh to verify."
             } else if weeklyAvailability == .unavailable {
                 status = "Weekly usage unavailable."
@@ -81,11 +99,11 @@ struct SharedUsagePresentation {
         }
     }
 
-    var readout: SplitMenuBarReadout { .init(upper: weekly.percentText, lower: credit.percentText) }
+    var readout: SplitMenuBarReadout { .init(upper: weekly.percentText, lower: showsPrepaidCredit ? credit.percentText : nil) }
     var accessibilityValue: String {
-        ["Outer: \(weekly.title) \(weekly.percentText) · \(weekly.accessibilityDetail)",
-         "Center: \(credit.title) consumed \(credit.percentText) · \(credit.accessibilityDetail)"]
-            .joined(separator: "\n")
+        let outer = "Outer: \(weekly.title) \(weekly.percentText) · \(weekly.accessibilityDetail)"
+        guard showsPrepaidCredit else { return outer }
+        return outer + "\nCenter: \(credit.title) consumed \(credit.percentText) · \(credit.accessibilityDetail)"
     }
     var tooltip: String { ([accessibilityValue] + detailLines + [status].compactMap { $0 }).joined(separator: "\n") }
 
