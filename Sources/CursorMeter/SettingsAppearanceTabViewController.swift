@@ -124,6 +124,7 @@ final class SettingsAppearanceTabViewController: NSViewController {
         // the same resolver the status item uses.
         let shared = viewModel.sharedUsage.suppressesLegacyMeter
         let sharedWeekly = viewModel.sharedUsage.mode == .sharedWeekly
+        let sharedPresentation = SharedUsagePresentation(mode: viewModel.sharedUsage.mode, snapshot: viewModel.sharedUsage.snapshot, paidReset: viewModel.sharedActivity.paidReset)
         let split = shared || viewModel.splitUsage.suppressesLegacyMeter
         let percentOnly = !split && viewModel.usageData?.isPercentOnly == true
         let ratioIndex = menuBarDisplayPopUp.indexOfItem(withTag: 1)
@@ -149,7 +150,9 @@ final class SettingsAppearanceTabViewController: NSViewController {
         estimatedLimitsToggle.state = viewModel.estimatedLimitsEnabled ? .on : .off
         if shared {
             valuePreview.stringValue = sharedWeekly
-                ? "Shared usage always shows weekly and prepaid percentages. Dollar modes and estimated monthly limits apply to legacy plans."
+                ? (sharedPresentation.showsPrepaidCredit
+                    ? "Shared usage shows weekly and prepaid percentages. Dollar modes and estimated monthly limits apply to legacy plans."
+                    : "Shared usage shows the weekly included percentage. Dollar modes and estimated monthly limits apply to legacy plans.")
                 : "Display settings are unavailable until a supported usage plan is confirmed. Saved preferences are preserved."
         } else if verifiedSplit, let presentation = viewModel.splitPresentation {
             valuePreview.stringValue = presentation.pools.map { pool in
@@ -177,15 +180,18 @@ final class SettingsAppearanceTabViewController: NSViewController {
         splitMenuBarPercentagesToggle.state = viewModel.splitMenuBarPercentagesEnabled ? .on : .off
         let center: UsagePoolID = viewModel.splitOuterPool == .other ? .cursor : .other
         poolLegend.stringValue = "Outer: \(viewModel.splitOuterPool.displayName)\nCenter: \(center.displayName)"
-        let sharedPresentation = SharedUsagePresentation(mode: viewModel.sharedUsage.mode, snapshot: viewModel.sharedUsage.snapshot, paidReset: viewModel.sharedActivity.paidReset)
         if shared {
             poolLegend.stringValue = sharedWeekly
-                ? "Outer: Weekly included\nCenter: Prepaid credit\nFixed for shared usage."
+                ? (sharedPresentation.showsPrepaidCredit
+                    ? "Outer: Weekly included\nCenter: Prepaid credit\nFixed for shared usage."
+                    : "Outer: Weekly included\nFixed for shared usage.")
                 : "Usage meter unavailable.\nSaved placement is preserved."
         }
         let circle = shared
             ? CircularProgressIcon.makeDualPercentImage(outerPercent: sharedPresentation.weekly.percent,
-                                                        centerPercent: sharedPresentation.credit.percent, centerIsEmpty: sharedPresentation.creditHasNoPurchases)
+                                                        centerPercent: sharedPresentation.credit.percent,
+                                                        centerIsEmpty: sharedPresentation.creditHasNoPurchases,
+                                                        showsCenter: sharedPresentation.showsPrepaidCredit)
             : CircularProgressIcon.makeSplitImage(cursorPercent: viewModel.splitUsage.snapshot?.cursorPercent,
                 otherPercent: viewModel.splitUsage.snapshot?.otherPercent, outerPool: viewModel.splitOuterPool)
         let readout = shared

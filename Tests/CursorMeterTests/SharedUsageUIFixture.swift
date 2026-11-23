@@ -11,6 +11,7 @@ struct SharedUsageUIFixture: CursorSharedUsageFetching {
     var cap: Int? = 50
     var autoTopUp: Bool? = false
     var weeklyFails = false
+    var prepaidFails = false
 
     var end: Date { Date(timeIntervalSince1970: floor(now.timeIntervalSince1970) + 86_400) }
 
@@ -23,6 +24,7 @@ struct SharedUsageUIFixture: CursorSharedUsageFetching {
         return try decode("{\"billingCycleStart\":\"\(formatter.string(from: end.addingTimeInterval(-604800)))\",\"billingCycleEnd\":\"\(formatter.string(from: end))\",\"planUsage\":{\"totalPercentUsed\":\(weekly)}}")
     }
     func fetchPrepaid(cookieHeader: String) async throws -> CursorPrepaidBillingResponse {
+        if prepaidFails { throw CursorSharedAPIError.transport }
         let total = purchased ?? balance
         let purchases = purchased.map { $0 == 0 ? "[]" : "[{\"ticket\":1,\"origin\":\"TOPUP_MANUAL\",\"amountCents\":\($0),\"status\":\"SUCCEEDED\",\"createdAtMs\":1}]" } ?? "null"
         let auto = autoTopUp.map { ",\"autoTopUp\":{\"enabled\":\($0)}" } ?? ""
@@ -36,8 +38,28 @@ struct SharedUsageUIFixture: CursorSharedUsageFetching {
     }
 }
 
+actor SharedUsageUISequenceFixture: CursorSharedUsageFetching {
+    private var fixture: SharedUsageUIFixture
+
+    init(_ fixture: SharedUsageUIFixture) { self.fixture = fixture }
+    func setFixture(_ fixture: SharedUsageUIFixture) { self.fixture = fixture }
+    func fetchPlanInfo(cookieHeader: String) async throws -> CursorPlanInfoResponse {
+        try await fixture.fetchPlanInfo(cookieHeader: cookieHeader)
+    }
+    func fetchCurrentPeriod(cookieHeader: String) async throws -> CurrentPeriodUsageResponse {
+        try await fixture.fetchCurrentPeriod(cookieHeader: cookieHeader)
+    }
+    func fetchPrepaid(cookieHeader: String) async throws -> CursorPrepaidBillingResponse {
+        try await fixture.fetchPrepaid(cookieHeader: cookieHeader)
+    }
+    func fetchPaidCap(cookieHeader: String) async throws -> CursorPaidCapResponse {
+        try await fixture.fetchPaidCap(cookieHeader: cookieHeader)
+    }
+}
+
 @MainActor
 func makeSharedUsageUIViewModel(_ fixture: SharedUsageUIFixture = .init(),
+                               provider: (any CursorSharedUsageFetching)? = nil,
                                feedback: RefreshFeedback? = nil,
                                activity: (any CursorSharedActivityFetching)? = nil, test: XCTestCase) async -> UsageViewModel {
     let suite = "SharedUsageUITests." + UUID().uuidString
@@ -47,7 +69,7 @@ func makeSharedUsageUIViewModel(_ fixture: SharedUsageUIFixture = .init(),
     configuration.protocolClasses = [SharedUsageUIProtocol.self]
     let vm = makeTestUsageViewModel(apiClient: CursorAPIClient(configuration: configuration),
         refreshFeedback: feedback ?? RefreshFeedback(timing: .immediate),
-        sharedUsage: SharedUsageController(provider: fixture, now: { fixture.now }),
+        sharedUsage: SharedUsageController(provider: provider ?? fixture, now: { fixture.now }),
         sharedActivity: SharedActivityController(provider: activity, now: { fixture.now }), defaults: defaults)
     vm.keychainLoadHandler = { nil }
     vm.testHook_setCookieHeader("WorkosCursorSessionToken=synthetic-ui")

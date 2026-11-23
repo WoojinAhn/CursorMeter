@@ -614,7 +614,8 @@ final class MenuBarPopoverViewController: NSViewController {
         default: badgeLabel.stringValue = "Unavailable"
         }
         badgeLabel.isHidden = false
-        usageTitleLabel.stringValue = sharedWeekly ? "Included usage & credits" : "Usage plan"
+        usageTitleLabel.stringValue = sharedWeekly
+            ? (presentation.showsPrepaidCredit ? "Included usage & credits" : "Included usage") : "Usage plan"
         usageValueLabel.stringValue = ""
         refreshButton.isHidden = false
         progressRow.isHidden = true
@@ -622,14 +623,16 @@ final class MenuBarPopoverViewController: NSViewController {
         splitRows.isHidden = false
         splitPoolRows[0].update(presentation.weekly, outer: true)
         splitPoolRows[1].update(presentation.credit, outer: false)
+        splitPoolRows[1].isHidden = !presentation.showsPrepaidCredit
         splitMeter.image = CircularProgressIcon.makeDualPercentImage(
             outerPercent: presentation.weekly.percent, centerPercent: presentation.credit.percent,
-            centerIsEmpty: presentation.creditHasNoPurchases, size: NSSize(width: 112, height: 112))
+            centerIsEmpty: presentation.creditHasNoPurchases, showsCenter: presentation.showsPrepaidCredit,
+            size: NSSize(width: 112, height: 112))
         splitMeter.setAccessibilityLabel(sharedWeekly ? "Shared usage meter" : "Usage plan meter")
         splitMeter.setAccessibilityValue(presentation.accessibilityValue)
         splitMeter.toolTip = presentation.tooltip
         splitDetailLabel.stringValue = (presentation.detailLines + [presentation.status].compactMap { $0 }).joined(separator: "\n")
-        splitDetailLabel.isHidden = false
+        splitDetailLabel.isHidden = splitDetailLabel.stringValue.isEmpty
         updateWeeklyChart()
         updateWeeklyStatus()
         resetLabel.stringValue = ""
@@ -682,6 +685,7 @@ final class MenuBarPopoverViewController: NSViewController {
             splitMeter.setAccessibilityLabel("Split usage meter")
             let today = viewModel.splitUsage.todayPercentagePoints
             for (row, pool) in zip(splitPoolRows, presentation.pools) {
+                row.isHidden = false
                 row.update(pool, todayPoints: today?[pool.id])
             }
             splitMeter.image = CircularProgressIcon.makeSplitImage(

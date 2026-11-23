@@ -273,7 +273,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
                     emoji: $0.emoji, size: NSSize(width: 18, height: 18), glow: $0.glow)
             } ?? CircularProgressIcon.makeDualPercentImage(outerPercent: shared.weekly.percent,
                                                            centerPercent: shared.credit.percent,
-                                                           centerIsEmpty: shared.creditHasNoPurchases)
+                                                           centerIsEmpty: shared.creditHasNoPurchases,
+                                                           showsCenter: shared.showsPrepaidCredit)
             return viewModel.splitMenuBarPercentagesEnabled
                 ? SplitMenuBarRenderer.image(icon: icon, readout: shared.readout) : icon
         }

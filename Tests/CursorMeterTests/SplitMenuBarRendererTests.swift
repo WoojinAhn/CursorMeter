@@ -5,6 +5,49 @@ import XCTest
 
 @MainActor
 final class SplitMenuBarRendererTests: XCTestCase {
+    func testSingleSharedPercentageIsCenteredWithoutLowerRowAcrossAppearances() async throws {
+        let vm = await makeSharedUsageUIViewModel(.init(balance: 0, purchased: 0, monthly: 0), test: self)
+        let readout = SharedUsagePresentation(mode: .sharedWeekly, snapshot: vm.sharedUsage.snapshot).readout
+        XCTAssertNil(readout.lower)
+        let layout = SplitMenuBarRenderer.layout(readout: readout)
+        XCTAssertEqual(layout.size.height, 22)
+        XCTAssertEqual(layout.iconRect, NSRect(x: 0, y: 2, width: 18, height: 18))
+        XCTAssertEqual(layout.upperRowRect.midY, 11)
+        XCTAssertTrue(layout.lowerRowRect.isEmpty)
+        for name in [NSAppearance.Name.aqua, .darkAqua] {
+            let appearance = try XCTUnwrap(NSAppearance(named: name))
+            try withAppearance(appearance) {
+                for scale in [1, 2] {
+                    let image = SplitMenuBarRenderer.image(icon: solidIcon(), readout: readout)
+                    let bitmap = try bitmap(image, scale: scale)
+                    let textRegion = NSRect(x: 22, y: 0, width: layout.size.width - 22, height: 22)
+                    let ink = try XCTUnwrap(inkBounds(in: bitmap, region: textRegion, scale: scale))
+                    XCTAssertEqual(ink.midY, 11, accuracy: 1, "\(name), \(scale)x")
+                    XCTAssertLessThanOrEqual(ink.height, 10)
+                }
+            }
+        }
+    }
+
+    func testSingleReadoutKeepsShortTextCloseToIcon() throws {
+        for text in ["5%", "25%", "—"] {
+            let readout = SplitMenuBarReadout(upper: text, lower: nil)
+            let layout = SplitMenuBarRenderer.layout(readout: readout)
+            XCTAssertLessThanOrEqual(layout.upperInkBounds.minX - layout.iconRect.maxX, 6, text)
+            for name in [NSAppearance.Name.aqua, .darkAqua] {
+                let appearance = try XCTUnwrap(NSAppearance(named: name))
+                try withAppearance(appearance) {
+                    for scale in [1, 2] {
+                        let image = SplitMenuBarRenderer.image(icon: solidIcon(), readout: readout)
+                        let bitmap = try bitmap(image, scale: scale)
+                        let ink = try XCTUnwrap(inkBounds(in: bitmap, region: layout.upperRowRect, scale: scale))
+                        XCTAssertLessThanOrEqual(ink.minX - layout.iconRect.maxX, 6, "\(text), \(name), \(scale)x")
+                    }
+                }
+            }
+        }
+    }
+
     func testOrdinaryValuesReserveCompactStableGeometry() {
         let baseline = SplitMenuBarRenderer.layout(readout: .init(upper: "0.0%", lower: "—"))
         for text in ["0.0%", "9.9%", "99.9%", "<0.1%", "—"] {
@@ -176,6 +219,7 @@ final class SplitMenuBarRendererTests: XCTestCase {
                             guard let context = NSGraphicsContext.current?.cgContext else { return false }
                             context.textMatrix = .identity
                             for (text, origin) in [(readout.upper, layout.upperTextOrigin), (readout.lower, layout.lowerTextOrigin)] {
+                                guard let text else { continue }
                                 let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [
                                     .font: NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .medium),
                                     NSAttributedString.Key(kCTForegroundColorAttributeName as String): NSColor.labelColor.cgColor,
