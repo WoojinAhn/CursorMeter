@@ -189,8 +189,14 @@ final class GrokPrepaidLedgerTests: XCTestCase {
     func testGRPCRequiresExactlyOneDataFrameThenOneTrailer() {
         let data = frame(0, [])
         let trailers = trailer()
-        for bytes in [data, trailers, data + data + trailers, data + trailers + trailers,
-                      trailers + data, data + trailers + data, data + trailers + [0]] {
+        let response = data + trailers
+        var invalidFrames: [[UInt8]] = [data, trailers]
+        invalidFrames.append(data + response)
+        invalidFrames.append(response + trailers)
+        invalidFrames.append(trailers + data)
+        invalidFrames.append(response + data)
+        invalidFrames.append(response + [0])
+        for bytes in invalidFrames {
             XCTAssertThrowsError(try GrokPrepaidLedger.decodeGRPCWeb(Data(bytes)))
         }
     }
